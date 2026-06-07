@@ -239,7 +239,7 @@ function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout: () =>
   const [quotes, setQuotes] = useState<QuoteDB[]>([]);
   const [expenses, setExpenses] = useState<ExpenseDB[]>([]);
   const [loading, setLoading] = useState(true);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Menu form states
   const [showMenuForm, setShowMenuForm] = useState(false);
@@ -407,12 +407,59 @@ function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout: () =>
       {/* Mobile sidebar toggle */}
       <div className="md:hidden fixed bottom-4 left-4 z-50">
         <Button onClick={() => setSidebarOpen(!sidebarOpen)} size="sm" className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-lg">
-          <Menu className="w-4 h-4" />
+          {sidebarOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
         </Button>
       </div>
       {/* Mobile sidebar overlay */}
       <AnimatePresence>
-        {!sidebarOpen && false ? null : null}
+        {sidebarOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="md:hidden fixed inset-0 bg-black/50 z-40"
+              onClick={() => setSidebarOpen(false)}
+            />
+            <motion.aside
+              initial={{ x: -280 }}
+              animate={{ x: 0 }}
+              exit={{ x: -280 }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="md:hidden fixed top-0 left-0 bottom-0 w-72 bg-white z-50 shadow-xl flex flex-col"
+            >
+              <div className="p-4 border-b border-gray-100">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center shrink-0">
+                      <UtensilsCrossed className="w-5 h-5 text-white" />
+                    </div>
+                    <div><p className="font-bold text-gray-900 text-sm">KFM Delice</p><p className="text-[10px] text-gray-400">Administration</p></div>
+                  </div>
+                  <button onClick={() => setSidebarOpen(false)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+              <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+                {sidebarItems.map((item) => (
+                  <button key={item.id} onClick={() => { setActiveTab(item.id); setSidebarOpen(false); }}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${activeTab === item.id ? "bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-md shadow-orange-500/20" : "text-gray-600 hover:bg-gray-100"}`}>
+                    <item.icon className="w-5 h-5 shrink-0" />
+                    <span className="truncate">{item.label}</span>
+                    {item.badge ? <span className={`ml-auto text-xs px-1.5 py-0.5 rounded-full ${activeTab === item.id ? "bg-white/20 text-white" : "bg-gray-100 text-gray-500"}`}>{item.badge}</span> : null}
+                  </button>
+                ))}
+              </nav>
+              <div className="p-3 border-t border-gray-100">
+                <button onClick={onLogout} className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-red-500 hover:bg-red-50 text-sm">
+                  <LogOut className="w-5 h-5 shrink-0" />
+                  <span>Déconnexion</span>
+                </button>
+              </div>
+            </motion.aside>
+          </>
+        )}
       </AnimatePresence>
 
       {/* Main Content */}
@@ -1493,6 +1540,7 @@ function MenuSection() {
                   <CardContent className="p-5">
                     <div className="flex justify-between items-start mb-2"><h3 className="text-lg font-bold text-gray-900">{item.name}</h3><span className="text-lg font-extrabold bg-gradient-to-r from-orange-500 to-red-500 bg-clip-text text-transparent">{formatPrice(item.price)}</span></div>
                     <p className="text-sm text-gray-500 line-clamp-2">{item.description}</p>
+                    <a href={`https://wa.me/224622345678?text=${encodeURIComponent(`Bonjour, je souhaite commander: ${item.name} - ${formatPrice(item.price)}`)}`} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-orange-600 hover:text-orange-700 transition-colors"><MessageCircle className="w-3.5 h-3.5" /> Commander</a>
                   </CardContent>
                 </Card>
               </AnimatedSection>
@@ -1513,7 +1561,7 @@ function ReservationSection() {
   const [submitting, setSubmitting] = useState(false);
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setSubmitting(true);
-    try { await fetch("/api/reservations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) }); setSubmitted(true); } catch { /* */ }
+    try { await fetch("/api/reservations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, status: "pending", loyaltyPoint: 50 }) }); setSubmitted(true); } catch { /* */ }
     finally { setSubmitting(false); }
   };
   return (
@@ -1558,6 +1606,90 @@ function ReservationSection() {
 }
 
 /* ═══════════════════════════════════════════════════
+   PUBLIC AVIS (REVIEWS) SECTION
+   ═══════════════════════════════════════════════════ */
+function AvisSection() {
+  const [reviews, setReviews] = useState<ReviewDB[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => { fetch("/api/reviews").then(r => r.json()).then(d => { setReviews(d); setLoading(false); }).catch(() => setLoading(false)); }, []);
+  return (
+    <section id="avis" className="py-20 bg-gradient-to-br from-orange-50/50 to-white">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <AnimatedSection className="text-center mb-12">
+          <Badge className="bg-orange-100 text-orange-700 mb-4">Avis Clients</Badge>
+          <h2 className="text-3xl sm:text-4xl font-extrabold text-gray-900 mb-4">Ce Que Disent Nos <span className="bg-gradient-to-r from-orange-500 to-red-500 bg-clip-text text-transparent">Clients</span></h2>
+          <p className="text-gray-500 max-w-2xl mx-auto">Découvrez les témoignages de nos clients satisfaits</p>
+        </AnimatedSection>
+        {loading ? <div className="flex justify-center py-12"><RefreshCw className="w-8 h-8 text-orange-500 animate-spin" /></div> : (
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {reviews.slice(0, 6).map((r) => (
+              <AnimatedSection key={r.id}>
+                <Card className="h-full hover:shadow-lg transition-shadow">
+                  <CardContent className="p-6">
+                    <div className="flex items-center gap-1 mb-3">
+                      {[1,2,3,4,5].map(i => <Star key={i} className={`w-4 h-4 ${i <= r.rating ? "fill-amber-400 text-amber-400" : "fill-gray-200 text-gray-200"}`} />)}
+                    </div>
+                    <p className="text-gray-600 text-sm mb-4 line-clamp-3">&ldquo;{r.comment}&rdquo;</p>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-100 to-red-100 flex items-center justify-center text-sm font-bold text-orange-600">{r.customerName[0]}</div>
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">{r.customerName}</p>
+                        <p className="text-xs text-gray-500">{r.date}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </AnimatedSection>
+            ))}
+            {reviews.length === 0 && <p className="text-gray-500 text-center col-span-full py-8">Aucun avis pour le moment</p>}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
+   PUBLIC ABOUT SECTION
+   ═══════════════════════════════════════════════════ */
+function AboutSection() {
+  const features = [
+    { icon: UtensilsCrossed, title: "Cuisine Authentique", desc: "Des plats traditionnels guinéens préparés avec passion et savoir-faire" },
+    { icon: Clock, title: "Service Rapide", desc: "Un service efficace et attentionné pour votre plus grand confort" },
+    { icon: Smartphone, title: "Commande en Ligne", desc: "Commandez facilement via WhatsApp et recevez chez vous" },
+    { icon: Heart, title: "Fait avec Amour", desc: "Chaque plat est préparé avec des ingrédients frais et sélectionnés" },
+    { icon: ShieldCheck, title: "Hygiène Certifiée", desc: "Respect strict des normes d'hygiène et de sécurité alimentaire" },
+    { icon: MapPin, title: "Emplacement Idéal", desc: "Au cœur de Conakry, sur la Corniche Nord avec vue magnifique" },
+  ];
+  return (
+    <section id="apropos" className="py-20 bg-white">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <AnimatedSection className="text-center mb-12">
+          <Badge className="bg-orange-100 text-orange-700 mb-4">À Propos</Badge>
+          <h2 className="text-3xl sm:text-4xl font-extrabold text-gray-900 mb-4">Pourquoi Choisir <span className="bg-gradient-to-r from-orange-500 to-red-500 bg-clip-text text-transparent">KFM Delice</span></h2>
+          <p className="text-gray-500 max-w-2xl mx-auto">{RESTO.description}</p>
+        </AnimatedSection>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          {features.map((f, i) => (
+            <AnimatedSection key={i} delay={i * 0.1}>
+              <Card className="h-full hover:shadow-lg transition-shadow border-none shadow-sm">
+                <CardContent className="p-6 text-center">
+                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-orange-100 to-red-100 flex items-center justify-center mx-auto mb-4">
+                    <f.icon className="w-7 h-7 text-orange-600" />
+                  </div>
+                  <h3 className="text-lg font-bold text-gray-900 mb-2">{f.title}</h3>
+                  <p className="text-sm text-gray-500">{f.desc}</p>
+                </CardContent>
+              </Card>
+            </AnimatedSection>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
    PUBLIC FOOTER
    ═══════════════════════════════════════════════════ */
 function PublicFooter() {
@@ -1594,8 +1726,8 @@ function PublicFooter() {
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
           <p className="text-sm text-gray-500">&copy; 2024 KFM Delice. Tous droits réservés.</p>
           <div className="flex items-center gap-3">
-            <a href="#" className="w-9 h-9 rounded-full bg-gray-800 flex items-center justify-center text-gray-400 hover:bg-orange-500 hover:text-white transition-colors"><MessageCircle className="w-4 h-4" /></a>
-            <a href="#" className="w-9 h-9 rounded-full bg-gray-800 flex items-center justify-center text-gray-400 hover:bg-orange-500 hover:text-white transition-colors"><Smartphone className="w-4 h-4" /></a>
+            <a href="https://wa.me/224622345678" target="_blank" rel="noopener noreferrer" className="w-9 h-9 rounded-full bg-gray-800 flex items-center justify-center text-gray-400 hover:bg-orange-500 hover:text-white transition-colors"><MessageCircle className="w-4 h-4" /></a>
+            <a href="tel:+224622345678" className="w-9 h-9 rounded-full bg-gray-800 flex items-center justify-center text-gray-400 hover:bg-orange-500 hover:text-white transition-colors"><Smartphone className="w-4 h-4" /></a>
           </div>
         </div>
       </div>
@@ -1622,7 +1754,13 @@ export default function Home() {
       <HeroSection />
       <MenuSection />
       <ReservationSection />
+      <AvisSection />
+      <AboutSection />
       <PublicFooter />
+      {/* Floating WhatsApp button */}
+      <a href="https://wa.me/224622345678" target="_blank" rel="noopener noreferrer" className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-green-500 hover:bg-green-600 text-white flex items-center justify-center shadow-lg shadow-green-500/30 transition-colors" title="Commander via WhatsApp">
+        <MessageCircle className="w-6 h-6" />
+      </a>
     </div>
   );
 }
