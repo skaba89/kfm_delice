@@ -12,8 +12,10 @@ model Admin {
   email     String   @unique
   password  String
   name      String
-  role      String   @default("admin")
+  role      String   @default("admin") // admin, manager, staff
+  status    String   @default("active") // active, inactive
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Restaurant {
@@ -39,6 +41,10 @@ model Restaurant {
   orders        Order[]
   reviews       Review[]
   drivers       Driver[]
+  staff         Staff[]
+  invoices      Invoice[]
+  quotes        Quote[]
+  expenses      Expense[]
 }
 
 model MenuItem {
@@ -119,4 +125,70 @@ model Review {
   restaurantId String
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   createdAt    DateTime   @default(now())
+}
+
+model Staff {
+  id           String   @id @default(cuid())
+  name         String
+  phone        String   @default("")
+  role         String   // cuisinier, serveur, barman, gerant, plongeur, securite, caissier
+  salary       Int      @default(0)
+  status       String   @default("active") // active, inactive, on_leave
+  hireDate     String   @default("")
+  notes        String   @default("")
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model Invoice {
+  id           String   @id @default(cuid())
+  number       String
+  customerName String
+  customerPhone String @default("")
+  items        String   // JSON string
+  subtotal     Int
+  tax          Int      @default(0)
+  total        Int
+  status       String   @default("pending") // pending, paid, cancelled, overdue
+  dueDate      String   @default("")
+  notes        String   @default("")
+  orderId      String?  @default("")
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model Quote {
+  id            String   @id @default(cuid())
+  number        String
+  customerName  String
+  customerPhone String  @default("")
+  items         String   // JSON string
+  subtotal      Int
+  discount      Int      @default(0)
+  total         Int
+  status        String   @default("draft") // draft, sent, accepted, refused, expired
+  validUntil    String   @default("")
+  notes         String   @default("")
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+}
+
+model Expense {
+  id           String   @id @default(cuid())
+  description  String
+  amount       Int
+  category     String   // ingredients, utilities, rent, salary, equipment, transport, other
+  date         String
+  paidBy       String   @default("")
+  notes        String   @default("")
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
 }

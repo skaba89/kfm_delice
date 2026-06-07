@@ -6,8 +6,12 @@ export async function POST() {
     // Create admin
     const existingAdmin = await db.admin.findFirst();
     if (!existingAdmin) {
-      await db.admin.create({
-        data: { email: "admin@kfm-delice.com", password: "kfm2024", name: "Admin KFM Delice", role: "admin" },
+      await db.admin.createMany({
+        data: [
+          { email: "admin@kfm-delice.com", password: "kfm2024", name: "Admin KFM Delice", role: "admin", status: "active" },
+          { email: "manager@kfm-delice.com", password: "manager2024", name: "Aminata Diallo", role: "manager", status: "active" },
+          { email: "staff@kfm-delice.com", password: "staff2024", name: "Ibrahima Touré", role: "staff", status: "active" },
+        ],
       });
     }
 
@@ -89,6 +93,54 @@ export async function POST() {
           { customerName: "Fatoumata Diallo", rating: 5, comment: "Surprise d'anniversaire inoubliable !", date: "Mars 2026", restaurantId: restaurant.id },
           { customerName: "Ibrahim Touré", rating: 4, comment: "Fruits de mer très frais, menu digital moderne.", date: "Février 2026", restaurantId: restaurant.id },
           { customerName: "Kadiatou Sylla", rating: 5, comment: "Ambiance terrasse au coucher du soleil, magique.", date: "Janvier 2026", restaurantId: restaurant.id },
+        ],
+      });
+
+      // Staff
+      await db.staff.createMany({
+        data: [
+          { name: "Chefs de Cuisine Mamadou", phone: "+224 620 99 88 77", role: "cuisinier", salary: 1500000, status: "active", hireDate: "2023-03-15", notes: "Chef principal, 10 ans d'expérience", restaurantId: restaurant.id },
+          { name: "Fatoumata Camara", phone: "+224 621 55 44 33", role: "serveur", salary: 600000, status: "active", hireDate: "2023-06-01", notes: "Service en salle", restaurantId: restaurant.id },
+          { name: "Ibrahima Diallo", phone: "+224 622 33 22 11", role: "barman", salary: 700000, status: "active", hireDate: "2023-08-20", notes: "Spécialiste cocktails", restaurantId: restaurant.id },
+          { name: "Aissatou Bah", phone: "+224 623 44 55 66", role: "serveur", salary: 600000, status: "on_leave", hireDate: "2024-01-10", notes: "Congé maternité jusqu'en juillet", restaurantId: restaurant.id },
+          { name: "Moussa Sylla", phone: "+224 624 77 88 99", role: "plongeur", salary: 400000, status: "active", hireDate: "2024-02-01", notes: "", restaurantId: restaurant.id },
+          { name: "Ousmane Touré", phone: "+224 625 11 22 33", role: "securite", salary: 500000, status: "active", hireDate: "2023-11-15", notes: "Agent de sécurité nocturne", restaurantId: restaurant.id },
+          { name: "Mariama Condé", phone: "+224 626 55 66 77", role: "caissier", salary: 650000, status: "active", hireDate: "2023-05-01", notes: "Gestion caisse et Orange Money", restaurantId: restaurant.id },
+          { name: "Alpha Sow", phone: "+224 627 88 99 00", role: "gerant", salary: 1200000, status: "active", hireDate: "2022-01-15", notes: "Gérant adjoint", restaurantId: restaurant.id },
+        ],
+      });
+
+      // Invoices
+      const invDate = today;
+      await db.invoice.createMany({
+        data: [
+          { number: "FAC-2026-001", customerName: "Société Minière de Guinée", customerPhone: "+224 630 11 22 33", items: JSON.stringify([{ description: "Dîner d'affaires VIP", qty: 1, unitPrice: 350000, total: 350000 }]), subtotal: 350000, tax: 52500, total: 402500, status: "paid", dueDate: invDate, notes: "Dîner du 15 mai 2026, salle VIP", restaurantId: restaurant.id },
+          { number: "FAC-2026-002", customerName: "Ambassade de France", customerPhone: "+224 631 44 55 66", items: JSON.stringify([{ description: "Cocktail réception", qty: 1, unitPrice: 500000, total: 500000 }, { description: "Service traiteur", qty: 1, unitPrice: 200000, total: 200000 }]), subtotal: 700000, tax: 105000, total: 805000, status: "pending", dueDate: tomorrow, notes: "Réception du 20 juin 2026", restaurantId: restaurant.id },
+          { number: "FAC-2026-003", customerName: "KFM Events", customerPhone: "+224 632 77 88 99", items: JSON.stringify([{ description: "Buffet anniversaire", qty: 1, unitPrice: 250000, total: 250000 }]), subtotal: 250000, tax: 37500, total: 287500, status: "overdue", dueDate: "2026-05-01", notes: "Événement privé, 30 convives", restaurantId: restaurant.id },
+          { number: "FAC-2026-004", customerName: "World Bank Conakry", customerPhone: "+224 633 00 11 22", items: JSON.stringify([{ description: "Déjeuner séminaire", qty: 1, unitPrice: 180000, total: 180000 }]), subtotal: 180000, tax: 27000, total: 207000, status: "paid", dueDate: invDate, notes: "Séminaire 15 personnes", restaurantId: restaurant.id },
+        ],
+      });
+
+      // Quotes
+      await db.quote.createMany({
+        data: [
+          { number: "DEV-2026-001", customerName: "Orange Guinée", customerPhone: "+224 640 11 22 33", items: JSON.stringify([{ description: "Cocktail d'inauguration", qty: 1, unitPrice: 750000, total: 750000 }, { description: "Décoration florale", qty: 1, unitPrice: 150000, total: 150000 }]), subtotal: 900000, discount: 50000, total: 850000, status: "sent", validUntil: "2026-07-01", notes: "Inauguration nouveau siège, 100 invités", restaurantId: restaurant.id },
+          { number: "DEV-2026-002", customerName: "MTN Guinée", customerPhone: "+224 641 44 55 66", items: JSON.stringify([{ description: "Dîner gala annuel", qty: 1, unitPrice: 1200000, total: 1200000 }]), subtotal: 1200000, discount: 100000, total: 1100000, status: "accepted", validUntil: "2026-06-30", notes: "Gala annuel 80 personnes", restaurantId: restaurant.id },
+          { number: "DEV-2026-003", customerName: "Particulier - M. Bangoura", customerPhone: "+224 642 77 88 99", items: JSON.stringify([{ description: "Réception mariage", qty: 1, unitPrice: 2000000, total: 2000000 }, { description: "Gâteau de mariage", qty: 1, unitPrice: 300000, total: 300000 }]), subtotal: 2300000, discount: 200000, total: 2100000, status: "draft", validUntil: "2026-08-01", notes: "Mariage prévu août 2026, 150 invités", restaurantId: restaurant.id },
+        ],
+      });
+
+      // Expenses
+      await db.expense.createMany({
+        data: [
+          { description: "Achat poissons frais au marché", amount: 450000, category: "ingredients", date: today, paidBy: "Alpha Sow", notes: "Poisson, crevettes, crabes", restaurantId: restaurant.id },
+          { description: "Facture électricité juin", amount: 850000, category: "utilities", date: today, paidBy: "Admin", notes: "EDG facture mensuelle", restaurantId: restaurant.id },
+          { description: "Loyer local juin 2026", amount: 5000000, category: "rent", date: "2026-06-01", paidBy: "Admin", notes: "Loyer mensuel Corniche Nord", restaurantId: restaurant.id },
+          { description: "Salaires mai 2026", amount: 6150000, category: "salary", date: "2026-05-31", paidBy: "Admin", notes: "8 employés", restaurantId: restaurant.id },
+          { description: "Réparation cuisinière professionnelle", amount: 350000, category: "equipment", date: "2026-05-28", paidBy: "Alpha Sow", notes: "Pièce détachée et main d'œuvre", restaurantId: restaurant.id },
+          { description: "Carburant livraisons", amount: 200000, category: "transport", date: "2026-05-29", paidBy: "Moussa Condé", notes: "Essence motos livraison semaine", restaurantId: restaurant.id },
+          { description: "Emballages et sacs livraison", amount: 75000, category: "other", date: "2026-05-30", paidBy: "Admin", notes: "Barquettes, sacs isothermes", restaurantId: restaurant.id },
+          { description: "Achat viande et volaille", amount: 600000, category: "ingredients", date: "2026-05-30", paidBy: "Chefs de Cuisine Mamadou", notes: "Agneau, poulet, bœuf", restaurantId: restaurant.id },
         ],
       });
     }
