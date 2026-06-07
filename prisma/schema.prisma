@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -13,20 +7,91 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
+model Admin {
   id        String   @id @default(cuid())
   email     String   @unique
-  name      String?
+  password  String
+  name      String
+  role      String   @default("admin")
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 }
 
-model Post {
-  id        String   @id @default(cuid())
-  title     String
-  content   String?
-  published Boolean  @default(false)
-  authorId  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model Restaurant {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  tagline     String   @default("")
+  description String   @default("")
+  phone       String   @default("")
+  whatsapp    String   @default("")
+  email       String   @default("")
+  address     String   @default("")
+  hours       String   @default("")
+  rating      Float    @default(4.5)
+  tables      Int      @default(20)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  menuItems   MenuItem[]
+  reservations Reservation[]
+  orders      Order[]
+  reviews     Review[]
+}
+
+model MenuItem {
+  id           String   @id @default(cuid())
+  name         String
+  description  String   @default("")
+  price        Int
+  category     String
+  image        String   @default("")
+  badge        String   @default("")
+  popular      Boolean  @default(false)
+  available    Boolean  @default(true)
+  order        Int      @default(0)
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model Reservation {
+  id           String   @id @default(cuid())
+  customerName String
+  phone        String
+  date         String
+  time         String
+  guests       Int      @default(2)
+  zone         String   @default("interieur")
+  notes        String   @default("")
+  status       String   @default("pending") // pending, confirmed, cancelled, completed
+  loyaltyPoint Int      @default(50)
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model Order {
+  id           String   @id @default(cuid())
+  customerName String   @default("")
+  phone        String   @default("")
+  items        String   // JSON string of items
+  total        Int
+  status       String   @default("pending") // pending, preparing, ready, delivered, cancelled
+  paymentMethod String  @default("cash") // cash, orange_money, mtn_money, card
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model Review {
+  id           String   @id @default(cuid())
+  customerName String
+  rating       Int
+  comment      String   @default("")
+  date         String
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
 }
