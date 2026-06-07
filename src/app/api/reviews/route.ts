@@ -16,6 +16,19 @@ export async function GET() {
   }
 }
 
+export async function POST(request: Request) {
+  try {
+    const data = await request.json();
+    const restaurant = await db.restaurant.findFirst();
+    if (!restaurant) return NextResponse.json({ error: "Aucun restaurant" }, { status: 400 });
+    const review = await db.review.create({ data: { ...data, restaurantId: restaurant.id } });
+    return NextResponse.json(review, { status: 201 });
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
+  }
+}
+
 export async function DELETE(request: Request) {
   try {
     const { id } = await request.json();

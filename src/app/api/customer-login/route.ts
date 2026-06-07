@@ -11,21 +11,25 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Email et mot de passe requis" }, { status: 400 });
     }
 
-    const admin = await db.admin.findFirst({ where: { email } });
-    if (!admin || admin.password !== password) {
+    const customer = await db.customer.findFirst({ where: { email } });
+    if (!customer || customer.password !== password) {
       return NextResponse.json({ error: "Identifiants incorrects" }, { status: 401 });
     }
 
-    if (admin.status === "inactive") {
-      return NextResponse.json({ error: "Compte désactivé. Contactez l'administrateur." }, { status: 403 });
+    if (customer.status === "inactive") {
+      return NextResponse.json({ error: "Compte désactivé. Contactez le restaurant." }, { status: 403 });
     }
 
     return NextResponse.json({
-      id: admin.id,
-      email: admin.email,
-      name: admin.name,
-      role: admin.role,
-      status: admin.status,
+      id: customer.id,
+      email: customer.email,
+      name: customer.name,
+      phone: customer.phone,
+      address: customer.address,
+      loyaltyPoints: customer.loyaltyPoints,
+      totalOrders: customer.totalOrders,
+      totalSpent: customer.totalSpent,
+      status: customer.status,
     });
   } catch (error) {
     console.error(error);

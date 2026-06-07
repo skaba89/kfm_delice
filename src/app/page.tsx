@@ -10,7 +10,7 @@ import {
   ShoppingBag, MessageSquare, ChevronDown, AlertCircle, Eye, EyeOff,
   XCircle, RefreshCw, Plus, Edit3, Trash2, Search, Bell, User, DollarSign,
   ArrowUpRight, ArrowDownRight, Activity, Bike, Car, Save, ChevronLeft,
-  Package, FileText, Wallet, Receipt, UserCog, ClipboardList,
+  Package, FileText, Wallet, Receipt, UserCog, ClipboardList, UserCheck, Award, PenSquare, UserPlus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -79,6 +79,7 @@ interface ExpenseDB {
   date: string; paidBy: string; notes: string; createdAt: string;
 }
 interface AdminUser { id: string; email: string; name: string; role: string; }
+interface CustomerUser { id: string; email: string; name: string; phone: string; address: string; loyaltyPoints: number; totalOrders: number; totalSpent: number; status: string; }
 
 const RESTO = {
   name: "KFM Delice", tagline: "L'Art du Goût Guinéen",
@@ -223,6 +224,554 @@ function AdminLogin({ onLogin }: { onLogin: (admin: AdminUser) => void }) {
 }
 
 /* ═══════════════════════════════════════════════════
+   CUSTOMER LOGIN
+   ═══════════════════════════════════════════════════ */
+function CustomerLogin({ onLogin, onRegister, onBack }: { onLogin: (customer: CustomerUser) => void; onRegister: () => void; onBack: () => void }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault(); setLoading(true); setError("");
+    try {
+      const res = await fetch("/api/customer-login", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      if (!res.ok) { const data = await res.json().catch(() => null); setError(data?.error || "Email ou mot de passe incorrect"); return; }
+      onLogin(await res.json());
+    } catch { setError("Erreur de connexion au serveur"); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 via-gray-900 to-gray-800 p-4">
+      <div className="absolute top-20 right-20 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl" />
+      <div className="absolute bottom-20 left-20 w-72 h-72 bg-teal-500/10 rounded-full blur-3xl" />
+      <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-md relative">
+        <Card className="bg-white/10 backdrop-blur-xl border-white/20 shadow-2xl">
+          <CardContent className="p-8">
+            <div className="text-center mb-8">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-emerald-500/30">
+                <UserCheck className="w-8 h-8 text-white" />
+              </div>
+              <h1 className="text-2xl font-bold text-white">Espace Client</h1>
+              <p className="text-gray-400 text-sm mt-1">Connectez-vous à votre compte</p>
+            </div>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="text-sm font-medium text-gray-300 mb-1 block">Email</label>
+                <Input value={email} onChange={e => setEmail(e.target.value)} placeholder="votre@email.com" className="bg-white/10 border-white/20 text-white placeholder:text-gray-500 rounded-xl" />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-300 mb-1 block">Mot de passe</label>
+                <div className="relative">
+                  <Input type={showPw ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} className="bg-white/10 border-white/20 text-white placeholder:text-gray-500 rounded-xl pr-10" />
+                  <button type="button" onClick={() => setShowPw(!showPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
+                    {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+              {error && (
+                <div className="flex items-center gap-2 text-red-400 text-sm bg-red-500/10 rounded-lg p-3">
+                  <AlertCircle className="w-4 h-4 shrink-0" /> {error}
+                </div>
+              )}
+              <Button type="submit" disabled={loading} className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white rounded-xl py-6">
+                {loading ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : "Se Connecter"}
+              </Button>
+            </form>
+            <div className="mt-4 text-center">
+              <button onClick={onRegister} className="text-sm text-emerald-400 hover:text-emerald-300 transition-colors">Pas de compte ? Inscrivez-vous</button>
+            </div>
+            <div className="mt-4">
+              <button onClick={onBack} className="w-full text-sm text-gray-400 hover:text-white transition-colors flex items-center justify-center gap-2">
+                <ChevronLeft className="w-4 h-4" /> Retour au site
+              </button>
+            </div>
+            <div className="mt-4 p-3 bg-white/5 rounded-xl border border-white/10">
+              <p className="text-xs text-gray-400 text-center">Demo : <span className="text-emerald-400">aminata@gmail.com</span> / <span className="text-emerald-400">client123</span></p>
+            </div>
+          </CardContent>
+        </Card>
+      </motion.div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
+   CUSTOMER REGISTER
+   ═══════════════════════════════════════════════════ */
+function CustomerRegister({ onRegister, onLogin, onBack }: { onRegister: (customer: CustomerUser) => void; onLogin: () => void; onBack: () => void }) {
+  const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", address: "" });
+  const [showPw, setShowPw] = useState(false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault(); setLoading(true); setError("");
+    try {
+      const res = await fetch("/api/customer-register", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) { const data = await res.json().catch(() => null); setError(data?.error || "Erreur lors de l'inscription"); return; }
+      onRegister(await res.json());
+    } catch { setError("Erreur de connexion au serveur"); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 via-gray-900 to-gray-800 p-4">
+      <div className="absolute top-20 right-20 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl" />
+      <div className="absolute bottom-20 left-20 w-72 h-72 bg-teal-500/10 rounded-full blur-3xl" />
+      <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-md relative">
+        <Card className="bg-white/10 backdrop-blur-xl border-white/20 shadow-2xl">
+          <CardContent className="p-8">
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-emerald-500/30">
+                <UserPlus className="w-8 h-8 text-white" />
+              </div>
+              <h1 className="text-2xl font-bold text-white">Créer un Compte</h1>
+              <p className="text-gray-400 text-sm mt-1">Rejoignez KFM Delice</p>
+            </div>
+            <form onSubmit={handleSubmit} className="space-y-3">
+              <div>
+                <label className="text-sm font-medium text-gray-300 mb-1 block">Nom complet *</label>
+                <Input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Votre nom" className="bg-white/10 border-white/20 text-white placeholder:text-gray-500 rounded-xl" />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-300 mb-1 block">Email *</label>
+                <Input required type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="votre@email.com" className="bg-white/10 border-white/20 text-white placeholder:text-gray-500 rounded-xl" />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-300 mb-1 block">Téléphone</label>
+                <Input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+224 6XX XX XX XX" className="bg-white/10 border-white/20 text-white placeholder:text-gray-500 rounded-xl" />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-300 mb-1 block">Mot de passe *</label>
+                <div className="relative">
+                  <Input required type={showPw ? "text" : "password"} value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} className="bg-white/10 border-white/20 text-white placeholder:text-gray-500 rounded-xl pr-10" />
+                  <button type="button" onClick={() => setShowPw(!showPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
+                    {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-300 mb-1 block">Adresse</label>
+                <Input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} placeholder="Votre adresse" className="bg-white/10 border-white/20 text-white placeholder:text-gray-500 rounded-xl" />
+              </div>
+              {error && (
+                <div className="flex items-center gap-2 text-red-400 text-sm bg-red-500/10 rounded-lg p-3">
+                  <AlertCircle className="w-4 h-4 shrink-0" /> {error}
+                </div>
+              )}
+              <Button type="submit" disabled={loading} className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white rounded-xl py-6">
+                {loading ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : "S'inscrire"}
+              </Button>
+            </form>
+            <div className="mt-4 text-center">
+              <button onClick={onLogin} className="text-sm text-emerald-400 hover:text-emerald-300 transition-colors">Déjà un compte ? Connectez-vous</button>
+            </div>
+            <div className="mt-4">
+              <button onClick={onBack} className="w-full text-sm text-gray-400 hover:text-white transition-colors flex items-center justify-center gap-2">
+                <ChevronLeft className="w-4 h-4" /> Retour au site
+              </button>
+            </div>
+          </CardContent>
+        </Card>
+      </motion.div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
+   CUSTOMER ACCOUNT DASHBOARD
+   ═══════════════════════════════════════════════════ */
+function CustomerAccount({ customer, onLogout, onUpdate }: { customer: CustomerUser; onLogout: () => void; onUpdate: (c: CustomerUser) => void }) {
+  const [activeTab, setActiveTab] = useState("profil");
+  const [reservations, setReservations] = useState<Reservation[]>([]);
+  const [orders, setOrders] = useState<OrderDB[]>([]);
+  const [reviews, setReviews] = useState<ReviewDB[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Profile edit form
+  const [profileForm, setProfileForm] = useState({ name: customer.name, email: customer.email, phone: customer.phone, address: customer.address });
+  const [passwordForm, setPasswordForm] = useState({ current: "", new: "" });
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileMsg, setProfileMsg] = useState("");
+
+  // New review form
+  const [reviewForm, setReviewForm] = useState({ rating: 5, comment: "" });
+  const [reviewSaving, setReviewSaving] = useState(false);
+  const [reviewMsg, setReviewMsg] = useState("");
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [r, o, rv] = await Promise.all([
+        fetch("/api/reservations").then(r => r.json()).catch(() => []),
+        fetch("/api/orders").then(r => r.json()).catch(() => []),
+        fetch("/api/reviews").then(r => r.json()).catch(() => []),
+      ]);
+      // Filter by customer
+      setReservations((r as Reservation[]).filter((x: Reservation) => x.customerName === customer.name || x.phone === customer.phone));
+      setOrders((o as OrderDB[]).filter((x: OrderDB) => x.customerName === customer.name || x.phone === customer.phone));
+      setReviews((rv as ReviewDB[]).filter((x: ReviewDB) => x.customerName === customer.name));
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
+  }, [customer.name, customer.phone]);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  const saveProfile = async () => {
+    setProfileSaving(true); setProfileMsg("");
+    try {
+      const res = await fetch("/api/customers", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: customer.id, ...profileForm }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        onUpdate({ ...customer, ...profileForm });
+        setProfileMsg("Profil mis à jour avec succès !");
+      } else {
+        setProfileMsg("Erreur lors de la mise à jour");
+      }
+    } catch { setProfileMsg("Erreur de connexion"); }
+    finally { setProfileSaving(false); }
+  };
+
+  const savePassword = async () => {
+    if (!passwordForm.new) return;
+    setProfileSaving(true); setProfileMsg("");
+    try {
+      const res = await fetch("/api/customers", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: customer.id, password: passwordForm.new }),
+      });
+      if (res.ok) { setProfileMsg("Mot de passe modifié !"); setPasswordForm({ current: "", new: "" }); }
+      else { setProfileMsg("Erreur lors du changement de mot de passe"); }
+    } catch { setProfileMsg("Erreur de connexion"); }
+    finally { setProfileSaving(false); }
+  };
+
+  const submitReview = async () => {
+    setReviewSaving(true); setReviewMsg("");
+    try {
+      const months = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
+      const now = new Date();
+      const dateStr = `${months[now.getMonth()]} ${now.getFullYear()}`;
+      const res = await fetch("/api/reviews", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerName: customer.name, rating: reviewForm.rating, comment: reviewForm.comment, date: dateStr }),
+      });
+      if (res.ok) {
+        setReviewMsg("Avis publié avec succès !");
+        setReviewForm({ rating: 5, comment: "" });
+        loadData();
+      } else { setReviewMsg("Erreur lors de la publication"); }
+    } catch { setReviewMsg("Erreur de connexion"); }
+    finally { setReviewSaving(false); }
+  };
+
+  const sidebarItems = [
+    { id: "profil", label: "Profil", icon: User },
+    { id: "reservations", label: "Mes Réservations", icon: CalendarCheck, badge: reservations.filter(r => r.status === "pending" || r.status === "confirmed").length || undefined },
+    { id: "commandes", label: "Mes Commandes", icon: ShoppingBag, badge: orders.filter(o => !["delivered", "cancelled"].includes(o.status)).length || undefined },
+    { id: "avis", label: "Mes Avis", icon: MessageSquare, badge: reviews.length || undefined },
+    { id: "fidelite", label: "Points de fidélité", icon: Award },
+  ];
+
+  if (loading) {
+    return <div className="min-h-screen bg-gray-50 flex items-center justify-center"><RefreshCw className="w-8 h-8 text-emerald-500 animate-spin" /></div>;
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex">
+      {/* Desktop Sidebar */}
+      <aside className="w-64 bg-white border-r border-gray-200 flex flex-col shrink-0 hidden md:flex">
+        <div className="p-4 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shrink-0">
+              <UserCheck className="w-5 h-5 text-white" />
+            </div>
+            <div className="overflow-hidden"><p className="font-bold text-gray-900 text-sm">KFM Delice</p><p className="text-[10px] text-gray-400">Mon Compte</p></div>
+          </div>
+        </div>
+        <nav className="flex-1 p-3 space-y-1">
+          {sidebarItems.map((item) => (
+            <button key={item.id} onClick={() => setActiveTab(item.id)}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${activeTab === item.id ? "bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-md shadow-emerald-500/20" : "text-gray-600 hover:bg-gray-100"}`}>
+              <item.icon className="w-5 h-5 shrink-0" />
+              <span className="truncate">{item.label}</span>
+              {item.badge ? <span className={`ml-auto text-xs px-1.5 py-0.5 rounded-full ${activeTab === item.id ? "bg-white/20 text-white" : "bg-gray-100 text-gray-500"}`}>{item.badge}</span> : null}
+            </button>
+          ))}
+        </nav>
+        <div className="p-3 border-t border-gray-100">
+          <button onClick={onLogout} className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-red-500 hover:bg-red-50 text-sm">
+            <LogOut className="w-5 h-5 shrink-0" /><span>Déconnexion</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* Mobile sidebar toggle */}
+      <div className="md:hidden fixed bottom-4 left-4 z-50">
+        <Button onClick={() => setSidebarOpen(!sidebarOpen)} size="sm" className="rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg">
+          {sidebarOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+        </Button>
+      </div>
+      {/* Mobile sidebar overlay */}
+      <AnimatePresence>
+        {sidebarOpen && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="md:hidden fixed inset-0 bg-black/50 z-40" onClick={() => setSidebarOpen(false)} />
+            <motion.aside initial={{ x: -280 }} animate={{ x: 0 }} exit={{ x: -280 }} transition={{ type: "spring", damping: 25, stiffness: 200 }} className="md:hidden fixed top-0 left-0 bottom-0 w-72 bg-white z-50 shadow-xl flex flex-col">
+              <div className="p-4 border-b border-gray-100">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shrink-0"><UserCheck className="w-5 h-5 text-white" /></div>
+                    <div><p className="font-bold text-gray-900 text-sm">KFM Delice</p><p className="text-[10px] text-gray-400">Mon Compte</p></div>
+                  </div>
+                  <button onClick={() => setSidebarOpen(false)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"><X className="w-5 h-5" /></button>
+                </div>
+              </div>
+              <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+                {sidebarItems.map((item) => (
+                  <button key={item.id} onClick={() => { setActiveTab(item.id); setSidebarOpen(false); }}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${activeTab === item.id ? "bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-md shadow-emerald-500/20" : "text-gray-600 hover:bg-gray-100"}`}>
+                    <item.icon className="w-5 h-5 shrink-0" /><span className="truncate">{item.label}</span>
+                    {item.badge ? <span className={`ml-auto text-xs px-1.5 py-0.5 rounded-full ${activeTab === item.id ? "bg-white/20 text-white" : "bg-gray-100 text-gray-500"}`}>{item.badge}</span> : null}
+                  </button>
+                ))}
+              </nav>
+              <div className="p-3 border-t border-gray-100">
+                <button onClick={onLogout} className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-red-500 hover:bg-red-50 text-sm"><LogOut className="w-5 h-5 shrink-0" /><span>Déconnexion</span></button>
+              </div>
+            </motion.aside>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Main Content */}
+      <main className="flex-1 overflow-y-auto min-w-0">
+        <header className="bg-white border-b border-gray-200 px-4 sm:px-6 py-4 flex items-center justify-between sticky top-0 z-10">
+          <div>
+            <h1 className="text-lg sm:text-xl font-bold text-gray-900">{sidebarItems.find(s => s.id === activeTab)?.label}</h1>
+            <p className="text-sm text-gray-500">Bonjour, {customer.name}</p>
+          </div>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button onClick={loadData} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"><RefreshCw className="w-4 h-4 sm:w-5 sm:h-5" /></button>
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white text-sm font-bold">{customer.name[0]}</div>
+          </div>
+        </header>
+
+        <div className="p-4 sm:p-6">
+          {/* ═══════ PROFIL ═══════ */}
+          {activeTab === "profil" && (
+            <div className="space-y-6 max-w-2xl">
+              <Card>
+                <CardContent className="p-6">
+                  <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2"><User className="w-5 h-5 text-emerald-500" /> Informations personnelles</h3>
+                  <div className="space-y-4">
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      <div><label className="text-sm font-medium text-gray-700 mb-1 block">Nom</label><Input value={profileForm.name} onChange={e => setProfileForm({ ...profileForm, name: e.target.value })} /></div>
+                      <div><label className="text-sm font-medium text-gray-700 mb-1 block">Email</label><Input type="email" value={profileForm.email} onChange={e => setProfileForm({ ...profileForm, email: e.target.value })} /></div>
+                      <div><label className="text-sm font-medium text-gray-700 mb-1 block">Téléphone</label><Input value={profileForm.phone} onChange={e => setProfileForm({ ...profileForm, phone: e.target.value })} /></div>
+                      <div><label className="text-sm font-medium text-gray-700 mb-1 block">Adresse</label><Input value={profileForm.address} onChange={e => setProfileForm({ ...profileForm, address: e.target.value })} /></div>
+                    </div>
+                    <Button onClick={saveProfile} disabled={profileSaving} className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white">
+                      {profileSaving ? <RefreshCw className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />} Enregistrer
+                    </Button>
+                  </div>
+                  {profileMsg && <p className={`mt-3 text-sm ${profileMsg.includes("succès") ? "text-green-600" : "text-red-600"}`}>{profileMsg}</p>}
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-6">
+                  <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2"><ShieldCheck className="w-5 h-5 text-emerald-500" /> Changer le mot de passe</h3>
+                  <div className="space-y-4">
+                    <div><label className="text-sm font-medium text-gray-700 mb-1 block">Nouveau mot de passe</label><Input type="password" value={passwordForm.new} onChange={e => setPasswordForm({ ...passwordForm, new: e.target.value })} /></div>
+                    <Button onClick={savePassword} disabled={profileSaving || !passwordForm.new} variant="outline" className="border-emerald-500 text-emerald-600 hover:bg-emerald-50">
+                      {profileSaving ? <RefreshCw className="w-4 h-4 animate-spin mr-2" /> : <ShieldCheck className="w-4 h-4 mr-2" />} Changer le mot de passe
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* ═══════ MES RÉSERVATIONS ═══════ */}
+          {activeTab === "reservations" && (
+            <div className="space-y-4">
+              {reservations.length === 0 ? (
+                <Card><CardContent className="p-8 text-center"><CalendarCheck className="w-12 h-12 text-gray-300 mx-auto mb-3" /><p className="text-gray-500">Aucune réservation trouvée</p></CardContent></Card>
+              ) : (
+                <div className="bg-white rounded-xl border overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead><tr className="bg-gray-50 border-b">
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Date & Heure</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Pers.</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Zone</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Notes</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Statut</th>
+                      </tr></thead>
+                      <tbody className="divide-y">
+                        {reservations.map((r) => (
+                          <tr key={r.id} className="hover:bg-gray-50">
+                            <td className="px-4 py-3 text-sm text-gray-700">{r.date} à {r.time}</td>
+                            <td className="px-4 py-3 text-sm text-gray-700">{r.guests}</td>
+                            <td className="px-4 py-3"><Badge variant="outline">{zoneLabels[r.zone] || r.zone}</Badge></td>
+                            <td className="px-4 py-3 text-sm text-gray-500 max-w-[200px] truncate">{r.notes || "-"}</td>
+                            <td className="px-4 py-3"><Badge className={`${statusColors[r.status] || ""} text-xs`}>{statusLabels[r.status] || r.status}</Badge></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ═══════ MES COMMANDES ═══════ */}
+          {activeTab === "commandes" && (
+            <div className="space-y-4">
+              {orders.length === 0 ? (
+                <Card><CardContent className="p-8 text-center"><ShoppingBag className="w-12 h-12 text-gray-300 mx-auto mb-3" /><p className="text-gray-500">Aucune commande trouvée</p></CardContent></Card>
+              ) : (
+                <div className="grid sm:grid-cols-2 gap-4">
+                  {orders.map((o) => {
+                    let items: { name: string; price: number; qty: number }[] = [];
+                    try { items = JSON.parse(o.items); } catch { /* */ }
+                    return (
+                      <Card key={o.id}>
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <OrderTypeIcon type={o.orderType} />
+                              <span className="text-sm font-medium text-gray-900">{orderTypeLabels[o.orderType] || o.orderType}</span>
+                            </div>
+                            <Badge className={`${statusColors[o.status] || ""} text-xs`}>{statusLabels[o.status] || o.status}</Badge>
+                          </div>
+                          <div className="space-y-1 mb-3">
+                            {items.map((it, i) => (
+                              <div key={i} className="flex justify-between text-sm">
+                                <span className="text-gray-600">{it.name} x{it.qty}</span>
+                                <span className="text-gray-900 font-medium">{formatPrice(it.price * it.qty)}</span>
+                              </div>
+                            ))}
+                          </div>
+                          {o.deliveryAddress && <p className="text-xs text-gray-500 mb-2">📍 {o.deliveryAddress}</p>}
+                          <div className="flex justify-between items-center pt-2 border-t">
+                            <span className="text-xs text-gray-400">{new Date(o.createdAt).toLocaleDateString("fr-FR")}</span>
+                            <span className="text-sm font-bold text-gray-900">{formatPrice(o.total + o.deliveryFee)}</span>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ═══════ MES AVIS ═══════ */}
+          {activeTab === "avis" && (
+            <div className="space-y-6">
+              <Card>
+                <CardContent className="p-6">
+                  <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2"><PenSquare className="w-5 h-5 text-emerald-500" /> Écrire un avis</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-sm font-medium text-gray-700 mb-2 block">Note</label>
+                      <div className="flex gap-1">
+                        {[1,2,3,4,5].map(i => (
+                          <button key={i} onClick={() => setReviewForm({ ...reviewForm, rating: i })} className="p-1">
+                            <Star className={`w-6 h-6 ${i <= reviewForm.rating ? "fill-amber-400 text-amber-400" : "fill-gray-200 text-gray-200"} transition-colors`} />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-gray-700 mb-1 block">Commentaire</label>
+                      <Textarea value={reviewForm.comment} onChange={e => setReviewForm({ ...reviewForm, comment: e.target.value })} placeholder="Partagez votre expérience..." rows={3} />
+                    </div>
+                    <Button onClick={submitReview} disabled={reviewSaving || !reviewForm.comment} className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white">
+                      {reviewSaving ? <RefreshCw className="w-4 h-4 animate-spin mr-2" /> : <MessageSquare className="w-4 h-4 mr-2" />} Publier l'avis
+                    </Button>
+                    {reviewMsg && <p className={`text-sm ${reviewMsg.includes("succès") ? "text-green-600" : "text-red-600"}`}>{reviewMsg}</p>}
+                  </div>
+                </CardContent>
+              </Card>
+              <div className="space-y-4">
+                {reviews.length === 0 ? (
+                  <Card><CardContent className="p-8 text-center"><MessageSquare className="w-12 h-12 text-gray-300 mx-auto mb-3" /><p className="text-gray-500">Aucun avis publié</p></CardContent></Card>
+                ) : (
+                  reviews.map((r) => (
+                    <Card key={r.id}>
+                      <CardContent className="p-4">
+                        <div className="flex items-center gap-1 mb-2">{[1,2,3,4,5].map(i => <Star key={i} className={`w-4 h-4 ${i <= r.rating ? "fill-amber-400 text-amber-400" : "fill-gray-200 text-gray-200"}`} />)}</div>
+                        <p className="text-sm text-gray-600 mb-2">&ldquo;{r.comment}&rdquo;</p>
+                        <p className="text-xs text-gray-400">{r.date}</p>
+                      </CardContent>
+                    </Card>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ═══════ POINTS DE FIDÉLITÉ ═══════ */}
+          {activeTab === "fidelite" && (
+            <div className="space-y-6 max-w-2xl">
+              <div className="grid sm:grid-cols-3 gap-4">
+                <Card>
+                  <CardContent className="p-6 text-center">
+                    <Award className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
+                    <p className="text-3xl font-bold text-gray-900">{customer.loyaltyPoints}</p>
+                    <p className="text-sm text-gray-500">Points de fidélité</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-6 text-center">
+                    <ShoppingBag className="w-10 h-10 text-teal-500 mx-auto mb-2" />
+                    <p className="text-3xl font-bold text-gray-900">{customer.totalOrders}</p>
+                    <p className="text-sm text-gray-500">Commandes totales</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-6 text-center">
+                    <DollarSign className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
+                    <p className="text-3xl font-bold text-gray-900">{formatPrice(customer.totalSpent)}</p>
+                    <p className="text-sm text-gray-500">Total dépensé</p>
+                  </CardContent>
+                </Card>
+              </div>
+              <Card>
+                <CardContent className="p-6">
+                  <h3 className="font-semibold text-gray-900 mb-4">Comment gagner des points ?</h3>
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3 p-3 bg-emerald-50 rounded-xl"><CalendarCheck className="w-5 h-5 text-emerald-600" /><div><p className="text-sm font-medium text-gray-900">Réservation</p><p className="text-xs text-gray-500">+50 points par réservation</p></div></div>
+                    <div className="flex items-center gap-3 p-3 bg-teal-50 rounded-xl"><ShoppingBag className="w-5 h-5 text-teal-600" /><div><p className="text-sm font-medium text-gray-900">Commande</p><p className="text-xs text-gray-500">+10 points par 10 000 GNF dépensés</p></div></div>
+                    <div className="flex items-center gap-3 p-3 bg-amber-50 rounded-xl"><MessageSquare className="w-5 h-5 text-amber-600" /><div><p className="text-sm font-medium text-gray-900">Avis client</p><p className="text-xs text-gray-500">+25 points par avis publié</p></div></div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </div>
+      </main>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
    ADMIN DASHBOARD
    ═══════════════════════════════════════════════════ */
 function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout: () => void }) {
@@ -324,20 +873,27 @@ function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout: () =>
     loadData();
   };
 
-  const sidebarItems = [
-    { id: "overview", label: "Vue d'ensemble", icon: LayoutDashboard },
-    { id: "reservations", label: "Réservations", icon: CalendarCheck, badge: stats?.pendingReservations },
-    { id: "orders", label: "Commandes", icon: ShoppingBag, badge: stats?.activeOrders },
-    { id: "menu", label: "Menu", icon: UtensilsCrossed, badge: menuItems.length },
-    { id: "deliveries", label: "Livraisons", icon: Bike, badge: stats?.activeDeliveries },
-    { id: "drivers", label: "Livreurs", icon: Car, badge: stats?.availableDrivers },
-    { id: "reviews", label: "Avis", icon: MessageSquare, badge: stats?.totalReviews },
-    { id: "staff", label: "Personnel", icon: Users, badge: staffList.length },
-    { id: "admins", label: "Utilisateurs", icon: UserCog, badge: admins.length },
-    { id: "invoices", label: "Factures", icon: FileText, badge: invoices.filter(i => i.status === "pending").length || undefined },
-    { id: "quotes", label: "Devis", icon: ClipboardList, badge: quotes.filter(q => q.status === "sent").length || undefined },
-    { id: "expenses", label: "Dépenses", icon: Wallet, badge: expenses.length },
+  const allSidebarItems = [
+    { id: "overview", label: "Vue d'ensemble", icon: LayoutDashboard, roles: ["admin", "manager"] },
+    { id: "reservations", label: "Réservations", icon: CalendarCheck, badge: stats?.pendingReservations, roles: ["admin", "manager", "staff"] },
+    { id: "orders", label: "Commandes", icon: ShoppingBag, badge: stats?.activeOrders, roles: ["admin", "manager", "staff"] },
+    { id: "menu", label: "Menu", icon: UtensilsCrossed, badge: menuItems.length, roles: ["admin", "manager"] },
+    { id: "deliveries", label: "Livraisons", icon: Bike, badge: stats?.activeDeliveries, roles: ["admin", "manager", "staff"] },
+    { id: "drivers", label: "Livreurs", icon: Car, badge: stats?.availableDrivers, roles: ["admin", "manager"] },
+    { id: "reviews", label: "Avis", icon: MessageSquare, badge: stats?.totalReviews, roles: ["admin", "manager", "staff"] },
+    { id: "staff", label: "Personnel", icon: Users, badge: staffList.length, roles: ["admin", "manager"] },
+    { id: "admins", label: "Utilisateurs", icon: UserCog, badge: admins.length, roles: ["admin"] },
+    { id: "invoices", label: "Factures", icon: FileText, badge: invoices.filter(i => i.status === "pending").length || undefined, roles: ["admin", "manager"] },
+    { id: "quotes", label: "Devis", icon: ClipboardList, badge: quotes.filter(q => q.status === "sent").length || undefined, roles: ["admin", "manager"] },
+    { id: "expenses", label: "Dépenses", icon: Wallet, badge: expenses.length, roles: ["admin", "manager"] },
   ];
+
+  const sidebarItems = allSidebarItems.filter(item => item.roles.includes(admin.role));
+  const isAdmin = admin.role === "admin";
+  const isManager = admin.role === "manager";
+  const isStaffRole = admin.role === "staff";
+  const canCreate = isAdmin || isManager;
+  const canDelete = isAdmin;
 
   if (loading || !stats) {
     return <div className="min-h-screen bg-gray-50 flex items-center justify-center"><RefreshCw className="w-8 h-8 text-orange-500 animate-spin" /></div>;
@@ -1431,7 +1987,7 @@ function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout: () =>
 /* ═══════════════════════════════════════════════════
    PUBLIC SITE - Navbar
    ═══════════════════════════════════════════════════ */
-function PublicNavbar({ onAdminClick }: { onAdminClick: () => void }) {
+function PublicNavbar({ onAdminClick, onCustomerClick, customer }: { onAdminClick: () => void; onCustomerClick: () => void; customer: CustomerUser | null; }) {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => { const h = () => setScrolled(window.scrollY > 20); window.addEventListener("scroll", h); return () => window.removeEventListener("scroll", h); }, []);
@@ -1454,6 +2010,15 @@ function PublicNavbar({ onAdminClick }: { onAdminClick: () => void }) {
           <div className="hidden lg:flex items-center gap-7">
             {links.map(l => <a key={l.href} href={l.href} className={`text-sm font-medium transition-colors hover:text-orange-500 ${scrolled ? "text-gray-700" : "text-white/90"}`}>{l.label}</a>)}
             <a href="#reservation"><Button className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white rounded-full px-6 shadow-lg shadow-orange-500/25">Réserver</Button></a>
+            {customer ? (
+              <button onClick={onCustomerClick} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${scrolled ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100" : "bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30"}`}>
+                <UserCheck className="w-4 h-4" /> {customer.name.split(" ")[0]}
+              </button>
+            ) : (
+              <button onClick={onCustomerClick} className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${scrolled ? "text-emerald-600 hover:text-emerald-700" : "text-emerald-400 hover:text-emerald-300"}`}>
+                <User className="w-4 h-4" /> Connexion
+              </button>
+            )}
             <button onClick={onAdminClick} className={`p-2 rounded-lg transition-colors ${scrolled ? "text-gray-400 hover:text-orange-500" : "text-white/50 hover:text-orange-400"}`} title="Admin"><LayoutDashboard className="w-5 h-5" /></button>
           </div>
           <button className="lg:hidden p-2" onClick={() => setMenuOpen(!menuOpen)}>
@@ -1464,6 +2029,11 @@ function PublicNavbar({ onAdminClick }: { onAdminClick: () => void }) {
           <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="lg:hidden bg-white rounded-2xl shadow-xl p-4 mb-4">
             {links.map(l => <a key={l.href} href={l.href} className="block py-3 px-4 text-gray-700 hover:bg-orange-50 hover:text-orange-600 rounded-lg" onClick={() => setMenuOpen(false)}>{l.label}</a>)}
             <a href="#reservation" onClick={() => setMenuOpen(false)}><Button className="w-full mt-2 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-full">Réserver</Button></a>
+            {customer ? (
+              <button onClick={() => { setMenuOpen(false); onCustomerClick(); }} className="w-full mt-2 py-3 px-4 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg text-sm flex items-center gap-2"><UserCheck className="w-4 h-4" /> Mon Compte ({customer.name})</button>
+            ) : (
+              <button onClick={() => { setMenuOpen(false); onCustomerClick(); }} className="w-full mt-2 py-3 px-4 text-emerald-600 hover:bg-emerald-50 rounded-lg text-sm flex items-center gap-2"><User className="w-4 h-4" /> Connexion Client</button>
+            )}
             <button onClick={() => { setMenuOpen(false); onAdminClick(); }} className="w-full mt-2 py-3 px-4 text-gray-500 hover:bg-gray-50 rounded-lg text-sm flex items-center gap-2"><LayoutDashboard className="w-4 h-4" /> Administration</button>
           </motion.div>
         )}</AnimatePresence>
@@ -1739,18 +2309,22 @@ function PublicFooter() {
    MAIN HOME
    ═══════════════════════════════════════════════════ */
 export default function Home() {
-  const [mode, setMode] = useState<"public" | "login" | "admin">("public");
+  const [mode, setMode] = useState<"public" | "login" | "admin" | "customer_login" | "customer_register" | "customer_account">("public");
   const [admin, setAdmin] = useState<AdminUser | null>(null);
+  const [customer, setCustomer] = useState<CustomerUser | null>(null);
 
   // Seed DB on first load
   useEffect(() => { fetch("/api/seed", { method: "POST" }).catch(() => {}); }, []);
 
   if (mode === "admin" && admin) return <AdminDashboard admin={admin} onLogout={() => { setMode("public"); setAdmin(null); }} />;
   if (mode === "login") return <AdminLogin onLogin={(a) => { setAdmin(a); setMode("admin"); }} />;
+  if (mode === "customer_login") return <CustomerLogin onLogin={(c) => { setCustomer(c); setMode("customer_account"); }} onRegister={() => setMode("customer_register")} onBack={() => setMode("public")} />;
+  if (mode === "customer_register") return <CustomerRegister onRegister={(c) => { setCustomer(c); setMode("customer_account"); }} onLogin={() => setMode("customer_login")} onBack={() => setMode("public")} />;
+  if (mode === "customer_account" && customer) return <CustomerAccount customer={customer} onLogout={() => { setCustomer(null); setMode("public"); }} onUpdate={(c) => setCustomer(c)} />;
 
   return (
     <div className="min-h-screen flex flex-col">
-      <PublicNavbar onAdminClick={() => setMode("login")} />
+      <PublicNavbar onAdminClick={() => setMode("login")} onCustomerClick={() => { if (customer) setMode("customer_account"); else setMode("customer_login"); }} customer={customer} />
       <HeroSection />
       <MenuSection />
       <ReservationSection />

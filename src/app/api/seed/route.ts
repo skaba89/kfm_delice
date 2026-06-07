@@ -15,6 +15,20 @@ export async function POST() {
       });
     }
 
+    // Create customer accounts
+    const existingCustomers = await db.customer.findFirst();
+    if (!existingCustomers) {
+      await db.customer.createMany({
+        data: [
+          { email: "aminata@gmail.com", password: "client123", name: "Aminata Camara", phone: "+224 620 11 22 33", address: "Kaloum, Conakry", loyaltyPoints: 250, totalOrders: 8, totalSpent: 680000, status: "active" },
+          { email: "mamadou@gmail.com", password: "client123", name: "Mamadou Bah", phone: "+224 628 44 55 66", address: "Dixinn, Conakry", loyaltyPoints: 180, totalOrders: 5, totalSpent: 425000, status: "active" },
+          { email: "fatoumata@gmail.com", password: "client123", name: "Fatoumata Diallo", phone: "+224 622 77 88 99", address: "Matam, Conakry", loyaltyPoints: 350, totalOrders: 12, totalSpent: 1150000, status: "active" },
+          { email: "ibrahim@gmail.com", password: "client123", name: "Ibrahim Touré", phone: "+224 621 22 33 44", address: "Matoto, Conakry", loyaltyPoints: 100, totalOrders: 3, totalSpent: 195000, status: "active" },
+          { email: "kadiatou@gmail.com", password: "client123", name: "Kadiatou Sylla", phone: "+224 625 55 66 77", address: "Corniche Nord, Conakry", loyaltyPoints: 420, totalOrders: 15, totalSpent: 1890000, status: "active" },
+        ],
+      });
+    }
+
     // Create or get restaurant
     let restaurant = await db.restaurant.findFirst();
     if (!restaurant) {
