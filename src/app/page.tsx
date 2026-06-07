@@ -10,7 +10,7 @@ import {
   ShoppingBag, MessageSquare, ChevronDown, AlertCircle, Eye, EyeOff,
   XCircle, RefreshCw, Plus, Edit3, Trash2, Search, Bell, User, DollarSign,
   ArrowUpRight, ArrowDownRight, Activity, Bike, Car, Save, ChevronLeft,
-  Package,
+  Package, FileText, Wallet, Receipt, UserCog, ClipboardList,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -55,6 +55,28 @@ interface Stats {
   recentReservations: { id: string; customerName: string; date: string; time: string; guests: number; zone: string; status: string }[];
   deliveryOrders: number; activeDeliveries: number; availableDrivers: number;
   totalDrivers: number; deliveryRevenue: number; dineInOrders: number; takeawayOrders: number;
+}
+interface StaffDB {
+  id: string; name: string; phone: string; role: string;
+  salary: number; status: string; hireDate: string; notes: string; createdAt: string;
+}
+interface AdminDB {
+  id: string; email: string; password: string; name: string;
+  role: string; status: string; createdAt: string;
+}
+interface InvoiceDB {
+  id: string; number: string; customerName: string; customerPhone: string;
+  items: string; subtotal: number; tax: number; total: number;
+  status: string; dueDate: string; notes: string; createdAt: string;
+}
+interface QuoteDB {
+  id: string; number: string; customerName: string; customerPhone: string;
+  items: string; subtotal: number; discount: number; total: number;
+  status: string; validUntil: string; notes: string; createdAt: string;
+}
+interface ExpenseDB {
+  id: string; description: string; amount: number; category: string;
+  date: string; paidBy: string; notes: string; createdAt: string;
 }
 interface AdminUser { id: string; email: string; name: string; role: string; }
 
@@ -108,6 +130,16 @@ const driverStatusColors: Record<string, string> = {
   available: "bg-green-100 text-green-700", busy: "bg-orange-100 text-orange-700", offline: "bg-gray-100 text-gray-700",
 };
 const driverStatusLabels: Record<string, string> = { available: "Disponible", busy: "En livraison", offline: "Hors ligne" };
+const staffRoleLabels: Record<string, string> = { cuisinier: "Cuisinier", serveur: "Serveur", barman: "Barman", gerant: "Gérant", plongeur: "Plongeur", securite: "Sécurité", caissier: "Caissier" };
+const staffStatusColors: Record<string, string> = { active: "bg-green-100 text-green-700", inactive: "bg-red-100 text-red-700", on_leave: "bg-amber-100 text-amber-700" };
+const staffStatusLabels: Record<string, string> = { active: "Actif", inactive: "Inactif", on_leave: "En congé" };
+const adminRoleLabels: Record<string, string> = { admin: "Administrateur", manager: "Manager", staff: "Personnel" };
+const invoiceStatusColors: Record<string, string> = { pending: "bg-amber-100 text-amber-700", paid: "bg-green-100 text-green-700", cancelled: "bg-red-100 text-red-700", overdue: "bg-red-200 text-red-800" };
+const invoiceStatusLabels: Record<string, string> = { pending: "En attente", paid: "Payée", cancelled: "Annulée", overdue: "En retard" };
+const quoteStatusColors: Record<string, string> = { draft: "bg-gray-100 text-gray-700", sent: "bg-blue-100 text-blue-700", accepted: "bg-green-100 text-green-700", refused: "bg-red-100 text-red-700", expired: "bg-amber-100 text-amber-700" };
+const quoteStatusLabels: Record<string, string> = { draft: "Brouillon", sent: "Envoyé", accepted: "Accepté", refused: "Refusé", expired: "Expiré" };
+const expenseCategoryLabels: Record<string, string> = { ingredients: "Ingrédients", utilities: "Services publics", rent: "Loyer", salary: "Salaires", equipment: "Équipement", transport: "Transport", other: "Autre" };
+const expenseCategoryColors: Record<string, string> = { ingredients: "bg-orange-100 text-orange-700", utilities: "bg-blue-100 text-blue-700", rent: "bg-purple-100 text-purple-700", salary: "bg-green-100 text-green-700", equipment: "bg-cyan-100 text-cyan-700", transport: "bg-amber-100 text-amber-700", other: "bg-gray-100 text-gray-700" };
 
 function OrderTypeIcon({ type }: { type: string }) {
   if (type === "delivery") return <Bike className="w-3.5 h-3.5" />;
@@ -201,6 +233,11 @@ function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout: () =>
   const [orders, setOrders] = useState<OrderDB[]>([]);
   const [drivers, setDrivers] = useState<DriverDB[]>([]);
   const [reviews, setReviews] = useState<ReviewDB[]>([]);
+  const [staffList, setStaffList] = useState<StaffDB[]>([]);
+  const [admins, setAdmins] = useState<AdminDB[]>([]);
+  const [invoices, setInvoices] = useState<InvoiceDB[]>([]);
+  const [quotes, setQuotes] = useState<QuoteDB[]>([]);
+  const [expenses, setExpenses] = useState<ExpenseDB[]>([]);
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
@@ -220,18 +257,53 @@ function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout: () =>
   // Assign driver state
   const [assigningOrderId, setAssigningOrderId] = useState<string | null>(null);
 
+  // Staff form
+  const [showStaffForm, setShowStaffForm] = useState(false);
+  const [editingStaff, setEditingStaff] = useState<StaffDB | null>(null);
+  const [deleteStaffConfirm, setDeleteStaffConfirm] = useState<string | null>(null);
+  const [staffForm, setStaffForm] = useState({ name: "", phone: "", role: "serveur", salary: 0, status: "active", hireDate: "", notes: "" });
+
+  // Admin form
+  const [showAdminForm, setShowAdminForm] = useState(false);
+  const [editingAdmin, setEditingAdmin] = useState<AdminDB | null>(null);
+  const [deleteAdminConfirm, setDeleteAdminConfirm] = useState<string | null>(null);
+  const [adminForm, setAdminForm] = useState({ email: "", password: "", name: "", role: "staff", status: "active" });
+
+  // Invoice form
+  const [showInvoiceForm, setShowInvoiceForm] = useState(false);
+  const [editingInvoice, setEditingInvoice] = useState<InvoiceDB | null>(null);
+  const [deleteInvoiceConfirm, setDeleteInvoiceConfirm] = useState<string | null>(null);
+  const [invoiceForm, setInvoiceForm] = useState({ number: "", customerName: "", customerPhone: "", items: "[]", subtotal: 0, tax: 0, total: 0, status: "pending", dueDate: "", notes: "" });
+
+  // Quote form
+  const [showQuoteForm, setShowQuoteForm] = useState(false);
+  const [editingQuote, setEditingQuote] = useState<QuoteDB | null>(null);
+  const [deleteQuoteConfirm, setDeleteQuoteConfirm] = useState<string | null>(null);
+  const [quoteForm, setQuoteForm] = useState({ number: "", customerName: "", customerPhone: "", items: "[]", subtotal: 0, discount: 0, total: 0, status: "draft", validUntil: "", notes: "" });
+
+  // Expense form
+  const [showExpenseForm, setShowExpenseForm] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<ExpenseDB | null>(null);
+  const [deleteExpenseConfirm, setDeleteExpenseConfirm] = useState<string | null>(null);
+  const [expenseForm, setExpenseForm] = useState({ description: "", amount: 0, category: "other", date: "", paidBy: "", notes: "" });
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, r, m, o, d, rv] = await Promise.all([
+      const [s, r, m, o, d, rv, st, ad, inv, quo, exp] = await Promise.all([
         fetch("/api/stats").then(r => r.json()),
         fetch("/api/reservations").then(r => r.json()),
         fetch("/api/menu").then(r => r.json()),
         fetch("/api/orders").then(r => r.json()),
         fetch("/api/drivers").then(r => r.json()),
         fetch("/api/reviews").then(r => r.json()).catch(() => []),
+        fetch("/api/staff").then(r => r.json()).catch(() => []),
+        fetch("/api/admins").then(r => r.json()).catch(() => []),
+        fetch("/api/invoices").then(r => r.json()).catch(() => []),
+        fetch("/api/quotes").then(r => r.json()).catch(() => []),
+        fetch("/api/expenses").then(r => r.json()).catch(() => []),
       ]);
-      setStats(s); setReservations(r); setMenuItems(m); setOrders(o); setDrivers(d); setReviews(rv);
+      setStats(s); setReservations(r); setMenuItems(m); setOrders(o); setDrivers(d); setReviews(rv); setStaffList(st); setAdmins(ad); setInvoices(inv); setQuotes(quo); setExpenses(exp);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   }, []);
@@ -260,6 +332,11 @@ function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout: () =>
     { id: "deliveries", label: "Livraisons", icon: Bike, badge: stats?.activeDeliveries },
     { id: "drivers", label: "Livreurs", icon: Car, badge: stats?.availableDrivers },
     { id: "reviews", label: "Avis", icon: MessageSquare, badge: stats?.totalReviews },
+    { id: "staff", label: "Personnel", icon: Users, badge: staffList.length },
+    { id: "admins", label: "Utilisateurs", icon: UserCog, badge: admins.length },
+    { id: "invoices", label: "Factures", icon: FileText, badge: invoices.filter(i => i.status === "pending").length || undefined },
+    { id: "quotes", label: "Devis", icon: ClipboardList, badge: quotes.filter(q => q.status === "sent").length || undefined },
+    { id: "expenses", label: "Dépenses", icon: Wallet, badge: expenses.length },
   ];
 
   if (loading || !stats) {
@@ -868,6 +945,433 @@ function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout: () =>
                   </Card>
                 ))}
                 {reviews.length === 0 && <p className="text-sm text-gray-500 text-center py-8">Aucun avis pour le moment</p>}
+              </div>
+            </div>
+          )}
+
+          {/* ═══════ PERSONNEL ═══════ */}
+          {activeTab === "staff" && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-green-100 text-green-700">{staffList.filter(s => s.status === "active").length} Actifs</Badge>
+                  <Badge className="bg-amber-100 text-amber-700">{staffList.filter(s => s.status === "on_leave").length} En congé</Badge>
+                  <Badge className="bg-red-100 text-red-700">{staffList.filter(s => s.status === "inactive").length} Inactifs</Badge>
+                </div>
+                <Button onClick={() => { setEditingStaff(null); setStaffForm({ name: "", phone: "", role: "serveur", salary: 0, status: "active", hireDate: new Date().toISOString().split("T")[0], notes: "" }); setShowStaffForm(true); }} className="bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl text-sm">
+                  <Plus className="w-4 h-4 mr-1" /> Ajouter
+                </Button>
+              </div>
+
+              <AnimatePresence>
+                {showStaffForm && (
+                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+                    <Card className="border-orange-200 bg-orange-50/30">
+                      <CardContent className="p-4 sm:p-6">
+                        <h3 className="font-semibold text-gray-900 mb-4">{editingStaff ? "Modifier le membre" : "Ajouter un membre"}</h3>
+                        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Nom *</label><Input value={staffForm.name} onChange={e => setStaffForm({ ...staffForm, name: e.target.value })} placeholder="Nom complet" /></div>
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Téléphone</label><Input value={staffForm.phone} onChange={e => setStaffForm({ ...staffForm, phone: e.target.value })} placeholder="+224 6XX XX XX XX" /></div>
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Rôle *</label>
+                            <select value={staffForm.role} onChange={e => setStaffForm({ ...staffForm, role: e.target.value })} className="w-full h-9 rounded-md border border-gray-200 bg-white px-3 text-sm">
+                              {Object.entries(staffRoleLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                            </select>
+                          </div>
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Salaire (GNF)</label><Input type="number" value={staffForm.salary || ""} onChange={e => setStaffForm({ ...staffForm, salary: parseInt(e.target.value) || 0 })} placeholder="600000" /></div>
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Statut</label>
+                            <select value={staffForm.status} onChange={e => setStaffForm({ ...staffForm, status: e.target.value })} className="w-full h-9 rounded-md border border-gray-200 bg-white px-3 text-sm">
+                              <option value="active">Actif</option><option value="on_leave">En congé</option><option value="inactive">Inactif</option>
+                            </select>
+                          </div>
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Date d'embauche</label><Input type="date" value={staffForm.hireDate} onChange={e => setStaffForm({ ...staffForm, hireDate: e.target.value })} /></div>
+                          <div className="sm:col-span-2 lg:col-span-3"><label className="text-xs font-medium text-gray-600 mb-1 block">Notes</label><Input value={staffForm.notes} onChange={e => setStaffForm({ ...staffForm, notes: e.target.value })} placeholder="Notes supplémentaires" /></div>
+                        </div>
+                        <div className="flex gap-2 mt-4">
+                          <Button onClick={async () => { if (editingStaff) { await apiPatch("/api/staff", { id: editingStaff.id, ...staffForm }); } else { await apiPost("/api/staff", staffForm); } setShowStaffForm(false); setEditingStaff(null); }} className="bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl"><Save className="w-4 h-4 mr-1" /> {editingStaff ? "Enregistrer" : "Ajouter"}</Button>
+                          <Button variant="outline" onClick={() => { setShowStaffForm(false); setEditingStaff(null); }}>Annuler</Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <div className="bg-white rounded-xl border overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead><tr className="bg-gray-50 border-b">
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Nom</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Rôle</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Téléphone</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Salaire</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Statut</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Actions</th>
+                    </tr></thead>
+                    <tbody className="divide-y">
+                      {staffList.map(s => (
+                        <tr key={s.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3"><p className="text-sm font-medium text-gray-900">{s.name}</p><p className="text-xs text-gray-500">Depuis {s.hireDate || "-"}</p></td>
+                          <td className="px-4 py-3"><Badge className={`${expenseCategoryColors[s.role] || "bg-gray-100 text-gray-700"} text-xs`}>{staffRoleLabels[s.role] || s.role}</Badge></td>
+                          <td className="px-4 py-3 text-sm text-gray-700">{s.phone || "-"}</td>
+                          <td className="px-4 py-3 text-sm font-medium text-gray-900">{formatPrice(s.salary)}</td>
+                          <td className="px-4 py-3"><Badge className={`${staffStatusColors[s.status] || ""} text-xs`}>{staffStatusLabels[s.status] || s.status}</Badge></td>
+                          <td className="px-4 py-3"><div className="flex items-center gap-1">
+                            <button onClick={() => { setEditingStaff(s); setStaffForm({ name: s.name, phone: s.phone, role: s.role, salary: s.salary, status: s.status, hireDate: s.hireDate, notes: s.notes }); setShowStaffForm(true); }} className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-orange-100 hover:text-orange-600" title="Modifier"><Edit3 className="w-4 h-4" /></button>
+                            {deleteStaffConfirm === s.id ? (
+                              <div className="flex items-center gap-1"><button onClick={() => { apiDelete("/api/staff", { id: s.id }); setDeleteStaffConfirm(null); }} className="text-[10px] px-1.5 py-0.5 bg-red-500 text-white rounded">Oui</button><button onClick={() => setDeleteStaffConfirm(null)} className="text-[10px] px-1.5 py-0.5 bg-gray-200 text-gray-600 rounded">Non</button></div>
+                            ) : (
+                              <button onClick={() => setDeleteStaffConfirm(s.id)} className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-red-100 hover:text-red-600" title="Supprimer"><Trash2 className="w-4 h-4" /></button>
+                            )}
+                          </div></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ═══════ UTILISATEURS ═══════ */}
+          {activeTab === "admins" && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-green-100 text-green-700">{admins.filter(a => a.status === "active").length} Actifs</Badge>
+                  <Badge className="bg-red-100 text-red-700">{admins.filter(a => a.status === "inactive").length} Inactifs</Badge>
+                </div>
+                <Button onClick={() => { setEditingAdmin(null); setAdminForm({ email: "", password: "", name: "", role: "staff", status: "active" }); setShowAdminForm(true); }} className="bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl text-sm">
+                  <Plus className="w-4 h-4 mr-1" /> Ajouter un utilisateur
+                </Button>
+              </div>
+
+              <AnimatePresence>
+                {showAdminForm && (
+                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+                    <Card className="border-orange-200 bg-orange-50/30">
+                      <CardContent className="p-4 sm:p-6">
+                        <h3 className="font-semibold text-gray-900 mb-4">{editingAdmin ? "Modifier l'utilisateur" : "Ajouter un utilisateur"}</h3>
+                        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Nom *</label><Input value={adminForm.name} onChange={e => setAdminForm({ ...adminForm, name: e.target.value })} placeholder="Nom complet" /></div>
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Email *</label><Input type="email" value={adminForm.email} onChange={e => setAdminForm({ ...adminForm, email: e.target.value })} placeholder="email@exemple.com" /></div>
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Mot de passe {!editingAdmin && "*"}</label><Input type="password" value={adminForm.password} onChange={e => setAdminForm({ ...adminForm, password: e.target.value })} placeholder={editingAdmin ? "Laisser vide pour ne pas changer" : "Mot de passe"} /></div>
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Rôle *</label>
+                            <select value={adminForm.role} onChange={e => setAdminForm({ ...adminForm, role: e.target.value })} className="w-full h-9 rounded-md border border-gray-200 bg-white px-3 text-sm">
+                              {Object.entries(adminRoleLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                            </select>
+                          </div>
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Statut</label>
+                            <select value={adminForm.status} onChange={e => setAdminForm({ ...adminForm, status: e.target.value })} className="w-full h-9 rounded-md border border-gray-200 bg-white px-3 text-sm">
+                              <option value="active">Actif</option><option value="inactive">Inactif</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 mt-4">
+                          <Button onClick={async () => { const body: any = { ...adminForm }; if (editingAdmin) { if (!body.password) delete body.password; await apiPatch("/api/admins", { id: editingAdmin.id, ...body }); } else { await apiPost("/api/admins", body); } setShowAdminForm(false); setEditingAdmin(null); }} className="bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl"><Save className="w-4 h-4 mr-1" /> {editingAdmin ? "Enregistrer" : "Ajouter"}</Button>
+                          <Button variant="outline" onClick={() => { setShowAdminForm(false); setEditingAdmin(null); }}>Annuler</Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {admins.map(a => (
+                  <Card key={a.id} className="hover:shadow-md transition-shadow">
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-100 to-red-100 flex items-center justify-center text-sm font-bold text-orange-600">{a.name[0]}</div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-gray-900 text-sm truncate">{a.name}</p>
+                          <p className="text-xs text-gray-500 truncate">{a.email}</p>
+                        </div>
+                        <Badge className={`${a.status === "active" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"} text-xs`}>{a.status === "active" ? "Actif" : "Inactif"}</Badge>
+                      </div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="text-xs">{adminRoleLabels[a.role] || a.role}</Badge>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button size="sm" variant="outline" onClick={() => apiPatch("/api/admins", { id: a.id, status: a.status === "active" ? "inactive" : "active" })} className={`flex-1 text-xs rounded-lg ${a.status === "active" ? "text-red-500 border-red-200" : "text-green-500 border-green-200"}`}>
+                          {a.status === "active" ? "Désactiver" : "Activer"}
+                        </Button>
+                        <button onClick={() => { setEditingAdmin(a); setAdminForm({ email: a.email, password: "", name: a.name, role: a.role, status: a.status }); setShowAdminForm(true); }} className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-orange-100 hover:text-orange-600" title="Modifier"><Edit3 className="w-4 h-4" /></button>
+                        {a.id !== admin.id && (deleteAdminConfirm === a.id ? (
+                          <div className="flex items-center gap-1"><button onClick={() => { apiDelete("/api/admins", { id: a.id }); setDeleteAdminConfirm(null); }} className="text-[10px] px-1.5 py-0.5 bg-red-500 text-white rounded">Oui</button><button onClick={() => setDeleteAdminConfirm(null)} className="text-[10px] px-1.5 py-0.5 bg-gray-200 text-gray-600 rounded">Non</button></div>
+                        ) : (
+                          <button onClick={() => setDeleteAdminConfirm(a.id)} className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-red-100 hover:text-red-600" title="Supprimer"><Trash2 className="w-4 h-4" /></button>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ═══════ FACTURES ═══════ */}
+          {activeTab === "invoices" && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-amber-100 text-amber-700">{invoices.filter(i => i.status === "pending").length} En attente</Badge>
+                  <Badge className="bg-green-100 text-green-700">{invoices.filter(i => i.status === "paid").length} Payées</Badge>
+                  <Badge className="bg-red-100 text-red-700">{invoices.filter(i => i.status === "overdue").length} En retard</Badge>
+                </div>
+                <Button onClick={() => { setEditingInvoice(null); const today = new Date().toISOString().split("T")[0]; const count = invoices.length + 1; setInvoiceForm({ number: `FAC-2026-${String(count).padStart(3, "0")}`, customerName: "", customerPhone: "", items: "[]", subtotal: 0, tax: 0, total: 0, status: "pending", dueDate: today, notes: "" }); setShowInvoiceForm(true); }} className="bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl text-sm">
+                  <Plus className="w-4 h-4 mr-1" /> Nouvelle facture
+                </Button>
+              </div>
+
+              {/* Invoice summary */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <Card><CardContent className="p-3"><p className="text-xs text-gray-500">Total facturé</p><p className="text-lg font-bold text-gray-900">{formatPrice(invoices.reduce((s, i) => s + i.total, 0))}</p></CardContent></Card>
+                <Card><CardContent className="p-3"><p className="text-xs text-gray-500">Payé</p><p className="text-lg font-bold text-green-600">{formatPrice(invoices.filter(i => i.status === "paid").reduce((s, i) => s + i.total, 0))}</p></CardContent></Card>
+                <Card><CardContent className="p-3"><p className="text-xs text-gray-500">En attente</p><p className="text-lg font-bold text-amber-600">{formatPrice(invoices.filter(i => i.status === "pending").reduce((s, i) => s + i.total, 0))}</p></CardContent></Card>
+                <Card><CardContent className="p-3"><p className="text-xs text-gray-500">En retard</p><p className="text-lg font-bold text-red-600">{formatPrice(invoices.filter(i => i.status === "overdue").reduce((s, i) => s + i.total, 0))}</p></CardContent></Card>
+              </div>
+
+              <AnimatePresence>
+                {showInvoiceForm && (
+                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+                    <Card className="border-orange-200 bg-orange-50/30">
+                      <CardContent className="p-4 sm:p-6">
+                        <h3 className="font-semibold text-gray-900 mb-4">{editingInvoice ? "Modifier la facture" : "Nouvelle facture"}</h3>
+                        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">N° Facture *</label><Input value={invoiceForm.number} onChange={e => setInvoiceForm({ ...invoiceForm, number: e.target.value })} placeholder="FAC-2026-001" /></div>
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Client *</label><Input value={invoiceForm.customerName} onChange={e => setInvoiceForm({ ...invoiceForm, customerName: e.target.value })} placeholder="Nom du client" /></div>
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Téléphone</label><Input value={invoiceForm.customerPhone} onChange={e => setInvoiceForm({ ...invoiceForm, customerPhone: e.target.value })} placeholder="+224 ..." /></div>
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Sous-total (GNF)</label><Input type="number" value={invoiceForm.subtotal || ""} onChange={e => { const v = parseInt(e.target.value) || 0; setInvoiceForm({ ...invoiceForm, subtotal: v, total: v + invoiceForm.tax }); }} placeholder="350000" /></div>
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Taxe (GNF)</label><Input type="number" value={invoiceForm.tax || ""} onChange={e => { const v = parseInt(e.target.value) || 0; setInvoiceForm({ ...invoiceForm, tax: v, total: invoiceForm.subtotal + v }); }} placeholder="52500" /></div>
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Total (GNF)</label><p className="h-9 flex items-center text-sm font-bold text-orange-600">{formatPrice(invoiceForm.total)}</p></div>
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Échéance</label><Input type="date" value={invoiceForm.dueDate} onChange={e => setInvoiceForm({ ...invoiceForm, dueDate: e.target.value })} /></div>
+                          <div className="sm:col-span-2"><label className="text-xs font-medium text-gray-600 mb-1 block">Notes</label><Input value={invoiceForm.notes} onChange={e => setInvoiceForm({ ...invoiceForm, notes: e.target.value })} placeholder="Notes" /></div>
+                        </div>
+                        <div className="flex gap-2 mt-4">
+                          <Button onClick={async () => { if (editingInvoice) { await apiPatch("/api/invoices", { id: editingInvoice.id, ...invoiceForm }); } else { await apiPost("/api/invoices", invoiceForm); } setShowInvoiceForm(false); setEditingInvoice(null); }} className="bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl"><Save className="w-4 h-4 mr-1" /> {editingInvoice ? "Enregistrer" : "Créer"}</Button>
+                          <Button variant="outline" onClick={() => { setShowInvoiceForm(false); setEditingInvoice(null); }}>Annuler</Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <div className="space-y-3">
+                {invoices.map(inv => {
+                  let lineItems: { description: string; qty: number; unitPrice: number; total: number }[] = [];
+                  try { lineItems = JSON.parse(inv.items); } catch { /* */ }
+                  return (
+                    <Card key={inv.id} className="hover:shadow-md transition-shadow">
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between gap-3 mb-2">
+                          <div>
+                            <div className="flex items-center gap-2"><p className="font-semibold text-gray-900 text-sm">{inv.number}</p><Badge className={`${invoiceStatusColors[inv.status] || ""} text-xs`}>{invoiceStatusLabels[inv.status] || inv.status}</Badge></div>
+                            <p className="text-sm text-gray-700">{inv.customerName}</p>
+                            {inv.customerPhone && <p className="text-xs text-gray-500">{inv.customerPhone}</p>}
+                          </div>
+                          <p className="text-lg font-bold text-orange-600">{formatPrice(inv.total)}</p>
+                        </div>
+                        {lineItems.length > 0 && (
+                          <div className="bg-gray-50 rounded-lg p-2 mb-2 text-xs space-y-1">
+                            {lineItems.map((li, j) => <div key={j} className="flex justify-between"><span className="text-gray-600">{li.description} x{li.qty}</span><span className="font-medium">{formatPrice(li.total)}</span></div>)}
+                            <Separator className="my-1" />
+                            <div className="flex justify-between"><span className="text-gray-500">Sous-total: {formatPrice(inv.subtotal)}</span><span className="text-gray-500">Taxe: {formatPrice(inv.tax)}</span></div>
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
+                          <span>Échéance: {inv.dueDate || "-"}</span>
+                          {inv.notes && <span>• {inv.notes}</span>}
+                        </div>
+                        <div className="flex gap-2">
+                          {inv.status === "pending" && <Button size="sm" onClick={() => apiPatch("/api/invoices", { id: inv.id, status: "paid" })} className="bg-green-500 hover:bg-green-600 text-white text-xs rounded-lg">Marquer payée</Button>}
+                          {inv.status === "pending" && <Button size="sm" variant="outline" onClick={() => apiPatch("/api/invoices", { id: inv.id, status: "overdue" })} className="text-red-500 border-red-200 hover:bg-red-50 text-xs rounded-lg">En retard</Button>}
+                          {inv.status === "overdue" && <Button size="sm" onClick={() => apiPatch("/api/invoices", { id: inv.id, status: "paid" })} className="bg-green-500 hover:bg-green-600 text-white text-xs rounded-lg">Marquer payée</Button>}
+                          {inv.status !== "cancelled" && inv.status !== "paid" && <Button size="sm" variant="outline" onClick={() => apiPatch("/api/invoices", { id: inv.id, status: "cancelled" })} className="text-red-500 border-red-200 text-xs rounded-lg"><XCircle className="w-3 h-3" /></Button>}
+                          <button onClick={() => { setEditingInvoice(inv); setInvoiceForm({ number: inv.number, customerName: inv.customerName, customerPhone: inv.customerPhone, items: inv.items, subtotal: inv.subtotal, tax: inv.tax, total: inv.total, status: inv.status, dueDate: inv.dueDate, notes: inv.notes }); setShowInvoiceForm(true); }} className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-orange-100 hover:text-orange-600" title="Modifier"><Edit3 className="w-4 h-4" /></button>
+                          {deleteInvoiceConfirm === inv.id ? (
+                            <div className="flex items-center gap-1"><button onClick={() => { apiDelete("/api/invoices", { id: inv.id }); setDeleteInvoiceConfirm(null); }} className="text-[10px] px-1.5 py-0.5 bg-red-500 text-white rounded">Oui</button><button onClick={() => setDeleteInvoiceConfirm(null)} className="text-[10px] px-1.5 py-0.5 bg-gray-200 text-gray-600 rounded">Non</button></div>
+                          ) : (
+                            <button onClick={() => setDeleteInvoiceConfirm(inv.id)} className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-red-100 hover:text-red-600" title="Supprimer"><Trash2 className="w-4 h-4" /></button>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+                {invoices.length === 0 && <Card><CardContent className="p-8 text-center"><Receipt className="w-12 h-12 text-gray-300 mx-auto mb-3" /><p className="text-gray-500">Aucune facture</p></CardContent></Card>}
+              </div>
+            </div>
+          )}
+
+          {/* ═══════ DEVIS ═══════ */}
+          {activeTab === "quotes" && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-gray-100 text-gray-700">{quotes.filter(q => q.status === "draft").length} Brouillons</Badge>
+                  <Badge className="bg-blue-100 text-blue-700">{quotes.filter(q => q.status === "sent").length} Envoyés</Badge>
+                  <Badge className="bg-green-100 text-green-700">{quotes.filter(q => q.status === "accepted").length} Acceptés</Badge>
+                </div>
+                <Button onClick={() => { setEditingQuote(null); const count = quotes.length + 1; setQuoteForm({ number: `DEV-2026-${String(count).padStart(3, "0")}`, customerName: "", customerPhone: "", items: "[]", subtotal: 0, discount: 0, total: 0, status: "draft", validUntil: "", notes: "" }); setShowQuoteForm(true); }} className="bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl text-sm">
+                  <Plus className="w-4 h-4 mr-1" /> Nouveau devis
+                </Button>
+              </div>
+
+              <AnimatePresence>
+                {showQuoteForm && (
+                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+                    <Card className="border-orange-200 bg-orange-50/30">
+                      <CardContent className="p-4 sm:p-6">
+                        <h3 className="font-semibold text-gray-900 mb-4">{editingQuote ? "Modifier le devis" : "Nouveau devis"}</h3>
+                        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">N° Devis *</label><Input value={quoteForm.number} onChange={e => setQuoteForm({ ...quoteForm, number: e.target.value })} placeholder="DEV-2026-001" /></div>
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Client *</label><Input value={quoteForm.customerName} onChange={e => setQuoteForm({ ...quoteForm, customerName: e.target.value })} placeholder="Nom du client" /></div>
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Téléphone</label><Input value={quoteForm.customerPhone} onChange={e => setQuoteForm({ ...quoteForm, customerPhone: e.target.value })} placeholder="+224 ..." /></div>
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Sous-total (GNF)</label><Input type="number" value={quoteForm.subtotal || ""} onChange={e => { const v = parseInt(e.target.value) || 0; setQuoteForm({ ...quoteForm, subtotal: v, total: v - quoteForm.discount }); }} /></div>
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Remise (GNF)</label><Input type="number" value={quoteForm.discount || ""} onChange={e => { const v = parseInt(e.target.value) || 0; setQuoteForm({ ...quoteForm, discount: v, total: quoteForm.subtotal - v }); }} /></div>
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Total (GNF)</label><p className="h-9 flex items-center text-sm font-bold text-orange-600">{formatPrice(quoteForm.total)}</p></div>
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Valide jusqu'au</label><Input type="date" value={quoteForm.validUntil} onChange={e => setQuoteForm({ ...quoteForm, validUntil: e.target.value })} /></div>
+                          <div className="sm:col-span-2"><label className="text-xs font-medium text-gray-600 mb-1 block">Notes</label><Input value={quoteForm.notes} onChange={e => setQuoteForm({ ...quoteForm, notes: e.target.value })} placeholder="Notes" /></div>
+                        </div>
+                        <div className="flex gap-2 mt-4">
+                          <Button onClick={async () => { if (editingQuote) { await apiPatch("/api/quotes", { id: editingQuote.id, ...quoteForm }); } else { await apiPost("/api/quotes", quoteForm); } setShowQuoteForm(false); setEditingQuote(null); }} className="bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl"><Save className="w-4 h-4 mr-1" /> {editingQuote ? "Enregistrer" : "Créer"}</Button>
+                          <Button variant="outline" onClick={() => { setShowQuoteForm(false); setEditingQuote(null); }}>Annuler</Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <div className="space-y-3">
+                {quotes.map(q => {
+                  let lineItems: { description: string; qty: number; unitPrice: number; total: number }[] = [];
+                  try { lineItems = JSON.parse(q.items); } catch { /* */ }
+                  return (
+                    <Card key={q.id} className="hover:shadow-md transition-shadow">
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between gap-3 mb-2">
+                          <div>
+                            <div className="flex items-center gap-2"><p className="font-semibold text-gray-900 text-sm">{q.number}</p><Badge className={`${quoteStatusColors[q.status] || ""} text-xs`}>{quoteStatusLabels[q.status] || q.status}</Badge></div>
+                            <p className="text-sm text-gray-700">{q.customerName}</p>
+                          </div>
+                          <p className="text-lg font-bold text-orange-600">{formatPrice(q.total)}</p>
+                        </div>
+                        {lineItems.length > 0 && (
+                          <div className="bg-gray-50 rounded-lg p-2 mb-2 text-xs space-y-1">
+                            {lineItems.map((li, j) => <div key={j} className="flex justify-between"><span className="text-gray-600">{li.description} x{li.qty}</span><span className="font-medium">{formatPrice(li.total)}</span></div>)}
+                            {q.discount > 0 && <div className="flex justify-between text-green-600"><span>Remise</span><span>-{formatPrice(q.discount)}</span></div>}
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
+                          <span>Valide jusqu'au: {q.validUntil || "-"}</span>
+                          {q.notes && <span>• {q.notes}</span>}
+                        </div>
+                        <div className="flex gap-2 flex-wrap">
+                          {q.status === "draft" && <Button size="sm" onClick={() => apiPatch("/api/quotes", { id: q.id, status: "sent" })} className="bg-blue-500 hover:bg-blue-600 text-white text-xs rounded-lg">Envoyer</Button>}
+                          {q.status === "sent" && <><Button size="sm" onClick={() => apiPatch("/api/quotes", { id: q.id, status: "accepted" })} className="bg-green-500 hover:bg-green-600 text-white text-xs rounded-lg">Accepter</Button><Button size="sm" variant="outline" onClick={() => apiPatch("/api/quotes", { id: q.id, status: "refused" })} className="text-red-500 border-red-200 text-xs rounded-lg">Refuser</Button></>}
+                          <button onClick={() => { setEditingQuote(q); setQuoteForm({ number: q.number, customerName: q.customerName, customerPhone: q.customerPhone, items: q.items, subtotal: q.subtotal, discount: q.discount, total: q.total, status: q.status, validUntil: q.validUntil, notes: q.notes }); setShowQuoteForm(true); }} className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-orange-100 hover:text-orange-600" title="Modifier"><Edit3 className="w-4 h-4" /></button>
+                          {deleteQuoteConfirm === q.id ? (
+                            <div className="flex items-center gap-1"><button onClick={() => { apiDelete("/api/quotes", { id: q.id }); setDeleteQuoteConfirm(null); }} className="text-[10px] px-1.5 py-0.5 bg-red-500 text-white rounded">Oui</button><button onClick={() => setDeleteQuoteConfirm(null)} className="text-[10px] px-1.5 py-0.5 bg-gray-200 text-gray-600 rounded">Non</button></div>
+                          ) : (
+                            <button onClick={() => setDeleteQuoteConfirm(q.id)} className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-red-100 hover:text-red-600" title="Supprimer"><Trash2 className="w-4 h-4" /></button>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+                {quotes.length === 0 && <Card><CardContent className="p-8 text-center"><ClipboardList className="w-12 h-12 text-gray-300 mx-auto mb-3" /><p className="text-gray-500">Aucun devis</p></CardContent></Card>}
+              </div>
+            </div>
+          )}
+
+          {/* ═══════ DÉPENSES ═══════ */}
+          {activeTab === "expenses" && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm text-gray-500">Total: <span className="font-bold text-gray-900">{formatPrice(expenses.reduce((s, e) => s + e.amount, 0))}</span></p>
+                </div>
+                <Button onClick={() => { setEditingExpense(null); setExpenseForm({ description: "", amount: 0, category: "other", date: new Date().toISOString().split("T")[0], paidBy: "", notes: "" }); setShowExpenseForm(true); }} className="bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl text-sm">
+                  <Plus className="w-4 h-4 mr-1" /> Ajouter une dépense
+                </Button>
+              </div>
+
+              {/* Expense summary by category */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+                {Object.entries(expenseCategoryLabels).map(([key, label]) => {
+                  const total = expenses.filter(e => e.category === key).reduce((s, e) => s + e.amount, 0);
+                  return (
+                    <Card key={key} className="hover:shadow-sm transition-shadow"><CardContent className="p-2.5 text-center">
+                      <Badge className={`${expenseCategoryColors[key]} text-[10px] mb-1`}>{label}</Badge>
+                      <p className="text-xs font-bold text-gray-900">{formatPrice(total)}</p>
+                    </CardContent></Card>
+                  );
+                })}
+              </div>
+
+              <AnimatePresence>
+                {showExpenseForm && (
+                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+                    <Card className="border-orange-200 bg-orange-50/30">
+                      <CardContent className="p-4 sm:p-6">
+                        <h3 className="font-semibold text-gray-900 mb-4">{editingExpense ? "Modifier la dépense" : "Ajouter une dépense"}</h3>
+                        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Description *</label><Input value={expenseForm.description} onChange={e => setExpenseForm({ ...expenseForm, description: e.target.value })} placeholder="Description de la dépense" /></div>
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Montant (GNF) *</label><Input type="number" value={expenseForm.amount || ""} onChange={e => setExpenseForm({ ...expenseForm, amount: parseInt(e.target.value) || 0 })} placeholder="500000" /></div>
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Catégorie *</label>
+                            <select value={expenseForm.category} onChange={e => setExpenseForm({ ...expenseForm, category: e.target.value })} className="w-full h-9 rounded-md border border-gray-200 bg-white px-3 text-sm">
+                              {Object.entries(expenseCategoryLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                            </select>
+                          </div>
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Date *</label><Input type="date" value={expenseForm.date} onChange={e => setExpenseForm({ ...expenseForm, date: e.target.value })} /></div>
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Payé par</label><Input value={expenseForm.paidBy} onChange={e => setExpenseForm({ ...expenseForm, paidBy: e.target.value })} placeholder="Nom" /></div>
+                          <div><label className="text-xs font-medium text-gray-600 mb-1 block">Notes</label><Input value={expenseForm.notes} onChange={e => setExpenseForm({ ...expenseForm, notes: e.target.value })} placeholder="Notes" /></div>
+                        </div>
+                        <div className="flex gap-2 mt-4">
+                          <Button onClick={async () => { if (editingExpense) { await apiPatch("/api/expenses", { id: editingExpense.id, ...expenseForm }); } else { await apiPost("/api/expenses", expenseForm); } setShowExpenseForm(false); setEditingExpense(null); }} className="bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl"><Save className="w-4 h-4 mr-1" /> {editingExpense ? "Enregistrer" : "Ajouter"}</Button>
+                          <Button variant="outline" onClick={() => { setShowExpenseForm(false); setEditingExpense(null); }}>Annuler</Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <div className="bg-white rounded-xl border overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead><tr className="bg-gray-50 border-b">
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Description</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Montant</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Catégorie</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Date</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Payé par</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Actions</th>
+                    </tr></thead>
+                    <tbody className="divide-y">
+                      {expenses.map(e => (
+                        <tr key={e.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3"><p className="text-sm font-medium text-gray-900">{e.description}</p>{e.notes && <p className="text-xs text-gray-500">{e.notes}</p>}</td>
+                          <td className="px-4 py-3 text-sm font-bold text-red-600">{formatPrice(e.amount)}</td>
+                          <td className="px-4 py-3"><Badge className={`${expenseCategoryColors[e.category] || "bg-gray-100 text-gray-700"} text-xs`}>{expenseCategoryLabels[e.category] || e.category}</Badge></td>
+                          <td className="px-4 py-3 text-sm text-gray-700">{e.date}</td>
+                          <td className="px-4 py-3 text-sm text-gray-700">{e.paidBy || "-"}</td>
+                          <td className="px-4 py-3"><div className="flex items-center gap-1">
+                            <button onClick={() => { setEditingExpense(e); setExpenseForm({ description: e.description, amount: e.amount, category: e.category, date: e.date, paidBy: e.paidBy, notes: e.notes }); setShowExpenseForm(true); }} className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-orange-100 hover:text-orange-600" title="Modifier"><Edit3 className="w-4 h-4" /></button>
+                            {deleteExpenseConfirm === e.id ? (
+                              <div className="flex items-center gap-1"><button onClick={() => { apiDelete("/api/expenses", { id: e.id }); setDeleteExpenseConfirm(null); }} className="text-[10px] px-1.5 py-0.5 bg-red-500 text-white rounded">Oui</button><button onClick={() => setDeleteExpenseConfirm(null)} className="text-[10px] px-1.5 py-0.5 bg-gray-200 text-gray-600 rounded">Non</button></div>
+                            ) : (
+                              <button onClick={() => setDeleteExpenseConfirm(e.id)} className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-red-100 hover:text-red-600" title="Supprimer"><Trash2 className="w-4 h-4" /></button>
+                            )}
+                          </div></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}
