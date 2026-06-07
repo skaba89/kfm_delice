@@ -29,12 +29,16 @@ model Restaurant {
   hours       String   @default("")
   rating      Float    @default(4.5)
   tables      Int      @default(20)
+  deliveryFee Int      @default(5000)
+  minDelivery Int      @default(15000)
+  deliveryZones String @default("Conakry:Kaloum:Dixinn:Matam:Matoto")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  menuItems   MenuItem[]
-  reservations Reservation[]
-  orders      Order[]
-  reviews     Review[]
+  menuItems     MenuItem[]
+  reservations  Reservation[]
+  orders        Order[]
+  reviews       Review[]
+  drivers       Driver[]
 }
 
 model MenuItem {
@@ -63,7 +67,7 @@ model Reservation {
   guests       Int      @default(2)
   zone         String   @default("interieur")
   notes        String   @default("")
-  status       String   @default("pending") // pending, confirmed, cancelled, completed
+  status       String   @default("pending")
   loyaltyPoint Int      @default(50)
   restaurantId String
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
@@ -72,15 +76,36 @@ model Reservation {
 }
 
 model Order {
+  id            String   @id @default(cuid())
+  customerName  String   @default("")
+  phone         String   @default("")
+  items         String   // JSON string
+  total         Int
+  status        String   @default("pending") // pending, preparing, ready, delivering, delivered, cancelled
+  orderType     String   @default("dine_in") // dine_in, takeaway, delivery
+  paymentMethod String   @default("cash")
+  deliveryAddress String @default("")
+  deliveryFee   Int      @default(0)
+  driverId      String?
+  driver        Driver?  @relation(fields: [driverId], references: [id])
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+}
+
+model Driver {
   id           String   @id @default(cuid())
-  customerName String   @default("")
-  phone        String   @default("")
-  items        String   // JSON string of items
-  total        Int
-  status       String   @default("pending") // pending, preparing, ready, delivered, cancelled
-  paymentMethod String  @default("cash") // cash, orange_money, mtn_money, card
+  name         String
+  phone        String
+  vehicle      String   @default("moto") // moto, velo, voiture
+  status       String   @default("available") // available, busy, offline
+  rating       Float    @default(5.0)
+  totalDeliveries Int   @default(0)
+  zone         String   @default("Conakry")
   restaurantId String
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  orders       Order[]
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 }
