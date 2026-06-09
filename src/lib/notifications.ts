@@ -1,0 +1,38 @@
+import { toast } from "sonner";
+
+export const notify = {
+  success: (message: string) => toast.success(message),
+  error: (message: string) => toast.error(message),
+  info: (message: string) => toast.info(message),
+  warning: (message: string) => toast.warning(message),
+  loading: (message: string) => toast.loading(message),
+
+  // Specific notifications for KFM Delice
+  newOrder: (customerName: string) => toast.info(`Nouvelle commande de ${customerName}`),
+  newReservation: (customerName: string) => toast.info(`Nouvelle réservation de ${customerName}`),
+  orderStatusChanged: (status: string) => toast.success(`Commande mise à jour : ${status}`),
+  reservationConfirmed: (customerName: string) => toast.success(`Réservation confirmée pour ${customerName}`),
+  reservationCancelled: (customerName: string) => toast.warning(`Réservation annulée pour ${customerName}`),
+  reservationCompleted: (customerName: string) => toast.success(`Réservation terminée pour ${customerName}`),
+  deliveryAssigned: (driverName: string) => toast.success(`Livraison assignée à ${driverName}`),
+  menuItemSaved: (name: string, isEdit: boolean) => toast.success(isEdit ? `${name} modifié` : `${name} ajouté au menu`),
+  menuItemDeleted: (name: string) => toast.warning(`${name} supprimé du menu`),
+  driverSaved: (name: string, isEdit: boolean) => toast.success(isEdit ? `Livreur ${name} modifié` : `Livreur ${name} ajouté`),
+  driverDeleted: (name: string) => toast.warning(`Livreur ${name} supprimé`),
+  staffSaved: (name: string, isEdit: boolean) => toast.success(isEdit ? `${name} modifié` : `${name} ajouté au personnel`),
+  staffDeleted: (name: string) => toast.warning(`${name} supprimé du personnel`),
+  adminSaved: (name: string, isEdit: boolean) => toast.success(isEdit ? `Utilisateur ${name} modifié` : `Utilisateur ${name} ajouté`),
+  adminDeleted: (name: string) => toast.warning(`Utilisateur ${name} supprimé`),
+  invoiceSaved: (number: string) => toast.success(`Facture ${number} enregistrée`),
+  invoiceDeleted: (number: string) => toast.warning(`Facture ${number} supprimée`),
+  quoteSaved: (number: string) => toast.success(`Devis ${number} enregistré`),
+  quoteDeleted: (number: string) => toast.warning(`Devis ${number} supprimé`),
+  expenseSaved: (description: string) => toast.success(`Dépense "${description}" enregistrée`),
+  expenseDeleted: (description: string) => toast.warning(`Dépense "${description}" supprimée`),
+  profileUpdated: () => toast.success("Profil mis à jour avec succès"),
+  passwordChanged: () => toast.success("Mot de passe modifié"),
+  reviewPublished: () => toast.success("Avis publié avec succès"),
+  loginSuccess: (name: string) => toast.success(`Bienvenue, ${name} !`),
+  posOrderSubmitted: () => toast.success("Commande POS enregistrée"),
+  posOrderReceipt: () => toast.info("Reçu de commande affiché"),
+};

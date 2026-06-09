@@ -1,31 +1,117 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
+import { authenticateAdmin, authenticateAny, hasRole } from "@/lib/auth";
+import { reservationSchema } from "@/lib/validations";
+import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, parseStatusFilter } from "@/lib/pagination";
 
-export async function GET() {
+// GET: Admin auth OR customer auth (customers only see their own)
+export async function GET(request: Request) {
   try {
-    const restaurant = await db.restaurant.findFirst();
-    if (!restaurant) return NextResponse.json([]);
+    const auth = await authenticateAny(request);
+    if (!auth) {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
 
-    const reservations = await db.reservation.findMany({
-      where: { restaurantId: restaurant.id },
-      orderBy: { createdAt: "desc" },
+    const sp = new URL(request.url).searchParams;
+    const { page, limit } = parsePagination(sp);
+    const { sortBy, sortOrder } = parseSorting(sp, ['createdAt', 'date', 'time', 'guests', 'status'] as const, 'createdAt');
+    const search = parseSearch(sp);
+    const statusFilter = parseStatusFilter(sp, ['pending', 'confirmed', 'cancelled', 'completed']);
+
+    const restaurant = await db.restaurant.findFirst();
+    if (!restaurant) return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
+
+    const buildWhere = (extraFilter: Record<string, unknown> = {}) => ({
+      restaurantId: restaurant.id,
+      ...(statusFilter && { status: statusFilter }),
+      ...(search && {
+        OR: [
+          { customerName: { contains: search } },
+          { phone: { contains: search } },
+          { notes: { contains: search } },
+        ],
+      }),
+      ...extraFilter,
     });
-    return NextResponse.json(reservations);
+
+    // If customer, filter by customer name (server-side filtering)
+    if (auth.type === "customer") {
+      const customer = await db.customer.findUnique({ where: { id: auth.id } });
+      if (!customer) return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
+
+      const where = buildWhere({ customerName: customer.name });
+      const [reservations, total] = await Promise.all([
+        db.reservation.findMany({
+          where,
+          orderBy: { [sortBy]: sortOrder },
+          skip: prismaSkip(page, limit),
+          take: prismaTake(limit),
+        }),
+        db.reservation.count({ where }),
+      ]);
+      const totalPages = Math.ceil(total / limit);
+      return NextResponse.json({
+        data: reservations,
+        pagination: { page, limit, total, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
+      });
+    }
+
+    // Admin: see all reservations with filters
+    const where = buildWhere();
+    const [reservations, total] = await Promise.all([
+      db.reservation.findMany({
+        where,
+        orderBy: { [sortBy]: sortOrder },
+        skip: prismaSkip(page, limit),
+        take: prismaTake(limit),
+      }),
+      db.reservation.count({ where }),
+    ]);
+    const totalPages = Math.ceil(total / limit);
+    return NextResponse.json({
+      data: reservations,
+      pagination: { page, limit, total, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
+    });
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
 
+// POST: Public (reservation form)
 export async function POST(request: Request) {
   try {
-    const data = await request.json();
+    const body = await request.json();
+    const validation = reservationSchema.safeParse(body);
+    if (!validation.success) {
+      const firstError = validation.error.issues[0]?.message || "Données invalides";
+      return NextResponse.json({ error: firstError }, { status: 400 });
+    }
+
     const restaurant = await db.restaurant.findFirst();
     if (!restaurant) return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
 
     const reservation = await db.reservation.create({
-      data: { ...data, restaurantId: restaurant.id },
+      data: {
+        customerName: validation.data.customerName,
+        phone: validation.data.phone ?? "",
+        date: validation.data.date,
+        time: validation.data.time,
+        guests: validation.data.guests ?? 2,
+        zone: validation.data.zone ?? "interieur",
+        notes: validation.data.notes ?? "",
+        status: validation.data.status ?? "pending",
+        restaurantId: restaurant.id,
+      },
     });
+
+    // WebSocket: notify admin of new reservation
+    try {
+      const { broadcastToType } = await import('@/lib/websocket-server');
+      const { WSEvents } = await import('@/lib/ws-events');
+      broadcastToType('admin', WSEvents.RESERVATION_NEW, { reservationId: reservation.id, customerName: reservation.customerName, date: reservation.date, time: reservation.time });
+    } catch (e) { /* WS not available, fall back to polling */ }
+
     return NextResponse.json(reservation, { status: 201 });
   } catch (error) {
     console.error(error);
@@ -33,13 +119,49 @@ export async function POST(request: Request) {
   }
 }
 
+// PATCH: Admin/Manager/Staff auth required
 export async function PATCH(request: Request) {
   try {
-    const { id, status } = await request.json();
+    const admin = await authenticateAdmin(request);
+    if (!admin) {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+    if (!hasRole(admin.role, ["admin", "manager", "staff"])) {
+      return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+    }
+
+    const body = await request.json();
+    const validation = reservationSchema.safeParse(body);
+    if (!validation.success) {
+      const firstError = validation.error.issues[0]?.message || "Données invalides";
+      return NextResponse.json({ error: firstError }, { status: 400 });
+    }
+
+    const { id, ...rawData } = validation.data;
+    if (!id) {
+      return NextResponse.json({ error: "ID requis" }, { status: 400 });
+    }
+
+    // Build update data with only provided fields
+    const updateData: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(rawData)) {
+      if (value !== undefined) updateData[key] = value;
+    }
+
     const reservation = await db.reservation.update({
       where: { id },
-      data: { status },
+      data: updateData,
     });
+
+    // WebSocket: notify admin of reservation status change
+    try {
+      const { broadcastToType } = await import('@/lib/websocket-server');
+      const { WSEvents } = await import('@/lib/ws-events');
+      if (updateData.status) {
+        broadcastToType('admin', WSEvents.RESERVATION_STATUS_CHANGED, { reservationId: reservation.id, status: reservation.status, customerName: reservation.customerName });
+      }
+    } catch (e) { /* WS not available, fall back to polling */ }
+
     return NextResponse.json(reservation);
   } catch (error) {
     console.error(error);

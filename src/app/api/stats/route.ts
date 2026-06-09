@@ -1,8 +1,18 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
+import { authenticateAdmin, authenticateAny, hasRole } from "@/lib/auth";
 
-export async function GET() {
+// GET: Admin/Manager auth required
+export async function GET(request: Request) {
   try {
+    const admin = await authenticateAdmin(request);
+    if (!admin) {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+    if (!hasRole(admin.role, ["admin", "manager"])) {
+      return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+    }
+
     const restaurant = await db.restaurant.findFirst();
     if (!restaurant) {
       return NextResponse.json({
@@ -18,33 +28,72 @@ export async function GET() {
     const rid = restaurant.id;
     const today = new Date().toISOString().split("T")[0];
 
-    const [reservations, orders, reviews, menuItems, drivers] = await Promise.all([
-      db.reservation.findMany({ where: { restaurantId: rid } }),
-      db.order.findMany({ where: { restaurantId: rid }, include: { driver: true } }),
-      db.review.findMany({ where: { restaurantId: rid } }),
-      db.menuItem.findMany({ where: { restaurantId: rid } }),
-      db.driver.findMany({ where: { restaurantId: rid } }),
+    // ─── DB-level counts (no full table scan) ──────────────────
+    const [
+      todayReservations,
+      pendingReservations,
+      totalOrders,
+      activeOrders,
+      deliveryOrders,
+      activeDeliveries,
+      dineInOrders,
+      takeawayOrders,
+      availableDrivers,
+      totalDrivers,
+      totalReviews,
+      reviewAgg,
+      todayOrderStats,
+      deliveryRevenueAgg,
+      recentReservations,
+      menuItems,
+    ] = await Promise.all([
+      db.reservation.count({ where: { restaurantId: rid, date: today } }),
+      db.reservation.count({ where: { restaurantId: rid, status: "pending" } }),
+      db.order.count({ where: { restaurantId: rid } }),
+      db.order.count({ where: { restaurantId: rid, status: { in: ["pending", "preparing", "ready", "delivering"] } } }),
+      db.order.count({ where: { restaurantId: rid, orderType: "delivery" } }),
+      db.order.count({ where: { restaurantId: rid, orderType: "delivery", status: "delivering" } }),
+      db.order.count({ where: { restaurantId: rid, orderType: "dine_in" } }),
+      db.order.count({ where: { restaurantId: rid, orderType: "takeaway" } }),
+      db.driver.count({ where: { restaurantId: rid, status: "available" } }),
+      db.driver.count({ where: { restaurantId: rid } }),
+      db.review.count({ where: { restaurantId: rid } }),
+      db.review.aggregate({ where: { restaurantId: rid }, _avg: { rating: true } }),
+      // Today's non-cancelled orders: sum of total + deliveryFee
+      db.order.findMany({
+        where: { restaurantId: rid, createdAt: { gte: new Date(today) }, status: { not: "cancelled" } },
+        select: { total: true, deliveryFee: true },
+      }),
+      // Delivery revenue: sum of deliveryFee for delivered orders
+      db.order.aggregate({
+        where: { restaurantId: rid, orderType: "delivery", status: "delivered" },
+        _sum: { deliveryFee: true },
+      }),
+      db.reservation.findMany({
+        where: { restaurantId: rid },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        select: { id: true, customerName: true, date: true, time: true, guests: true, zone: true, status: true },
+      }),
+      db.menuItem.findMany({
+        where: { restaurantId: rid },
+        select: { name: true, price: true, category: true },
+      }),
     ]);
 
-    const todayReservations = reservations.filter((r) => r.date === today).length;
-    const pendingReservations = reservations.filter((r) => r.status === "pending").length;
-    const todayOrders = orders.filter((o) => new Date(o.createdAt).toISOString().split("T")[0] === today && o.status !== "cancelled");
-    const todayRevenue = todayOrders.reduce((sum, o) => sum + o.total + (o.deliveryFee || 0), 0);
-    const activeOrders = orders.filter((o) => ["pending", "preparing", "ready", "delivering"].includes(o.status)).length;
-    const avgRating = reviews.length > 0 ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length : 0;
+    const todayRevenue = todayOrderStats.reduce((sum, o) => sum + o.total + (o.deliveryFee || 0), 0);
+    const avgRating = reviewAgg._avg.rating ? Math.round(reviewAgg._avg.rating * 10) / 10 : 0;
+    const deliveryRevenue = deliveryRevenueAgg._sum.deliveryFee || 0;
 
-    // Delivery stats
-    const deliveryOrders = orders.filter(o => o.orderType === "delivery").length;
-    const activeDeliveries = orders.filter(o => o.orderType === "delivery" && o.status === "delivering").length;
-    const availableDrivers = drivers.filter(d => d.status === "available").length;
-    const totalDrivers = drivers.length;
-    const deliveryRevenue = orders.filter(o => o.orderType === "delivery" && o.status === "delivered").reduce((s, o) => s + o.deliveryFee, 0);
-    const dineInOrders = orders.filter(o => o.orderType === "dine_in").length;
-    const takeawayOrders = orders.filter(o => o.orderType === "takeaway").length;
-
-    // Popular dishes
+    // ─── Popular dishes (needs JSON parsing — small dataset from recent orders) ──
+    const recentOrders = await db.order.findMany({
+      where: { restaurantId: rid, status: { not: "cancelled" } },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+      select: { items: true },
+    });
     const dishCounts: Record<string, number> = {};
-    orders.forEach((o) => {
+    recentOrders.forEach((o) => {
       try {
         const items = JSON.parse(o.items) as { name: string; price: number; qty: number }[];
         items.forEach((item) => { dishCounts[item.name] = (dishCounts[item.name] || 0) + item.qty; });
@@ -58,28 +107,26 @@ export async function GET() {
         return { name, count, price: mi?.price || 0, category: mi?.category || "" };
       });
 
-    const recentReservations = reservations.slice(0, 5).map((r) => ({
-      id: r.id, customerName: r.customerName, date: r.date, time: r.time,
-      guests: r.guests, zone: r.zone, status: r.status,
-    }));
-
-    // Orders by hour (for chart)
+    // ─── Orders by hour (for today's chart) ───────────────────
+    const todayOrdersByHour = await db.order.findMany({
+      where: { restaurantId: rid, createdAt: { gte: new Date(today) }, status: { not: "cancelled" } },
+      select: { createdAt: true },
+    });
     const ordersByHour: { hour: string; count: number }[] = [];
     for (let h = 11; h <= 22; h++) {
       const hStr = `${h.toString().padStart(2, "0")}`;
-      const count = todayOrders.filter(o => {
-        const oh = new Date(o.createdAt).getHours();
-        return oh === h;
-      }).length;
+      const count = todayOrdersByHour.filter(o => new Date(o.createdAt).getHours() === h).length;
       ordersByHour.push({ hour: `${hStr}:00`, count });
     }
 
     return NextResponse.json({
       todayReservations, pendingReservations, todayRevenue,
-      totalOrders: orders.length, activeOrders, avgRating: Math.round(avgRating * 10) / 10,
-      totalReviews: reviews.length, popularDishes, recentReservations,
+      totalOrders, activeOrders, avgRating,
+      totalReviews, popularDishes, recentReservations,
       deliveryOrders, activeDeliveries, availableDrivers, totalDrivers,
       deliveryRevenue, dineInOrders, takeawayOrders, ordersByHour,
+      deliveryFee: restaurant.deliveryFee,
+      minDelivery: restaurant.minDelivery,
     });
   } catch (error) {
     console.error(error);

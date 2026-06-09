@@ -60,6 +60,7 @@ model Restaurant {
   invoices      Invoice[]
   quotes        Quote[]
   expenses      Expense[]
+  payments      Payment[]
 }
 
 model MenuItem {
@@ -77,6 +78,9 @@ model MenuItem {
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
+
+  @@index([restaurantId, category])
+  @@index([restaurantId, available])
 }
 
 model Reservation {
@@ -94,6 +98,9 @@ model Reservation {
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
+
+  @@index([restaurantId, date])
+  @@index([restaurantId, status])
 }
 
 model Order {
@@ -102,21 +109,37 @@ model Order {
   phone         String   @default("")
   items         String   // JSON string
   total         Int
-  status        String   @default("pending") // pending, preparing, ready, delivering, delivered, cancelled
+  status        String   @default("pending") // pending, confirmed, preparing, ready, picking_up, delivering, delivered, cancelled
   orderType     String   @default("dine_in") // dine_in, takeaway, delivery
   paymentMethod String   @default("cash")
+  paymentStatus String   @default("pending") // pending, processing, paid, failed, refunded
   deliveryAddress String @default("")
   deliveryFee   Int      @default(0)
+  tableNumber   Int      @default(0)
+  discount      Int      @default(0)
+  tax           Int      @default(0)
+  note          String   @default("")
+  estimatedDeliveryTime String @default("") // ISO string of estimated delivery
+  driverLat     Float    @default(0) // driver live latitude
+  driverLng     Float    @default(0) // driver live longitude
   driverId      String?
   driver        Driver?  @relation(fields: [driverId], references: [id])
+  payments      Payment[]
   restaurantId  String
   restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
+
+  @@index([restaurantId, status])
+  @@index([restaurantId, orderType])
+  @@index([restaurantId, createdAt])
+  @@index([driverId])
 }
 
 model Driver {
   id           String   @id @default(cuid())
+  email        String   @default("") @unique
+  password     String   @default("")
   name         String
   phone        String
   vehicle      String   @default("moto") // moto, velo, voiture
@@ -124,11 +147,17 @@ model Driver {
   rating       Float    @default(5.0)
   totalDeliveries Int   @default(0)
   zone         String   @default("Conakry")
+  lat          Float    @default(0) // current latitude
+  lng          Float    @default(0) // current longitude
+  lastLocationUpdate DateTime @default(now()) // last GPS update
+  currentOrderId String @default("") // current active order
   restaurantId String
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   orders       Order[]
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
+
+  @@index([restaurantId, status])
 }
 
 model Review {
@@ -140,6 +169,8 @@ model Review {
   restaurantId String
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   createdAt    DateTime   @default(now())
+
+  @@index([restaurantId])
 }
 
 model Staff {
@@ -206,4 +237,28 @@ model Expense {
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
+}
+
+model Payment {
+  id              String   @id @default(cuid())
+  orderId         String
+  order           Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  amount          Int
+  method          String   // cash, orange_money, mtn_money, card
+  status          String   @default("pending") // pending, processing, paid, failed, refunded
+  transactionRef  String   @default("") // External payment reference from Orange/MTN
+  phone           String   @default("") // Customer phone for mobile money
+  customerName    String   @default("")
+  metadata        String   @default("{}") // JSON: additional payment data (OTP, receipt, etc.)
+  paidAt          String   @default("")
+  failedReason    String   @default("")
+  restaurantId    String
+  restaurant      Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@index([orderId])
+  @@index([status])
+  @@index([method])
+  @@index([restaurantId, createdAt])
 }

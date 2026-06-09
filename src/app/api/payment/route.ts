@@ -1,0 +1,423 @@
+import { db } from "@/lib/db";
+import { NextResponse } from "next/server";
+import { authenticateAdmin, authenticateAny, hasRole } from "@/lib/auth";
+import { paymentSchema, paymentStatusSchema } from "@/lib/validations";
+import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, parseStatusFilter } from "@/lib/pagination";
+
+// ============================================================
+// Orange Money & MTN Money Payment Integration
+// ============================================================
+// This implements a payment flow simulation that mirrors the real
+// Orange Money / MTN Money API structure. In production, you would
+// replace the simulate* functions with actual API calls to:
+//   - Orange Money API: https://api.orange.com/om/sandbox/
+//   - MTN MoMo API: https://momodeveloper.mtn.com/
+// ============================================================
+
+const PAYMENT_CONFIG = {
+  // In production, these would be environment variables
+  ORANGE_MONEY_MERCHANT_CODE: process.env.ORANGE_MONEY_MERCHANT_CODE || "KFM_DELICE",
+  MTN_MONEY_SUBSCRIPTION_KEY: process.env.MTN_MONEY_SUBSCRIPTION_KEY || "demo_key",
+  // Simulated processing delay (ms) — set to 0 in production
+  SIMULATED_DELAY: process.env.NODE_ENV === "production" ? 0 : 2000,
+};
+
+/**
+ * Simulate Orange Money payment initiation.
+ * In production, this would call the Orange Money Web Payment API:
+ * POST https://api.orange.com/orange-money-webpay/dev/v1/webpay
+ */
+async function initiateOrangeMoneyPayment(phone: string, amount: number, orderId: string) {
+  // Simulate API call delay
+  if (PAYMENT_CONFIG.SIMULATED_DELAY > 0) {
+    await new Promise((r) => setTimeout(r, 500));
+  }
+
+  // Validate phone format (Guinea: starts with +224 6XX)
+  const cleanPhone = phone.replace(/\s/g, "");
+  if (!cleanPhone.startsWith("+224") && !cleanPhone.startsWith("224") && !cleanPhone.startsWith("6")) {
+    return {
+      success: false,
+      error: "Numéro Orange Money invalide. Format attendu : +224 6XX XXX XXX",
+    };
+  }
+
+  // Simulate success (95% success rate in demo)
+  const isSuccess = Math.random() > 0.05;
+
+  if (isSuccess) {
+    return {
+      success: true,
+      transactionRef: `OM_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+      status: "processing" as const,
+      message: "Paiement Orange Money initié. Confirmez sur votre téléphone.",
+      otpRequired: true,
+    };
+  }
+
+  return {
+    success: false,
+    error: "Solde insuffisant ou service Orange Money temporairement indisponible.",
+  };
+}
+
+/**
+ * Simulate MTN Mobile Money payment initiation.
+ * In production, this would call the MTN MoMo API:
+ * POST https://sandbox.momodeveloper.mtn.com/collection/v1_0/requesttopay
+ */
+async function initiateMTNMoneyPayment(phone: string, amount: number, orderId: string) {
+  if (PAYMENT_CONFIG.SIMULATED_DELAY > 0) {
+    await new Promise((r) => setTimeout(r, 500));
+  }
+
+  const cleanPhone = phone.replace(/\s/g, "");
+  if (!cleanPhone.startsWith("+224") && !cleanPhone.startsWith("224") && !cleanPhone.startsWith("6")) {
+    return {
+      success: false,
+      error: "Numéro MTN Money invalide. Format attendu : +224 6XX XXX XXX",
+    };
+  }
+
+  const isSuccess = Math.random() > 0.05;
+
+  if (isSuccess) {
+    return {
+      success: true,
+      transactionRef: `MTN_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+      status: "processing" as const,
+      message: "Paiement MTN Money initié. Confirmez sur votre téléphone.",
+      otpRequired: true,
+    };
+  }
+
+  return {
+    success: false,
+    error: "Solde insuffisant ou service MTN Money temporairement indisponible.",
+  };
+}
+
+/**
+ * Process a payment based on the method.
+ * Cash and card payments are marked as paid immediately.
+ * Mobile money (Orange/MTN) initiates the payment flow.
+ */
+async function processPayment(method: string, amount: number, orderId: string, phone: string) {
+  switch (method) {
+    case "cash":
+      return {
+        success: true,
+        transactionRef: `CASH_${Date.now()}`,
+        status: "paid" as const,
+        message: "Paiement en espèces enregistré.",
+        otpRequired: false,
+      };
+
+    case "card":
+      return {
+        success: true,
+        transactionRef: `CARD_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+        status: "paid" as const,
+        message: "Paiement par carte enregistré.",
+        otpRequired: false,
+      };
+
+    case "orange_money":
+      return initiateOrangeMoneyPayment(phone, amount, orderId);
+
+    case "mtn_money":
+      return initiateMTNMoneyPayment(phone, amount, orderId);
+
+    default:
+      return { success: false, error: `Méthode de paiement non supportée : ${method}` };
+  }
+}
+
+// GET: List payments (admin/manager)
+export async function GET(request: Request) {
+  try {
+    const admin = await authenticateAdmin(request);
+    if (!admin) {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+    if (!hasRole(admin.role, ["admin", "manager"])) {
+      return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+    }
+
+    const sp = new URL(request.url).searchParams;
+    const { page, limit } = parsePagination(sp);
+    const { sortBy, sortOrder } = parseSorting(sp, ["createdAt", "amount", "method", "status"] as const, "createdAt");
+    const search = parseSearch(sp);
+    const statusFilter = parseStatusFilter(sp, ["pending", "processing", "paid", "failed", "refunded"]);
+    const methodFilter = parseStatusFilter(sp, ["cash", "orange_money", "mtn_money", "card"], "method");
+    const orderId = sp.get("orderId");
+
+    const restaurant = await db.restaurant.findFirst();
+    if (!restaurant) return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
+
+    const where = {
+      restaurantId: restaurant.id,
+      ...(statusFilter && { status: statusFilter }),
+      ...(methodFilter && { method: methodFilter }),
+      ...(orderId && { orderId }),
+      ...(search && {
+        OR: [
+          { customerName: { contains: search } },
+          { phone: { contains: search } },
+          { transactionRef: { contains: search } },
+        ],
+      }),
+    };
+
+    const [payments, total] = await Promise.all([
+      db.payment.findMany({
+        where,
+        orderBy: { [sortBy]: sortOrder },
+        include: { order: { select: { id: true, customerName: true, status: true, total: true } } },
+        skip: prismaSkip(page, limit),
+        take: prismaTake(limit),
+      }),
+      db.payment.count({ where }),
+    ]);
+
+    const totalPages = Math.ceil(total / limit);
+    return NextResponse.json({
+      data: payments,
+      pagination: { page, limit, total, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
+    });
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
+  }
+}
+
+// POST: Initiate a payment for an order
+export async function POST(request: Request) {
+  try {
+    const auth = await authenticateAny(request);
+    if (!auth) {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const validation = paymentSchema.safeParse(body);
+    if (!validation.success) {
+      const firstError = validation.error.issues[0]?.message || "Données invalides";
+      return NextResponse.json({ error: firstError }, { status: 400 });
+    }
+
+    const { orderId, method, phone, customerName } = validation.data;
+
+    // Find the order
+    const order = await db.order.findUnique({ where: { id: orderId } });
+    if (!order) {
+      return NextResponse.json({ error: "Commande non trouvée" }, { status: 404 });
+    }
+
+    // Verify order isn't already paid
+    if (order.paymentStatus === "paid") {
+      return NextResponse.json({ error: "Cette commande est déjà payée" }, { status: 400 });
+    }
+
+    // For mobile money, phone is required
+    if ((method === "orange_money" || method === "mtn_money") && !phone) {
+      return NextResponse.json(
+        { error: "Numéro de téléphone requis pour le paiement mobile" },
+        { status: 400 }
+      );
+    }
+
+    const restaurant = await db.restaurant.findFirst();
+    if (!restaurant) return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
+
+    // Process the payment
+    const result = await processPayment(method, order.total, orderId, phone || "");
+
+    if (!result.success) {
+      // Create failed payment record
+      await db.payment.create({
+        data: {
+          orderId,
+          amount: order.total,
+          method,
+          status: "failed",
+          phone: phone || "",
+          customerName: customerName || order.customerName,
+          failedReason: ('error' in result ? result.error : null) || "Échec du paiement",
+          restaurantId: restaurant.id,
+        },
+      });
+
+      return NextResponse.json({ error: ('error' in result ? result.error : "Échec du paiement") }, { status: 400 });
+    }
+
+    // Create payment record
+    const payment = await db.payment.create({
+      data: {
+        orderId,
+        amount: order.total,
+        method,
+        status: result.status,
+        transactionRef: result.transactionRef || "",
+        phone: phone || "",
+        customerName: customerName || order.customerName,
+        metadata: JSON.stringify({ otpRequired: result.otpRequired, message: result.message }),
+        ...(result.status === "paid" && { paidAt: new Date().toISOString() }),
+        restaurantId: restaurant.id,
+      },
+    });
+
+    // Update order payment status
+    await db.order.update({
+      where: { id: orderId },
+      data: {
+        paymentMethod: method,
+        paymentStatus: result.status,
+        ...(result.status === "paid" && { status: order.status === "pending" ? "confirmed" : order.status }),
+      },
+    });
+
+    // For mobile money, simulate async confirmation after a delay
+    if (result.status === "processing" && PAYMENT_CONFIG.SIMULATED_DELAY > 0) {
+      // Simulate payment confirmation callback (in production, this would be a webhook)
+      setTimeout(async () => {
+        try {
+          const confirmed = Math.random() > 0.1; // 90% confirmation rate
+          await db.payment.update({
+            where: { id: payment.id },
+            data: {
+              status: confirmed ? "paid" : "failed",
+              paidAt: confirmed ? new Date().toISOString() : "",
+              failedReason: confirmed ? "" : "Paiement non confirmé par le client.",
+            },
+          });
+
+          await db.order.update({
+            where: { id: orderId },
+            data: {
+              paymentStatus: confirmed ? "paid" : "failed",
+              ...(confirmed && order.status === "pending" && { status: "confirmed" }),
+            },
+          });
+
+          // WebSocket notification
+          if (confirmed) {
+            try {
+              const { broadcastToType } = await import("@/lib/websocket-server");
+              const { WSEvents } = await import("@/lib/ws-events");
+              broadcastToType("admin", WSEvents.ADMIN_NOTIFICATION, {
+                type: "payment_confirmed",
+                orderId,
+                amount: order.total,
+                method,
+              });
+            } catch {}
+          }
+        } catch (e) {
+          console.error("[Payment] Async confirmation error:", e);
+        }
+      }, PAYMENT_CONFIG.SIMULATED_DELAY);
+    }
+
+    // WebSocket: notify admin of new payment
+    try {
+      const { broadcastToType } = await import("@/lib/websocket-server");
+      const { WSEvents } = await import("@/lib/ws-events");
+      broadcastToType("admin", WSEvents.ADMIN_NOTIFICATION, {
+        type: "payment_initiated",
+        orderId,
+        amount: order.total,
+        method,
+        status: result.status,
+      });
+    } catch {}
+
+    return NextResponse.json({
+      payment,
+      message: result.message,
+      otpRequired: result.otpRequired,
+    }, { status: 201 });
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
+  }
+}
+
+// PATCH: Update payment status (admin confirms/cancels, or webhook callback)
+export async function PATCH(request: Request) {
+  try {
+    const body = await request.json();
+
+    // Support both admin manual update and webhook callback
+    const isWebhook = body.webhook === true;
+
+    if (!isWebhook) {
+      // Admin manual update
+      const admin = await authenticateAdmin(request);
+      if (!admin) {
+        return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+      }
+      if (!hasRole(admin.role, ["admin", "manager"])) {
+        return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+      }
+    }
+
+    const validation = paymentStatusSchema.safeParse(body);
+    if (!validation.success) {
+      const firstError = validation.error.issues[0]?.message || "Données invalides";
+      return NextResponse.json({ error: firstError }, { status: 400 });
+    }
+
+    const { id, status, transactionRef, failedReason } = validation.data;
+
+    const payment = await db.payment.findUnique({ where: { id } });
+    if (!payment) {
+      return NextResponse.json({ error: "Paiement non trouvé" }, { status: 404 });
+    }
+
+    // Update payment
+    const updatedPayment = await db.payment.update({
+      where: { id },
+      data: {
+        status,
+        ...(transactionRef && { transactionRef }),
+        ...(failedReason && { failedReason }),
+        ...(status === "paid" && { paidAt: new Date().toISOString() }),
+      },
+    });
+
+    // Update order payment status
+    await db.order.update({
+      where: { id: payment.orderId },
+      data: { paymentStatus: status },
+    });
+
+    // If payment confirmed, update order status
+    if (status === "paid") {
+      const order = await db.order.findUnique({ where: { id: payment.orderId } });
+      if (order && order.status === "pending") {
+        await db.order.update({
+          where: { id: payment.orderId },
+          data: { status: "confirmed" },
+        });
+      }
+    }
+
+    // WebSocket notification
+    try {
+      const { broadcastToType } = await import("@/lib/websocket-server");
+      const { WSEvents } = await import("@/lib/ws-events");
+      broadcastToType("admin", WSEvents.ADMIN_NOTIFICATION, {
+        type: "payment_status_changed",
+        paymentId: id,
+        orderId: payment.orderId,
+        status,
+      });
+    } catch {}
+
+    return NextResponse.json(updatedPayment);
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
+  }
+}

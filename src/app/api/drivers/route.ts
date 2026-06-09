@@ -1,15 +1,57 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
+import { authenticateAdmin, hasRole } from "@/lib/auth";
+import { driverSchema } from "@/lib/validations";
+import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, parseStatusFilter } from "@/lib/pagination";
 
-export async function GET() {
+// All methods: Admin/Manager auth required
+export async function GET(request: Request) {
   try {
+    const admin = await authenticateAdmin(request);
+    if (!admin) {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+    if (!hasRole(admin.role, ["admin", "manager"])) {
+      return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+    }
+
+    const sp = new URL(request.url).searchParams;
+    const { page, limit } = parsePagination(sp);
+    const { sortBy, sortOrder } = parseSorting(sp, ['createdAt', 'name', 'rating', 'totalDeliveries', 'status'] as const, 'createdAt');
+    const search = parseSearch(sp);
+    const statusFilter = parseStatusFilter(sp, ['available', 'busy', 'offline']);
+    const vehicleFilter = parseStatusFilter(sp, ['moto', 'velo', 'voiture'], 'vehicle');
+
     const restaurant = await db.restaurant.findFirst();
-    if (!restaurant) return NextResponse.json([]);
-    const drivers = await db.driver.findMany({
-      where: { restaurantId: restaurant.id },
-      orderBy: { createdAt: "desc" },
+    if (!restaurant) return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
+
+    const where = {
+      restaurantId: restaurant.id,
+      ...(statusFilter && { status: statusFilter }),
+      ...(vehicleFilter && { vehicle: vehicleFilter }),
+      ...(search && {
+        OR: [
+          { name: { contains: search } },
+          { email: { contains: search } },
+          { phone: { contains: search } },
+          { zone: { contains: search } },
+        ],
+      }),
+    };
+    const [drivers, total] = await Promise.all([
+      db.driver.findMany({
+        where,
+        orderBy: { [sortBy]: sortOrder },
+        skip: prismaSkip(page, limit),
+        take: prismaTake(limit),
+      }),
+      db.driver.count({ where }),
+    ]);
+    const totalPages = Math.ceil(total / limit);
+    return NextResponse.json({
+      data: drivers,
+      pagination: { page, limit, total, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
     });
-    return NextResponse.json(drivers);
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
@@ -18,11 +60,25 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const data = await request.json();
+    const admin = await authenticateAdmin(request);
+    if (!admin) {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+    if (!hasRole(admin.role, ["admin", "manager"])) {
+      return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+    }
+
+    const body = await request.json();
+    const validation = driverSchema.safeParse(body);
+    if (!validation.success) {
+      const firstError = validation.error.issues[0]?.message || "Données invalides";
+      return NextResponse.json({ error: firstError }, { status: 400 });
+    }
+
     const restaurant = await db.restaurant.findFirst();
     if (!restaurant) return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
     const driver = await db.driver.create({
-      data: { ...data, restaurantId: restaurant.id },
+      data: { ...validation.data, restaurantId: restaurant.id },
     });
     return NextResponse.json(driver, { status: 201 });
   } catch (error) {
@@ -33,7 +89,26 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const { id, ...data } = await request.json();
+    const admin = await authenticateAdmin(request);
+    if (!admin) {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+    if (!hasRole(admin.role, ["admin", "manager"])) {
+      return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+    }
+
+    const body = await request.json();
+    const validation = driverSchema.safeParse(body);
+    if (!validation.success) {
+      const firstError = validation.error.issues[0]?.message || "Données invalides";
+      return NextResponse.json({ error: firstError }, { status: 400 });
+    }
+
+    const { id, ...data } = validation.data;
+    if (!id) {
+      return NextResponse.json({ error: "ID requis" }, { status: 400 });
+    }
+
     const driver = await db.driver.update({ where: { id }, data });
     return NextResponse.json(driver);
   } catch (error) {
@@ -44,6 +119,14 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const admin = await authenticateAdmin(request);
+    if (!admin) {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+    if (!hasRole(admin.role, ["admin", "manager"])) {
+      return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+    }
+
     const { id } = await request.json();
     await db.driver.delete({ where: { id } });
     return NextResponse.json({ success: true });
