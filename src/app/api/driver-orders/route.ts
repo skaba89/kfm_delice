@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateDriver } from "@/lib/auth";
 import { parsePagination, prismaSkip, prismaTake } from "@/lib/pagination";
+import { driverOrderPatchSchema } from "@/lib/validations";
 
 // GET /api/driver-orders — Get orders assigned to the logged-in driver
 export async function GET(request: Request) {
@@ -54,8 +55,14 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
 
-    const { orderId, status, lat, lng } = await request.json();
-    if (!orderId) return NextResponse.json({ error: "orderId requis" }, { status: 400 });
+    const body = await request.json();
+    const validation = driverOrderPatchSchema.safeParse(body);
+    if (!validation.success) {
+      const firstError = validation.error.issues[0]?.message || "Données invalides";
+      return NextResponse.json({ error: firstError }, { status: 400 });
+    }
+
+    const { orderId, status, lat, lng } = validation.data;
 
     const order = await db.order.findUnique({ where: { id: orderId } });
     if (!order) return NextResponse.json({ error: "Commande non trouvée" }, { status: 404 });
@@ -72,7 +79,7 @@ export async function PATCH(request: Request) {
     }
 
     // If delivering, update GPS coords
-    if (lat && lng) {
+    if (lat !== undefined && lng !== undefined) {
       updateData.driverLat = lat;
       updateData.driverLng = lng;
     }

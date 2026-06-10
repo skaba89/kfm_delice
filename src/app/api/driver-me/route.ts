@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateDriver } from "@/lib/auth";
+import { driverMePatchSchema } from "@/lib/validations";
 
 // GET /api/driver-me — Get current driver profile
 export async function GET(request: Request) {
@@ -46,12 +47,19 @@ export async function PATCH(request: Request) {
     }
 
     const body = await request.json();
+    const validation = driverMePatchSchema.safeParse(body);
+    if (!validation.success) {
+      const firstError = validation.error.issues[0]?.message || "Données invalides";
+      return NextResponse.json({ error: firstError }, { status: 400 });
+    }
+
+    const validatedData = validation.data;
     const updateData: Record<string, unknown> = {};
 
-    if (body.status) updateData.status = body.status;
-    if (body.lat !== undefined) updateData.lat = body.lat;
-    if (body.lng !== undefined) updateData.lng = body.lng;
-    if (body.zone) updateData.zone = body.zone;
+    if (validatedData.status !== undefined) updateData.status = validatedData.status;
+    if (validatedData.lat !== undefined) updateData.lat = validatedData.lat;
+    if (validatedData.lng !== undefined) updateData.lng = validatedData.lng;
+    if (validatedData.zone !== undefined) updateData.zone = validatedData.zone;
     updateData.lastLocationUpdate = new Date();
 
     const driver = await db.driver.update({
@@ -60,10 +68,10 @@ export async function PATCH(request: Request) {
     });
 
     // Also update the order's driver coordinates if there's an active delivery
-    if ((body.lat || body.lng) && driver.currentOrderId) {
+    if ((validatedData.lat !== undefined || validatedData.lng !== undefined) && driver.currentOrderId) {
       await db.order.update({
         where: { id: driver.currentOrderId },
-        data: { driverLat: body.lat || 0, driverLng: body.lng || 0 },
+        data: { driverLat: validatedData.lat ?? 0, driverLng: validatedData.lng ?? 0 },
       });
     }
 
@@ -71,11 +79,11 @@ export async function PATCH(request: Request) {
     try {
       const { broadcastToType } = await import('@/lib/websocket-server');
       const { WSEvents } = await import('@/lib/ws-events');
-      if (body.lat || body.lng) {
+      if (validatedData.lat !== undefined || validatedData.lng !== undefined) {
         broadcastToType('admin', WSEvents.DRIVER_LOCATION_UPDATE, { driverId: driverAuth.id, lat: driver.lat, lng: driver.lng, currentOrderId: driver.currentOrderId });
         broadcastToType('customer', WSEvents.TRACKING_UPDATE, { driverId: driverAuth.id, lat: driver.lat, lng: driver.lng, orderId: driver.currentOrderId });
       }
-      if (body.status) {
+      if (validatedData.status) {
         broadcastToType('admin', WSEvents.DRIVER_STATUS_CHANGED, { driverId: driverAuth.id, status: driver.status });
       }
     } catch (e) { /* WS not available, fall back to polling */ }

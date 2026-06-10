@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, authenticateAny, hasRole } from "@/lib/auth";
-import { orderSchema } from "@/lib/validations";
+import { orderSchema, orderPatchSchema } from "@/lib/validations";
 import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, parseStatusFilter } from "@/lib/pagination";
 import { isRestaurantOpen } from "@/lib/constants";
 
@@ -165,7 +165,7 @@ export async function PATCH(request: Request) {
     }
 
     const body = await request.json();
-    const validation = orderSchema.safeParse(body);
+    const validation = orderPatchSchema.safeParse(body);
     if (!validation.success) {
       const firstError = validation.error.issues[0]?.message || "Données invalides";
       return NextResponse.json({ error: firstError }, { status: 400 });

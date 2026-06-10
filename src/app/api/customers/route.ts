@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, authenticateAny, authenticateCustomer, hasRole, hashPassword, verifyPassword } from "@/lib/auth";
-import { customerUpdateSchema } from "@/lib/validations";
+import { customerUpdateSchema, customerCreateSchema } from "@/lib/validations";
 import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, parseStatusFilter } from "@/lib/pagination";
 
 // GET: Admin auth required (list all customers)
@@ -62,18 +62,32 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 
-    const data = await request.json();
+    const body = await request.json();
+    const validation = customerCreateSchema.safeParse(body);
+    if (!validation.success) {
+      const firstError = validation.error.issues[0]?.message || "Données invalides";
+      return NextResponse.json({ error: firstError }, { status: 400 });
+    }
+
+    const data = validation.data;
     const existing = await db.customer.findFirst({ where: { email: data.email } });
     if (existing) {
       return NextResponse.json({ error: "Cet email est déjà utilisé" }, { status: 400 });
     }
 
-    // Hash password if provided
-    if (data.password) {
-      data.password = await hashPassword(data.password);
-    }
+    // Hash password; default to a random temp password if not provided
+    const passwordToHash = data.password || Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6);
+    const hashedPassword = await hashPassword(passwordToHash);
 
-    const customer = await db.customer.create({ data });
+    const customer = await db.customer.create({
+      data: {
+        name: data.name,
+        email: data.email,
+        password: hashedPassword,
+        phone: data.phone,
+        address: data.address,
+      },
+    });
     return NextResponse.json(customer, { status: 201 });
   } catch (error) {
     console.error(error);

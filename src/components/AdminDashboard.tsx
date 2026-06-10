@@ -5,7 +5,7 @@ import {
   UtensilsCrossed, CalendarCheck, Users, LayoutDashboard,
   ShoppingBag, Bike, Car, RefreshCw,
   FileText, Wallet, Receipt, UserCog, ClipboardList,
-  MessageSquare,
+  MessageSquare, CreditCard,
 } from "lucide-react";
 import { OverviewTab } from "@/components/admin/OverviewTab";
 import { ReservationsTab } from "@/components/admin/ReservationsTab";
@@ -19,6 +19,8 @@ import { AdminsTab } from "@/components/admin/AdminsTab";
 import { InvoicesTab } from "@/components/admin/InvoicesTab";
 import { QuotesTab } from "@/components/admin/QuotesTab";
 import { ExpensesTab } from "@/components/admin/ExpensesTab";
+import { CustomersTab } from "@/components/admin/CustomersTab";
+import { PaymentsTab } from "@/components/admin/PaymentsTab";
 import { PosTab } from "@/components/admin/PosTab";
 import { DashboardShell, type SidebarItem } from "@/components/layout/DashboardShell";
 import type { AdminUser, MenuItemDB, OrderDB } from "@/lib/types";
@@ -30,6 +32,7 @@ import { useAdminCrud } from "@/lib/hooks/use-admin-crud";
 import { useInvoiceCrud } from "@/lib/hooks/use-invoice-crud";
 import { useQuoteCrud } from "@/lib/hooks/use-quote-crud";
 import { useExpenseCrud } from "@/lib/hooks/use-expense-crud";
+import { useCustomerCrud } from "@/lib/hooks/use-customer-crud";
 import { usePosCart } from "@/lib/hooks/use-pos-cart";
 import { useAuth } from "@/lib/auth-context";
 
@@ -39,7 +42,7 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
   // ─── Data loading + generic CRUD helpers ─────────────────────
   const {
     stats, reservations, menuItems, orders, drivers, reviews,
-    staffList, admins, invoices, quotes, expenses, loading,
+    staffList, admins, invoices, quotes, expenses, customers, payments, loading,
     loadData, apiPatch, apiPost, apiDelete, apiFetch,
   } = useAdminData();
 
@@ -51,6 +54,7 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
   const invoiceCrud = useInvoiceCrud(invoices, apiPatch, apiPost);
   const quoteCrud = useQuoteCrud(quotes, apiPatch, apiPost);
   const expenseCrud = useExpenseCrud(apiPatch, apiPost);
+  const customerCrud = useCustomerCrud(apiPatch, apiPost);
 
   // ─── Reviews: delete confirmation ────────────────────────────
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
@@ -65,10 +69,12 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
     { id: "drivers", label: "Livreurs", icon: Car, badge: stats?.availableDrivers },
     { id: "reviews", label: "Avis", icon: MessageSquare, badge: stats?.totalReviews },
     { id: "staff", label: "Personnel", icon: Users, badge: staffList.length },
+    { id: "customers", label: "Clients", icon: Users, badge: customers.length },
     { id: "admins", label: "Utilisateurs", icon: UserCog, badge: admins.length },
     { id: "invoices", label: "Factures", icon: FileText, badge: invoices.filter(i => i.status === "pending").length || undefined },
     { id: "quotes", label: "Devis", icon: ClipboardList, badge: quotes.filter(q => q.status === "sent").length || undefined },
     { id: "expenses", label: "Dépenses", icon: Wallet, badge: expenses.length },
+    { id: "payments", label: "Paiements", icon: CreditCard, badge: payments.filter(p => p.status === "pending").length || undefined },
     { id: "pos", label: "Caisse POS", icon: Receipt },
   ];
   const sidebarItems = allSidebarItems.filter(item => {
@@ -81,10 +87,12 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
       drivers: ["admin", "manager"],
       reviews: ["admin", "manager", "staff"],
       staff: ["admin", "manager"],
+      customers: ["admin", "manager"],
       admins: ["admin"],
       invoices: ["admin", "manager"],
       quotes: ["admin", "manager"],
       expenses: ["admin", "manager"],
+      payments: ["admin", "manager"],
       pos: ["admin", "manager", "staff"],
     };
     return rolesMap[item.id]?.includes(admin.role) ?? false;
@@ -145,6 +153,15 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
         apiPatch={apiPatch} apiDelete={apiDelete}
         deleteStaffConfirm={staffCrud.deleteStaffConfirm} setDeleteStaffConfirm={staffCrud.setDeleteStaffConfirm}
       />}
+      {activeTab === "customers" && <CustomersTab
+        customers={customers}
+        showCustomerForm={customerCrud.showCustomerForm} editingCustomer={customerCrud.editingCustomer}
+        customerForm={customerCrud.customerForm} setCustomerForm={customerCrud.setCustomerForm}
+        openAddCustomer={customerCrud.openAddCustomer} openEditCustomer={customerCrud.openEditCustomer} saveCustomer={customerCrud.saveCustomer}
+        setShowCustomerForm={customerCrud.setShowCustomerForm}
+        apiPatch={apiPatch} apiDelete={apiDelete}
+        deleteCustomerConfirm={customerCrud.deleteCustomerConfirm} setDeleteCustomerConfirm={customerCrud.setDeleteCustomerConfirm}
+      />}
       {activeTab === "admins" && <AdminsTab
         admins={admins} admin={admin}
         showAdminForm={adminCrud.showAdminForm} editingAdmin={adminCrud.editingAdmin}
@@ -181,6 +198,7 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
         apiPatch={apiPatch} apiDelete={apiDelete}
         deleteExpenseConfirm={expenseCrud.deleteExpenseConfirm} setDeleteExpenseConfirm={expenseCrud.setDeleteExpenseConfirm}
       />}
+      {activeTab === "payments" && <PaymentsTab payments={payments} apiPatch={apiPatch} />}
       {activeTab === "pos" && <PosTabWithState menuItems={menuItems} orders={orders} loadData={loadData} />}
     </DashboardShell>
   );

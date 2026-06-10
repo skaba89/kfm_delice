@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, authenticateAny, hasRole } from "@/lib/auth";
-import { reservationSchema } from "@/lib/validations";
+import { reservationSchema, reservationPatchSchema } from "@/lib/validations";
 import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, parseStatusFilter } from "@/lib/pagination";
 
 // GET: Admin auth OR customer auth (customers only see their own)
@@ -131,7 +131,7 @@ export async function PATCH(request: Request) {
     }
 
     const body = await request.json();
-    const validation = reservationSchema.safeParse(body);
+    const validation = reservationPatchSchema.safeParse(body);
     if (!validation.success) {
       const firstError = validation.error.issues[0]?.message || "Données invalides";
       return NextResponse.json({ error: firstError }, { status: 400 });

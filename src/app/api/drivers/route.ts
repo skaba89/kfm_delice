@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
-import { driverSchema } from "@/lib/validations";
+import { driverSchema, driverPatchSchema } from "@/lib/validations";
 import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, parseStatusFilter } from "@/lib/pagination";
 
 // All methods: Admin/Manager auth required
@@ -98,18 +98,20 @@ export async function PATCH(request: Request) {
     }
 
     const body = await request.json();
-    const validation = driverSchema.safeParse(body);
+    const validation = driverPatchSchema.safeParse(body);
     if (!validation.success) {
       const firstError = validation.error.issues[0]?.message || "Données invalides";
       return NextResponse.json({ error: firstError }, { status: 400 });
     }
 
-    const { id, ...data } = validation.data;
+    const { id, currentOrderId, ...data } = validation.data;
     if (!id) {
       return NextResponse.json({ error: "ID requis" }, { status: 400 });
     }
 
-    const driver = await db.driver.update({ where: { id }, data });
+    const updateData: Record<string, unknown> = { ...data };
+    if (currentOrderId !== undefined) updateData.currentOrderId = currentOrderId;
+    const driver = await db.driver.update({ where: { id }, data: updateData });
     return NextResponse.json(driver);
   } catch (error) {
     console.error(error);

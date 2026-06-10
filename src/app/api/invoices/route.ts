@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
-import { invoiceSchema } from "@/lib/validations";
+import { invoiceSchema, invoicePatchSchema } from "@/lib/validations";
 import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, parseStatusFilter } from "@/lib/pagination";
 
 // All methods: Admin/Manager auth required
@@ -94,7 +94,7 @@ export async function PATCH(request: Request) {
     }
 
     const body = await request.json();
-    const validation = invoiceSchema.safeParse(body);
+    const validation = invoicePatchSchema.safeParse(body);
     if (!validation.success) {
       const firstError = validation.error.issues[0]?.message || "Données invalides";
       return NextResponse.json({ error: firstError }, { status: 400 });

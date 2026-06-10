@@ -30,7 +30,7 @@ export interface ExpensesTabProps {
 
 export function ExpensesTab({
   expenses, showExpenseForm, editingExpense, expenseForm, setExpenseForm,
-  openAddExpense, saveExpense, setShowExpenseForm,
+  openAddExpense, openEditExpense, saveExpense, setShowExpenseForm,
   apiPatch, apiDelete, deleteExpenseConfirm, setDeleteExpenseConfirm,
 }: ExpensesTabProps) {
   const { currentPage, setCurrentPage, totalPages, paginatedItems, totalItems, itemsPerPage } = usePagination(expenses, 10);
@@ -117,7 +117,7 @@ export function ExpensesTab({
                   <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{e.date}</td>
                   <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{e.paidBy || "-"}</td>
                   <td className="px-4 py-3"><div className="flex items-center gap-1">
-                    <button onClick={() => { setExpenseForm({ description: e.description, amount: e.amount, category: e.category, date: e.date, paidBy: e.paidBy, notes: e.notes }); setShowExpenseForm(true); }} className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-orange-100 hover:text-orange-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-orange-900/30 dark:hover:text-orange-400" title="Modifier"><Edit3 className="w-4 h-4" /></button>
+                    <button onClick={() => openEditExpense(e)} className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-orange-100 hover:text-orange-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-orange-900/30 dark:hover:text-orange-400" title="Modifier"><Edit3 className="w-4 h-4" /></button>
                     {deleteExpenseConfirm === e.id ? (
                       <div className="flex items-center gap-1"><button onClick={() => handleDeleteExpense(e)} className="text-[10px] px-1.5 py-0.5 bg-red-500 text-white rounded">Oui</button><button onClick={() => setDeleteExpenseConfirm(null)} className="text-[10px] px-1.5 py-0.5 bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 rounded">Non</button></div>
                     ) : (

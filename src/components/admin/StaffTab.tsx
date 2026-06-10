@@ -30,7 +30,7 @@ export interface StaffTabProps {
 
 export function StaffTab({
   staffList, showStaffForm, editingStaff, staffForm, setStaffForm,
-  openAddStaff, saveStaff, setShowStaffForm,
+  openAddStaff, openEditStaff, saveStaff, setShowStaffForm,
   apiPatch, apiDelete, deleteStaffConfirm, setDeleteStaffConfirm,
 }: StaffTabProps) {
   const { currentPage, setCurrentPage, totalPages, paginatedItems, totalItems, itemsPerPage } = usePagination(staffList, 10);
@@ -112,7 +112,7 @@ export function StaffTab({
                   <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{formatPrice(s.salary)}</td>
                   <td className="px-4 py-3"><Badge className={`${staffStatusColors[s.status] || ""} text-xs`}>{staffStatusLabels[s.status] || s.status}</Badge></td>
                   <td className="px-4 py-3"><div className="flex items-center gap-1">
-                    <button onClick={() => { setStaffForm({ name: s.name, phone: s.phone, role: s.role, salary: s.salary, status: s.status, hireDate: s.hireDate, notes: s.notes }); setShowStaffForm(true); }} className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-orange-100 hover:text-orange-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-orange-900/30 dark:hover:text-orange-400" title="Modifier"><Edit3 className="w-4 h-4" /></button>
+                    <button onClick={() => openEditStaff(s)} className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-orange-100 hover:text-orange-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-orange-900/30 dark:hover:text-orange-400" title="Modifier"><Edit3 className="w-4 h-4" /></button>
                     {deleteStaffConfirm === s.id ? (
                       <div className="flex items-center gap-1"><button onClick={() => handleDeleteStaff(s)} className="text-[10px] px-1.5 py-0.5 bg-red-500 text-white rounded">Oui</button><button onClick={() => setDeleteStaffConfirm(null)} className="text-[10px] px-1.5 py-0.5 bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 rounded">Non</button></div>
                     ) : (

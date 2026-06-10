@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, authenticateDriver, hasRole } from "@/lib/auth";
+import { driverLocationPatchSchema } from "@/lib/validations";
 
 // PATCH /api/driver-location — Update driver GPS position (Admin or Driver auth)
 export async function PATCH(request: Request) {
@@ -15,12 +16,19 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 
-    const { driverId, lat, lng, orderId, status } = await request.json();
+    const body = await request.json();
+    const validation = driverLocationPatchSchema.safeParse(body);
+    if (!validation.success) {
+      const firstError = validation.error.issues[0]?.message || "Données invalides";
+      return NextResponse.json({ error: firstError }, { status: 400 });
+    }
+
+    const { driverId, lat, lng, orderId, status } = validation.data;
     const targetDriverId = driverAuth ? driverAuth.id : driverId;
     if (!targetDriverId) return NextResponse.json({ error: "driverId requis" }, { status: 400 });
 
     const updateData: Record<string, unknown> = { lat, lng, lastLocationUpdate: new Date() };
-    if (status) updateData.status = status;
+    if (status !== undefined) updateData.status = status;
     if (orderId !== undefined) updateData.currentOrderId = orderId || "";
 
     const driver = await db.driver.update({
@@ -29,7 +37,7 @@ export async function PATCH(request: Request) {
     });
 
     // Also update the order's driver coordinates if there's an active order
-    if (orderId && lat && lng) {
+    if (orderId && lat !== undefined && lng !== undefined) {
       await db.order.updateMany({
         where: { id: orderId, driverId: targetDriverId },
         data: { driverLat: lat, driverLng: lng },

@@ -31,7 +31,7 @@ export interface QuotesTabProps {
 
 export function QuotesTab({
   quotes, showQuoteForm, editingQuote, quoteForm, setQuoteForm,
-  openAddQuote, saveQuote, setShowQuoteForm,
+  openAddQuote, openEditQuote, saveQuote, setShowQuoteForm,
   apiPatch, apiDelete, deleteQuoteConfirm, setDeleteQuoteConfirm,
 }: QuotesTabProps) {
   const { currentPage, setCurrentPage, totalPages, paginatedItems, totalItems, itemsPerPage } = usePagination(quotes, 10);
@@ -113,7 +113,7 @@ export function QuotesTab({
                 <div className="flex gap-2 flex-wrap">
                   {q.status === "draft" && <Button size="sm" onClick={() => apiPatch("/api/quotes", { id: q.id, status: "sent" })} className="bg-blue-500 hover:bg-blue-600 text-white text-xs rounded-lg">Envoyer</Button>}
                   {q.status === "sent" && <><Button size="sm" onClick={() => apiPatch("/api/quotes", { id: q.id, status: "accepted" })} className="bg-green-500 hover:bg-green-600 text-white text-xs rounded-lg">Accepter</Button><Button size="sm" variant="outline" onClick={() => apiPatch("/api/quotes", { id: q.id, status: "refused" })} className="text-red-500 border-red-200 dark:border-red-800 text-xs rounded-lg">Refuser</Button></>}
-                  <button onClick={() => { setQuoteForm({ number: q.number, customerName: q.customerName, customerPhone: q.customerPhone, items: q.items, subtotal: q.subtotal, discount: q.discount, total: q.total, status: q.status, validUntil: q.validUntil, notes: q.notes }); setShowQuoteForm(true); }} className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-orange-100 hover:text-orange-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-orange-900/30 dark:hover:text-orange-400" title="Modifier"><Edit3 className="w-4 h-4" /></button>
+                  <button onClick={() => openEditQuote(q)} className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-orange-100 hover:text-orange-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-orange-900/30 dark:hover:text-orange-400" title="Modifier"><Edit3 className="w-4 h-4" /></button>
                   {deleteQuoteConfirm === q.id ? (
                     <div className="flex items-center gap-1"><button onClick={() => handleDeleteQuote(q)} className="text-[10px] px-1.5 py-0.5 bg-red-500 text-white rounded">Oui</button><button onClick={() => setDeleteQuoteConfirm(null)} className="text-[10px] px-1.5 py-0.5 bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 rounded">Non</button></div>
                   ) : (

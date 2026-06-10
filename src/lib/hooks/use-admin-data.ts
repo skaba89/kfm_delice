@@ -1,8 +1,8 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { notify } from "@/lib/notifications";
-import type { Stats, Reservation, MenuItemDB, OrderDB, DriverDB, ReviewDB, StaffDB, AdminDB, InvoiceDB, QuoteDB, ExpenseDB } from "@/lib/types";
+import type { Stats, Reservation, MenuItemDB, OrderDB, DriverDB, ReviewDB, StaffDB, AdminDB, InvoiceDB, QuoteDB, ExpenseDB, CustomerDB, PaymentDB } from "@/lib/types";
 
 export function useAdminData() {
   const { apiFetch } = useAuth();
@@ -17,14 +17,20 @@ export function useAdminData() {
   const [invoices, setInvoices] = useState<InvoiceDB[]>([]);
   const [quotes, setQuotes] = useState<QuoteDB[]>([]);
   const [expenses, setExpenses] = useState<ExpenseDB[]>([]);
+  const [customers, setCustomers] = useState<CustomerDB[]>([]);
+  const [payments, setPayments] = useState<PaymentDB[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Use refs for notification comparison to avoid stale closure
+  const prevPendingReservations = useRef(0);
+  const prevActiveOrders = useRef(0);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
       // Admin dashboard needs all data — request with high limit
       const allParams = "?limit=1000";
-      const [s, r, m, o, d, rv, st, ad, inv, quo, exp] = await Promise.all([
+      const [s, r, m, o, d, rv, st, ad, inv, quo, exp, cust, pay] = await Promise.all([
         apiFetch("/api/stats").then(r => r.json()),
         apiFetch(`/api/reservations${allParams}`).then(r => r.json()),
         apiFetch(`/api/menu${allParams}`).then(r => r.json()),
@@ -36,6 +42,8 @@ export function useAdminData() {
         apiFetch(`/api/invoices${allParams}`).then(r => r.json()).catch(() => ({ data: [] })),
         apiFetch(`/api/quotes${allParams}`).then(r => r.json()).catch(() => ({ data: [] })),
         apiFetch(`/api/expenses${allParams}`).then(r => r.json()).catch(() => ({ data: [] })),
+        apiFetch(`/api/customers${allParams}`).then(r => r.json()).catch(() => ({ data: [] })),
+        apiFetch(`/api/payment${allParams}`).then(r => r.json()).catch(() => ({ data: [] })),
       ]);
       // Handle paginated responses (reviews returns {data, pagination})
       setStats(s);
@@ -49,31 +57,43 @@ export function useAdminData() {
       setInvoices(Array.isArray(inv) ? inv : (inv.data || []));
       setQuotes(Array.isArray(quo) ? quo : (quo.data || []));
       setExpenses(Array.isArray(exp) ? exp : (exp.data || []));
+      setCustomers(Array.isArray(cust) ? cust : (cust.data || []));
+      setPayments(Array.isArray(pay) ? pay : (pay.data || []));
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   }, [apiFetch]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // Notification polling
+  // Notification polling — fixed: use refs for proper comparison
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
         const res = await apiFetch("/api/stats");
         if (res.ok) {
           const newStats = await res.json();
-          if (stats && newStats.pendingReservations > (stats.pendingReservations || 0)) {
+          if (newStats.pendingReservations > prevPendingReservations.current) {
             notify.newReservation("Nouveau client");
           }
-          if (stats && newStats.activeOrders > (stats.activeOrders || 0)) {
+          if (newStats.activeOrders > prevActiveOrders.current) {
             notify.newOrder("Nouveau client");
           }
+          prevPendingReservations.current = newStats.pendingReservations;
+          prevActiveOrders.current = newStats.activeOrders;
           setStats(newStats);
         }
       } catch { /* ignore */ }
     }, 30000);
     return () => clearInterval(interval);
-  }, [apiFetch, stats?.pendingReservations, stats?.activeOrders]);
+  }, [apiFetch]);
+
+  // Update refs when stats change
+  useEffect(() => {
+    if (stats) {
+      prevPendingReservations.current = stats.pendingReservations;
+      prevActiveOrders.current = stats.activeOrders;
+    }
+  }, [stats?.pendingReservations, stats?.activeOrders]);
 
   // Generic CRUD helpers
   const apiPatch = useCallback(async (url: string, body: object) => {
@@ -94,7 +114,7 @@ export function useAdminData() {
 
   return {
     stats, reservations, menuItems, orders, drivers, reviews,
-    staffList, admins, invoices, quotes, expenses, loading,
+    staffList, admins, invoices, quotes, expenses, customers, payments, loading,
     loadData, apiPatch, apiPost, apiDelete, apiFetch,
   };
 }

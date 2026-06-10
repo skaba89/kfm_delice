@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
-import { quoteSchema } from "@/lib/validations";
+import { quoteSchema, quotePatchSchema } from "@/lib/validations";
 import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, parseStatusFilter } from "@/lib/pagination";
 
 // All methods: Admin/Manager auth required
@@ -19,7 +19,7 @@ export async function GET(request: Request) {
     const { page, limit } = parsePagination(sp);
     const { sortBy, sortOrder } = parseSorting(sp, ['createdAt', 'total', 'status', 'validUntil'] as const, 'createdAt');
     const search = parseSearch(sp);
-    const statusFilter = parseStatusFilter(sp, ['draft', 'sent', 'accepted', 'rejected', 'expired']);
+    const statusFilter = parseStatusFilter(sp, ['draft', 'sent', 'accepted', 'refused', 'expired']);
 
     const restaurant = await db.restaurant.findFirst();
     if (!restaurant) return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
@@ -94,7 +94,7 @@ export async function PATCH(request: Request) {
     }
 
     const body = await request.json();
-    const validation = quoteSchema.safeParse(body);
+    const validation = quotePatchSchema.safeParse(body);
     if (!validation.success) {
       const firstError = validation.error.issues[0]?.message || "Données invalides";
       return NextResponse.json({ error: firstError }, { status: 400 });

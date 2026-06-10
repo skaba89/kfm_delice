@@ -1,79 +1,105 @@
-import { NextResponse } from "next/server";
-import { authenticateAdmin, authenticateAny } from "@/lib/auth";
-import { writeFile, mkdir } from "fs/promises";
-import path from "path";
-import { randomUUID } from "crypto";
+import { NextResponse } from 'next/server';
+import { authenticateAdmin } from '@/lib/auth';
+import { writeFile, mkdir } from 'fs/promises';
+import { join } from 'path';
+import { existsSync } from 'fs';
 
-// Image processing config
-const IMAGE_CONFIG = {
-  maxWidth: 1200,
-  maxHeight: 1200,
-  quality: 80,
-  thumbnailSize: 200,
-  thumbnailQuality: 70,
-  convertToWebP: true,
-  maxFileSize: 10 * 1024 * 1024, // 10 MB
-  allowedTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
-} as const;
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
 export async function POST(request: Request) {
   try {
-    // Authenticate - admin or any authenticated user can upload
-    const auth = await authenticateAny(request);
-    if (!auth) {
-      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    // Authenticate - only admin/manager can upload
+    const admin = await authenticateAdmin(request);
+    if (!admin) {
+      return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
+    }
+    if (admin.role !== 'admin' && admin.role !== 'manager') {
+      return NextResponse.json({ error: 'Permissions insuffisantes' }, { status: 403 });
     }
 
-    const formData = await request.formData();
+    // Check content type
+    const contentType = request.headers.get('content-type') || '';
+    if (!contentType.includes('multipart/form-data')) {
+      return NextResponse.json({ error: 'Aucun fichier fourni. Utilisez multipart/form-data.' }, { status: 400 });
+    }
+
+    let formData: FormData;
+    try {
+      formData = await request.formData();
+    } catch {
+      return NextResponse.json({ error: 'Aucun fichier fourni. Format de requête invalide.' }, { status: 400 });
+    }
+
     const file = formData.get('file') as File | null;
 
     if (!file) {
-      return NextResponse.json({ error: "Aucun fichier fourni" }, { status: 400 });
+      return NextResponse.json({ error: 'Aucun fichier fourni. Utilisez le champ "file".' }, { status: 400 });
     }
 
     // Validate file type
-    if (!(IMAGE_CONFIG.allowedTypes as readonly string[]).includes(file.type)) {
+    if (!ALLOWED_TYPES.includes(file.type)) {
       return NextResponse.json(
-        { error: "Type de fichier non supporté. Utilisez JPG, PNG, WebP ou GIF." },
+        { error: `Type de fichier non supporté. Formats acceptés: ${ALLOWED_TYPES.join(', ')}` },
         { status: 400 }
       );
     }
 
     // Validate file size
-    if (file.size > IMAGE_CONFIG.maxFileSize) {
+    if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
-        { error: "Fichier trop volumineux (max 10 MB)" },
+        { error: `Fichier trop volumineux. Taille maximale: ${MAX_FILE_SIZE / 1024 / 1024}MB` },
         { status: 400 }
       );
     }
 
+    // Read file buffer
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
+
+    // Try to process with sharp for optimization
+    let processedBuffer: Buffer;
+    try {
+      const { default: sharp } = await import('sharp');
+      processedBuffer = await sharp(buffer)
+        .resize(800, 600, { fit: 'inside', withoutEnlargement: true })
+        .webp({ quality: 80 })
+        .toBuffer();
+    } catch {
+      // If sharp fails, use original buffer
+      processedBuffer = buffer;
+    }
+
     // Generate unique filename
-    const ext = file.type === 'image/jpeg' ? 'jpg'
-      : file.type === 'image/png' ? 'png'
-      : file.type === 'image/gif' ? 'gif'
-      : 'webp';
-    const filename = `${randomUUID()}.${ext}`;
+    const timestamp = Date.now();
+    const randomSuffix = Math.random().toString(36).substring(2, 8);
+    const ext = file.name.split('.').pop()?.toLowerCase() || 'png';
+    const filename = `menu-${timestamp}-${randomSuffix}.${ext}`;
 
     // Ensure upload directory exists
-    const uploadDir = path.join(process.cwd(), 'public', 'images', 'uploads');
-    await mkdir(uploadDir, { recursive: true });
+    const uploadDir = join(process.cwd(), 'public', 'images');
+    if (!existsSync(uploadDir)) {
+      await mkdir(uploadDir, { recursive: true });
+    }
 
     // Write file
-    const filePath = path.join(uploadDir, filename);
-    const buffer = Buffer.from(await file.arrayBuffer());
-    await writeFile(filePath, buffer);
+    const filePath = join(uploadDir, filename);
+    await writeFile(filePath, processedBuffer);
 
-    // Return the public URL
-    const url = `/images/uploads/${filename}`;
+    // Return the public URL path
+    const imageUrl = `/images/${filename}`;
 
     return NextResponse.json({
-      url,
+      url: imageUrl,
       filename,
-      size: file.size,
-      type: file.type,
+      size: processedBuffer.length,
+      message: 'Image uploadée avec succès',
     });
   } catch (error) {
-    console.error("Upload error:", error);
-    return NextResponse.json({ error: "Erreur lors du téléchargement" }, { status: 500 });
+    console.error('Upload error:', error);
+    return NextResponse.json(
+      { error: "Erreur lors de l'upload de l'image" },
+      { status: 500 }
+    );
   }
 }

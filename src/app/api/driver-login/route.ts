@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { verifyPassword, generateToken } from "@/lib/auth";
 import { rateLimit } from "@/lib/rate-limit";
+import { driverLoginSchema } from "@/lib/validations";
 
 export async function POST(request: Request) {
   // Rate limiting — check before any other logic
@@ -19,11 +20,13 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    const { email, password } = body;
-
-    if (!email || !password) {
-      return NextResponse.json({ error: "Email et mot de passe requis" }, { status: 400 });
+    const validation = driverLoginSchema.safeParse(body);
+    if (!validation.success) {
+      const firstError = validation.error.issues[0]?.message || "Données invalides";
+      return NextResponse.json({ error: firstError }, { status: 400 });
     }
+
+    const { email, password } = validation.data;
 
     const driver = await db.driver.findFirst({ where: { email } });
     if (!driver || !driver.password) {

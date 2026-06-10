@@ -31,7 +31,7 @@ export interface InvoicesTabProps {
 
 export function InvoicesTab({
   invoices, showInvoiceForm, editingInvoice, invoiceForm, setInvoiceForm,
-  openAddInvoice, saveInvoice, setShowInvoiceForm,
+  openAddInvoice, openEditInvoice, saveInvoice, setShowInvoiceForm,
   apiPatch, apiDelete, deleteInvoiceConfirm, setDeleteInvoiceConfirm,
 }: InvoicesTabProps) {
   const { currentPage, setCurrentPage, totalPages, paginatedItems, totalItems, itemsPerPage } = usePagination(invoices, 10);
@@ -124,7 +124,7 @@ export function InvoicesTab({
                   {inv.status === "pending" && <Button size="sm" variant="outline" onClick={() => apiPatch("/api/invoices", { id: inv.id, status: "overdue" })} className="text-red-500 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/30 text-xs rounded-lg">En retard</Button>}
                   {inv.status === "overdue" && <Button size="sm" onClick={() => apiPatch("/api/invoices", { id: inv.id, status: "paid" })} className="bg-green-500 hover:bg-green-600 text-white text-xs rounded-lg">Marquer payée</Button>}
                   {inv.status !== "cancelled" && inv.status !== "paid" && <Button size="sm" variant="outline" onClick={() => apiPatch("/api/invoices", { id: inv.id, status: "cancelled" })} className="text-red-500 border-red-200 dark:border-red-800 text-xs rounded-lg"><XCircle className="w-3 h-3" /></Button>}
-                  <button onClick={() => { setInvoiceForm({ number: inv.number, customerName: inv.customerName, customerPhone: inv.customerPhone, items: inv.items, subtotal: inv.subtotal, tax: inv.tax, total: inv.total, status: inv.status, dueDate: inv.dueDate, notes: inv.notes }); setShowInvoiceForm(true); }} className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-orange-100 hover:text-orange-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-orange-900/30 dark:hover:text-orange-400" title="Modifier"><Edit3 className="w-4 h-4" /></button>
+                  <button onClick={() => openEditInvoice(inv)} className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-orange-100 hover:text-orange-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-orange-900/30 dark:hover:text-orange-400" title="Modifier"><Edit3 className="w-4 h-4" /></button>
                   {deleteInvoiceConfirm === inv.id ? (
                     <div className="flex items-center gap-1"><button onClick={() => handleDeleteInvoice(inv)} className="text-[10px] px-1.5 py-0.5 bg-red-500 text-white rounded">Oui</button><button onClick={() => setDeleteInvoiceConfirm(null)} className="text-[10px] px-1.5 py-0.5 bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 rounded">Non</button></div>
                   ) : (

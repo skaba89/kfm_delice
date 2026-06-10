@@ -31,7 +31,7 @@ export interface AdminsTabProps {
 
 export function AdminsTab({
   admins, admin, showAdminForm, editingAdmin, adminForm, setAdminForm,
-  openAddAdmin, saveAdmin, setShowAdminForm,
+  openAddAdmin, openEditAdmin, saveAdmin, setShowAdminForm,
   apiPatch, apiDelete, deleteAdminConfirm, setDeleteAdminConfirm,
 }: AdminsTabProps) {
   const { currentPage, setCurrentPage, totalPages, paginatedItems, totalItems, itemsPerPage } = usePagination(admins, 10);
@@ -109,7 +109,7 @@ export function AdminsTab({
                 <Button size="sm" variant="outline" onClick={() => apiPatch("/api/admins", { id: a.id, status: a.status === "active" ? "inactive" : "active" })} className={`flex-1 text-xs rounded-lg ${a.status === "active" ? "text-red-500 border-red-200 dark:border-red-800" : "text-green-500 border-green-200 dark:border-green-800"}`}>
                   {a.status === "active" ? "Désactiver" : "Activer"}
                 </Button>
-                <button onClick={() => { setAdminForm({ email: a.email, password: "", name: a.name, role: a.role, status: a.status }); setShowAdminForm(true); }} className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-orange-100 hover:text-orange-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-orange-900/30 dark:hover:text-orange-400" title="Modifier"><Edit3 className="w-4 h-4" /></button>
+                <button onClick={() => openEditAdmin(a)} className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-orange-100 hover:text-orange-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-orange-900/30 dark:hover:text-orange-400" title="Modifier"><Edit3 className="w-4 h-4" /></button>
                 {a.id !== admin.id && (deleteAdminConfirm === a.id ? (
                   <div className="flex items-center gap-1"><button onClick={() => handleDeleteAdmin(a)} className="text-[10px] px-1.5 py-0.5 bg-red-500 text-white rounded">Oui</button><button onClick={() => setDeleteAdminConfirm(null)} className="text-[10px] px-1.5 py-0.5 bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 rounded">Non</button></div>
                 ) : (

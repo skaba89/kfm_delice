@@ -59,6 +59,17 @@ export interface ExpenseDB {
   id: string; description: string; amount: number; category: string;
   date: string; paidBy: string; notes: string; createdAt: string;
 }
+export interface CustomerDB {
+  id: string; email: string; name: string; phone: string; address: string;
+  loyaltyPoints: number; totalOrders: number; totalSpent: number;
+  status: string; createdAt: string;
+}
+export interface PaymentDB {
+  id: string; orderId: string; amount: number; method: string;
+  status: string; transactionRef: string; phone: string;
+  customerName: string; paidAt: string; failedReason: string;
+  createdAt: string;
+}
 export interface AdminUser { id: string; email: string; name: string; role: string; }
 export interface CustomerUser { id: string; email: string; name: string; phone: string; address: string; loyaltyPoints: number; totalOrders: number; totalSpent: number; status: string; }
 export interface DriverUser { id: string; email: string; name: string; phone: string; vehicle: string; status: string; rating: number; totalDeliveries: number; zone: string; currentOrderId: string; lat: number; lng: number; }
