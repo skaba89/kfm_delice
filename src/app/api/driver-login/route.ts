@@ -7,8 +7,8 @@ import { driverLoginSchema } from "@/lib/validations";
 export async function POST(request: Request) {
   // Rate limiting — check before any other logic
   const clientIp = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "unknown";
-  const { success, remaining } = rateLimit(clientIp, 5, 60000);
-  if (!success) {
+  const { allowed, remaining } = await rateLimit(clientIp, 5, 60000);
+  if (!allowed) {
     return NextResponse.json(
       { error: "Trop de tentatives. Réessayez dans une minute." },
       {

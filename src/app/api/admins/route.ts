@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
-import { authenticateAdmin, hasRole, hashPassword } from "@/lib/auth";
+import { authenticateAdmin, hasRole, hashPassword, verifyPassword } from "@/lib/auth";
 import { adminSchema, adminPatchSchema } from "@/lib/validations";
 import { parsePagination, prismaSkip, prismaTake } from "@/lib/pagination";
 
@@ -87,13 +87,29 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: firstError }, { status: 400 });
     }
 
-    const { id, password, ...rest } = validation.data;
+    const { id, password, currentPassword, ...rest } = validation.data;
     if (!id) {
       return NextResponse.json({ error: "ID requis" }, { status: 400 });
     }
 
     const updateData: { email?: string; name?: string; password?: string; role?: string; status?: string } = { ...rest };
     if (password) {
+      // If the admin is changing their own password, verify current password
+      if (admin.id === id) {
+        if (!currentPassword) {
+          return NextResponse.json({ error: "Mot de passe actuel requis" }, { status: 400 });
+        }
+        // Fetch the admin's current password hash
+        const targetAdmin = await db.admin.findUnique({ where: { id } });
+        if (!targetAdmin) {
+          return NextResponse.json({ error: "Administrateur introuvable" }, { status: 404 });
+        }
+        const isValid = await verifyPassword(currentPassword, targetAdmin.password);
+        if (!isValid) {
+          return NextResponse.json({ error: "Mot de passe actuel incorrect" }, { status: 400 });
+        }
+      }
+      // If a different admin is changing this admin's password, no currentPassword needed
       updateData.password = await hashPassword(password);
     }
 

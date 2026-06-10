@@ -31,6 +31,9 @@ model Customer {
   status          String   @default("active") // active, inactive
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+  orders          Order[]
+  reservations    Reservation[]
+  reviews         Review[]
 }
 
 model Restaurant {
@@ -94,6 +97,8 @@ model Reservation {
   notes        String   @default("")
   status       String   @default("pending")
   loyaltyPoint Int      @default(50)
+  customerId   String?
+  customer     Customer? @relation(fields: [customerId], references: [id])
   restaurantId String
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   createdAt    DateTime   @default(now())
@@ -101,6 +106,7 @@ model Reservation {
 
   @@index([restaurantId, date])
   @@index([restaurantId, status])
+  @@index([customerId])
 }
 
 model Order {
@@ -122,6 +128,8 @@ model Order {
   estimatedDeliveryTime String @default("") // ISO string of estimated delivery
   driverLat     Float    @default(0) // driver live latitude
   driverLng     Float    @default(0) // driver live longitude
+  customerId    String?
+  customer      Customer? @relation(fields: [customerId], references: [id])
   driverId      String?
   driver        Driver?  @relation(fields: [driverId], references: [id])
   payments      Payment[]
@@ -134,6 +142,7 @@ model Order {
   @@index([restaurantId, orderType])
   @@index([restaurantId, createdAt])
   @@index([driverId])
+  @@index([customerId])
 }
 
 model Driver {
@@ -166,11 +175,14 @@ model Review {
   rating       Int
   comment      String   @default("")
   date         String
+  customerId   String?
+  customer     Customer? @relation(fields: [customerId], references: [id])
   restaurantId String
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   createdAt    DateTime   @default(now())
 
   @@index([restaurantId])
+  @@index([customerId])
 }
 
 model Staff {

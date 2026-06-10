@@ -38,17 +38,17 @@ export async function GET(request: Request) {
       ...extraFilter,
     });
 
-    // If customer, filter by customer name (server-side filtering)
+    // If customer, filter by customerId (prefer FK) with fallback to customerName
     if (auth.type === "customer") {
       const customer = await db.customer.findUnique({ where: { id: auth.id } });
       if (!customer) return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
 
-      const where = buildWhere({ customerName: customer.name });
+      const where = buildWhere({ OR: [{ customerId: customer.id }, { customerName: customer.name, customerId: null }] });
       const [orders, total] = await Promise.all([
         db.order.findMany({
           where,
           orderBy: { [sortBy]: sortOrder },
-          include: { driver: true },
+          include: { driver: true, customer: { select: { id: true, name: true, email: true } } },
           skip: prismaSkip(page, limit),
           take: prismaTake(limit),
         }),
@@ -67,7 +67,7 @@ export async function GET(request: Request) {
       db.order.findMany({
         where,
         orderBy: { [sortBy]: sortOrder },
-        include: { driver: true },
+        include: { driver: true, customer: { select: { id: true, name: true, email: true } } },
         skip: prismaSkip(page, limit),
         take: prismaTake(limit),
       }),
@@ -130,12 +130,22 @@ export async function POST(request: Request) {
     // Use the recalculated total (trust server calculation over client)
     const verifiedTotal = recalculatedTotal;
 
+    // Try to attach customerId if authenticated as customer
+    let customerId: string | undefined = validation.data.customerId;
+    try {
+      const auth = await authenticateAny(request);
+      if (auth?.type === "customer") {
+        customerId = auth.id;
+      }
+    } catch { /* not authenticated – walk-in order */ }
+
     const order = await db.order.create({
       data: {
         ...validation.data,
         items: JSON.stringify(verifiedItems),
         total: verifiedTotal,
         restaurantId: restaurant.id,
+        ...(customerId && { customerId }),
       },
     });
 

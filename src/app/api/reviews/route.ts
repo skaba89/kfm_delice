@@ -17,6 +17,7 @@ export async function GET(request: Request) {
       db.review.findMany({
         where,
         orderBy: { createdAt: "desc" },
+        include: { customer: { select: { id: true, name: true, email: true } } },
         skip: prismaSkip(page, limit),
         take: prismaTake(limit),
       }),
@@ -51,9 +52,9 @@ export async function POST(request: Request) {
     const restaurant = await db.restaurant.findFirst();
     if (!restaurant) return NextResponse.json({ error: "Aucun restaurant" }, { status: 400 });
 
-    // Use authenticated customer's name
+    // Use authenticated customer's name and set customerId FK
     const review = await db.review.create({
-      data: { ...validation.data, customerName: customer.name, restaurantId: restaurant.id },
+      data: { ...validation.data, customerName: customer.name, customerId: customer.id, restaurantId: restaurant.id },
     });
     return NextResponse.json(review, { status: 201 });
   } catch (error) {

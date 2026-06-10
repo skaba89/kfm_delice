@@ -2,6 +2,32 @@ import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { hashPassword, authenticateAdmin, hasRole } from "@/lib/auth";
 
+// ─── Seed Token Configuration ───────────────────────────────────
+const SEED_TOKEN = process.env.SEED_TOKEN;
+
+// ─── In-memory Rate Limiter for Seed Endpoint ───────────────────
+const seedRateLimitMap = new Map<string, { count: number; resetAt: number }>();
+const SEED_RATE_LIMIT_MAX = 3;       // max attempts per window
+const SEED_RATE_LIMIT_WINDOW = 60000; // 1 minute window
+
+function checkSeedRateLimit(ip: string): { allowed: boolean; retryAfterMs: number } {
+  const now = Date.now();
+  const entry = seedRateLimitMap.get(ip);
+
+  if (!entry || now > entry.resetAt) {
+    // No entry or window expired — start fresh
+    seedRateLimitMap.set(ip, { count: 1, resetAt: now + SEED_RATE_LIMIT_WINDOW });
+    return { allowed: true, retryAfterMs: 0 };
+  }
+
+  if (entry.count >= SEED_RATE_LIMIT_MAX) {
+    return { allowed: false, retryAfterMs: entry.resetAt - now };
+  }
+
+  entry.count += 1;
+  return { allowed: true, retryAfterMs: 0 };
+}
+
 export async function GET() {
   try {
     const adminCount = await db.admin.count();
@@ -14,10 +40,22 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    // Bootstrap check: if no admin exists yet, allow unauthenticated seed (first-time setup)
+    // ─── Rate Limiting ──────────────────────────────────────────
+    const clientIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+      || request.headers.get("x-real-ip")
+      || "unknown";
+    const rateCheck = checkSeedRateLimit(clientIp);
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        { error: "Trop de tentatives. Réessayez dans quelques instants." },
+        { status: 429, headers: { "Retry-After": String(Math.ceil(rateCheck.retryAfterMs / 1000)) } }
+      );
+    }
+
+    // ─── Authentication / Authorization ──────────────────────────
     const existingAdminCount = await db.admin.count();
     if (existingAdminCount > 0) {
-      // Protect seed route - admin only (after initial setup)
+      // Existing admin — require admin auth
       const admin = await authenticateAdmin(request);
       if (!admin) {
         return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -25,6 +63,36 @@ export async function POST(request: Request) {
       if (!hasRole(admin.role, ["admin"])) {
         return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
       }
+    } else {
+      // Bootstrap mode — no admin exists yet
+      if (process.env.NODE_ENV === "production") {
+        // In production, require seed token to prevent unauthorized bootstrap
+        let providedToken: string | undefined;
+        try {
+          const body = await request.clone().json();
+          providedToken = body.seedToken;
+        } catch {
+          // Body might not be JSON or empty
+        }
+        if (!providedToken) {
+          providedToken = new URL(request.url).searchParams.get("seedToken") || undefined;
+        }
+
+        if (!SEED_TOKEN) {
+          console.error("[SEED] SEED_TOKEN non configuré en production. Définissez la variable d'environnement SEED_TOKEN.");
+          return NextResponse.json(
+            { error: "SEED_TOKEN non configuré. Définissez la variable d'environnement SEED_TOKEN." },
+            { status: 500 }
+          );
+        }
+        if (providedToken !== SEED_TOKEN) {
+          return NextResponse.json(
+            { error: "Token d'initialisation invalide" },
+            { status: 401 }
+          );
+        }
+      }
+      // In development, allow unauthenticated bootstrap for convenience
     }
 
     // Check if reset is requested
@@ -78,14 +146,20 @@ export async function POST(request: Request) {
       }),
     ]);
 
-    // Upsert customers
-    await Promise.all([
+    // Upsert customers and capture their IDs for FK relations
+    const [c1, c2, c3, c4, c5] = await Promise.all([
       db.customer.upsert({ where: { email: "aminata@gmail.com" }, update: { password: clientPw }, create: { email: "aminata@gmail.com", password: clientPw, name: "Aminata Camara", phone: "+224 620 11 22 33", address: "Kaloum, Conakry", loyaltyPoints: 250, totalOrders: 8, totalSpent: 680000, status: "active" } }),
       db.customer.upsert({ where: { email: "mamadou@gmail.com" }, update: { password: clientPw }, create: { email: "mamadou@gmail.com", password: clientPw, name: "Mamadou Bah", phone: "+224 628 44 55 66", address: "Dixinn, Conakry", loyaltyPoints: 180, totalOrders: 5, totalSpent: 425000, status: "active" } }),
       db.customer.upsert({ where: { email: "fatoumata@gmail.com" }, update: { password: clientPw }, create: { email: "fatoumata@gmail.com", password: clientPw, name: "Fatoumata Diallo", phone: "+224 622 77 88 99", address: "Matam, Conakry", loyaltyPoints: 350, totalOrders: 12, totalSpent: 1150000, status: "active" } }),
       db.customer.upsert({ where: { email: "ibrahim@gmail.com" }, update: { password: clientPw }, create: { email: "ibrahim@gmail.com", password: clientPw, name: "Ibrahim Touré", phone: "+224 621 22 33 44", address: "Matoto, Conakry", loyaltyPoints: 100, totalOrders: 3, totalSpent: 195000, status: "active" } }),
       db.customer.upsert({ where: { email: "kadiatou@gmail.com" }, update: { password: clientPw }, create: { email: "kadiatou@gmail.com", password: clientPw, name: "Kadiatou Sylla", phone: "+224 625 55 66 77", address: "Corniche Nord, Conakry", loyaltyPoints: 420, totalOrders: 15, totalSpent: 1890000, status: "active" } }),
     ]);
+
+    // Build customer name→id map for linking seed data via FK
+    const customerMap = new Map<string, string>();
+    for (const c of [c1, c2, c3, c4, c5]) {
+      customerMap.set(c.name, c.id);
+    }
 
     // Upsert restaurant
     const restaurant = await db.restaurant.upsert({
@@ -160,11 +234,11 @@ export async function POST(request: Request) {
       if (reservationCount === 0) {
         await tx.reservation.createMany({
           data: [
-            { customerName: "Aminata Camara", phone: "+224 620 11 22 33", date: today, time: "12:00", guests: 4, zone: "terrasse", notes: "Anniversaire de ma fille", status: "confirmed", loyaltyPoint: 50, restaurantId: restaurant.id },
-            { customerName: "Mamadou Bah", phone: "+224 628 44 55 66", date: today, time: "13:00", guests: 2, zone: "interieur", status: "confirmed", loyaltyPoint: 50, restaurantId: restaurant.id },
-            { customerName: "Fatoumata Diallo", phone: "+224 622 77 88 99", date: today, time: "19:30", guests: 6, zone: "vip", notes: "Dîner d'affaires", status: "pending", loyaltyPoint: 50, restaurantId: restaurant.id },
-            { customerName: "Ibrahim Touré", phone: "+224 621 22 33 44", date: today, time: "20:00", guests: 3, zone: "terrasse", notes: "Allergie arachide", status: "confirmed", loyaltyPoint: 50, restaurantId: restaurant.id },
-            { customerName: "Kadiatou Sylla", phone: "+224 625 55 66 77", date: tomorrow, time: "12:30", guests: 8, zone: "vip", notes: "Repas de famille", status: "pending", loyaltyPoint: 50, restaurantId: restaurant.id },
+            { customerName: "Aminata Camara", phone: "+224 620 11 22 33", date: today, time: "12:00", guests: 4, zone: "terrasse", notes: "Anniversaire de ma fille", status: "confirmed", loyaltyPoint: 50, customerId: customerMap.get("Aminata Camara") ?? null, restaurantId: restaurant.id },
+            { customerName: "Mamadou Bah", phone: "+224 628 44 55 66", date: today, time: "13:00", guests: 2, zone: "interieur", status: "confirmed", loyaltyPoint: 50, customerId: customerMap.get("Mamadou Bah") ?? null, restaurantId: restaurant.id },
+            { customerName: "Fatoumata Diallo", phone: "+224 622 77 88 99", date: today, time: "19:30", guests: 6, zone: "vip", notes: "Dîner d'affaires", status: "pending", loyaltyPoint: 50, customerId: customerMap.get("Fatoumata Diallo") ?? null, restaurantId: restaurant.id },
+            { customerName: "Ibrahim Touré", phone: "+224 621 22 33 44", date: today, time: "20:00", guests: 3, zone: "terrasse", notes: "Allergie arachide", status: "confirmed", loyaltyPoint: 50, customerId: customerMap.get("Ibrahim Touré") ?? null, restaurantId: restaurant.id },
+            { customerName: "Kadiatou Sylla", phone: "+224 625 55 66 77", date: tomorrow, time: "12:30", guests: 8, zone: "vip", notes: "Repas de famille", status: "pending", loyaltyPoint: 50, customerId: customerMap.get("Kadiatou Sylla") ?? null, restaurantId: restaurant.id },
           ],
         });
       }
@@ -172,12 +246,12 @@ export async function POST(request: Request) {
       if (orderCount === 0) {
         await tx.order.createMany({
           data: [
-            { customerName: "Aminata Camara", phone: "+224 620 11 22 33", items: JSON.stringify([{ name: "Riz Jollof KFM Spécial", price: 35000, qty: 2 }, { name: "Salade KFM", price: 15000, qty: 1 }]), total: 85000, status: "preparing", orderType: "dine_in", paymentMethod: "orange_money", deliveryFee: 0, restaurantId: restaurant.id },
+            { customerName: "Aminata Camara", phone: "+224 620 11 22 33", items: JSON.stringify([{ name: "Riz Jollof KFM Spécial", price: 35000, qty: 2 }, { name: "Salade KFM", price: 15000, qty: 1 }]), total: 85000, status: "preparing", orderType: "dine_in", paymentMethod: "orange_money", deliveryFee: 0, customerId: customerMap.get("Aminata Camara") ?? null, restaurantId: restaurant.id },
             { customerName: "Walk-in Client", items: JSON.stringify([{ name: "Agneau Braisé aux Épices", price: 40000, qty: 1 }, { name: "Plateau Fruits de Mer KFM", price: 55000, qty: 1 }]), total: 95000, status: "ready", orderType: "dine_in", paymentMethod: "cash", deliveryFee: 0, restaurantId: restaurant.id },
             { customerName: "Aissatou Touré", phone: "+224 623 88 99 00", items: JSON.stringify([{ name: "Riz Jollof KFM Spécial", price: 35000, qty: 2 }, { name: "Assiette de Fruits Tropicaux", price: 12000, qty: 1 }]), total: 82000, status: "delivering", orderType: "delivery", paymentMethod: "orange_money", deliveryAddress: "Cité Chemin de Fer, Dixinn", deliveryFee: 5000, driverId: drivers[1]?.id || null, restaurantId: restaurant.id },
             { customerName: "Sekou Bangoura", phone: "+224 627 11 22 33", items: JSON.stringify([{ name: "Agneau Braisé aux Épices", price: 40000, qty: 1 }, { name: "Salade KFM", price: 15000, qty: 2 }]), total: 75000, status: "ready", orderType: "delivery", paymentMethod: "mtn_money", deliveryAddress: "Belle Vue, Kaloum", deliveryFee: 5000, restaurantId: restaurant.id },
             { customerName: "Djenabou Sylla", phone: "+224 624 33 44 55", items: JSON.stringify([{ name: "Poisson Grillé Entier", price: 30000, qty: 1 }]), total: 35000, status: "delivered", orderType: "delivery", paymentMethod: "cash", deliveryAddress: "Hamdallaye, Matam", deliveryFee: 5000, driverId: drivers[0]?.id || null, restaurantId: restaurant.id },
-            { customerName: "Mamadou Bah", phone: "+224 628 44 55 66", items: JSON.stringify([{ name: "Plasas Traditionnel", price: 25000, qty: 2 }, { name: "Brochettes de Crevettes", price: 25000, qty: 1 }]), total: 75000, status: "pending", orderType: "takeaway", paymentMethod: "cash", deliveryFee: 0, restaurantId: restaurant.id },
+            { customerName: "Mamadou Bah", phone: "+224 628 44 55 66", items: JSON.stringify([{ name: "Plasas Traditionnel", price: 25000, qty: 2 }, { name: "Brochettes de Crevettes", price: 25000, qty: 1 }]), total: 75000, status: "pending", orderType: "takeaway", paymentMethod: "cash", deliveryFee: 0, customerId: customerMap.get("Mamadou Bah") ?? null, restaurantId: restaurant.id },
             { customerName: "Thierno Bah", phone: "+224 626 66 77 88", items: JSON.stringify([{ name: "Brochettes de Crevettes", price: 25000, qty: 1 }, { name: "Gâteau Chocolat-Coco", price: 15000, qty: 1 }]), total: 45000, status: "pending", orderType: "delivery", paymentMethod: "orange_money", deliveryAddress: "Nongo, Matoto", deliveryFee: 5000, restaurantId: restaurant.id },
           ],
         });
@@ -186,11 +260,11 @@ export async function POST(request: Request) {
       if (reviewCount === 0) {
         await tx.review.createMany({
           data: [
-            { customerName: "Aminata Camara", rating: 5, comment: "Le meilleur restaurant de Conakry !", date: "Mai 2026", restaurantId: restaurant.id },
-            { customerName: "Mamadou Bah", rating: 5, comment: "Espace VIP parfait pour les dîners d'affaires.", date: "Avril 2026", restaurantId: restaurant.id },
-            { customerName: "Fatoumata Diallo", rating: 5, comment: "Surprise d'anniversaire inoubliable !", date: "Mars 2026", restaurantId: restaurant.id },
-            { customerName: "Ibrahim Touré", rating: 4, comment: "Fruits de mer très frais, menu digital moderne.", date: "Février 2026", restaurantId: restaurant.id },
-            { customerName: "Kadiatou Sylla", rating: 5, comment: "Ambiance terrasse au coucher du soleil, magique.", date: "Janvier 2026", restaurantId: restaurant.id },
+            { customerName: "Aminata Camara", rating: 5, comment: "Le meilleur restaurant de Conakry !", date: "Mai 2026", customerId: customerMap.get("Aminata Camara") ?? null, restaurantId: restaurant.id },
+            { customerName: "Mamadou Bah", rating: 5, comment: "Espace VIP parfait pour les dîners d'affaires.", date: "Avril 2026", customerId: customerMap.get("Mamadou Bah") ?? null, restaurantId: restaurant.id },
+            { customerName: "Fatoumata Diallo", rating: 5, comment: "Surprise d'anniversaire inoubliable !", date: "Mars 2026", customerId: customerMap.get("Fatoumata Diallo") ?? null, restaurantId: restaurant.id },
+            { customerName: "Ibrahim Touré", rating: 4, comment: "Fruits de mer très frais, menu digital moderne.", date: "Février 2026", customerId: customerMap.get("Ibrahim Touré") ?? null, restaurantId: restaurant.id },
+            { customerName: "Kadiatou Sylla", rating: 5, comment: "Ambiance terrasse au coucher du soleil, magique.", date: "Janvier 2026", customerId: customerMap.get("Kadiatou Sylla") ?? null, restaurantId: restaurant.id },
           ],
         });
       }

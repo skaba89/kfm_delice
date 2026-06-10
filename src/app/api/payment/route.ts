@@ -1,8 +1,9 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, authenticateAny, hasRole } from "@/lib/auth";
-import { paymentSchema, paymentStatusSchema } from "@/lib/validations";
+import { paymentSchema, paymentStatusSchema, webhookSignatureSchema } from "@/lib/validations";
 import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, parseStatusFilter } from "@/lib/pagination";
+import { createHmac, timingSafeEqual } from "crypto";
 
 // ============================================================
 // Orange Money & MTN Money Payment Integration
@@ -21,6 +22,32 @@ const PAYMENT_CONFIG = {
   // Simulated processing delay (ms) — set to 0 in production
   SIMULATED_DELAY: process.env.NODE_ENV === "production" ? 0 : 2000,
 };
+
+// Webhook secret for HMAC signature verification
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "";
+
+/**
+ * Generate an HMAC-SHA256 signature for a payment ID using the webhook secret.
+ */
+function generateWebhookSignature(paymentId: string): string {
+  if (!WEBHOOK_SECRET) return "";
+  return createHmac("sha256", WEBHOOK_SECRET).update(paymentId).digest("hex");
+}
+
+/**
+ * Verify that a webhook signature matches the expected HMAC-SHA256 of the payment ID.
+ * Uses timing-safe comparison to prevent timing attacks.
+ */
+function verifyWebhookSignature(paymentId: string, signature: string): boolean {
+  if (!WEBHOOK_SECRET) return false;
+  const expected = generateWebhookSignature(paymentId);
+  if (!expected || expected.length !== signature.length) return false;
+  try {
+    return timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Simulate Orange Money payment initiation.
@@ -279,25 +306,26 @@ export async function POST(request: Request) {
 
     // For mobile money, simulate async confirmation after a delay
     if (result.status === "processing" && PAYMENT_CONFIG.SIMULATED_DELAY > 0) {
-      // Simulate payment confirmation callback (in production, this would be a webhook)
+      // Simulate payment confirmation callback (in production, this would be a real webhook)
+      // Generate the HMAC signature for the simulated webhook call
+      const webhookSignature = generateWebhookSignature(payment.id);
       setTimeout(async () => {
         try {
           const confirmed = Math.random() > 0.1; // 90% confirmation rate
-          await db.payment.update({
-            where: { id: payment.id },
-            data: {
+          // Call the PATCH endpoint with proper webhook signature
+          const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
+          await fetch(`${baseUrl}/api/payment`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              "x-webhook-signature": webhookSignature,
+            },
+            body: JSON.stringify({
+              id: payment.id,
               status: confirmed ? "paid" : "failed",
-              paidAt: confirmed ? new Date().toISOString() : "",
-              failedReason: confirmed ? "" : "Paiement non confirmé par le client.",
-            },
-          });
-
-          await db.order.update({
-            where: { id: orderId },
-            data: {
-              paymentStatus: confirmed ? "paid" : "failed",
-              ...(confirmed && order.status === "pending" && { status: "confirmed" }),
-            },
+              failedReason: confirmed ? undefined : "Paiement non confirmé par le client.",
+              webhook: true,
+            }),
           });
 
           // WebSocket notification
@@ -351,7 +379,14 @@ export async function PATCH(request: Request) {
     // Support both admin manual update and webhook callback
     const isWebhook = body.webhook === true;
 
-    if (!isWebhook) {
+    if (isWebhook) {
+      // Verify webhook signature
+      const signature = request.headers.get("x-webhook-signature");
+      const sigValidation = webhookSignatureSchema.safeParse(signature);
+      if (!sigValidation.success || !signature || !verifyWebhookSignature(String(body.id), signature)) {
+        return NextResponse.json({ error: "Signature webhook invalide" }, { status: 401 });
+      }
+    } else {
       // Admin manual update
       const admin = await authenticateAdmin(request);
       if (!admin) {

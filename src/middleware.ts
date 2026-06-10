@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { jwtVerify } from 'jose';
+import { rateLimit } from '@/lib/rate-limit';
 
 // ────────────────────────────────────────────────────────────────
 // Security Configuration
@@ -12,35 +13,6 @@ if (!JWT_SECRET) {
 }
 // jose uses Uint8Array for the secret (Web Crypto API compatible)
 const _JWT_SECRET = new TextEncoder().encode(JWT_SECRET);
-
-// ────────────────────────────────────────────────────────────────
-// Rate Limiter (in-memory, per IP)
-// ────────────────────────────────────────────────────────────────
-
-interface RateEntry { count: number; resetTime: number }
-const rateStore = new Map<string, RateEntry>();
-let lastCleanup = Date.now();
-
-function rateLimit(ip: string, max: number, windowMs: number): { allowed: boolean; remaining: number } {
-  const now = Date.now();
-  // Cleanup stale entries every 2 min
-  if (now - lastCleanup > 120_000) {
-    lastCleanup = now;
-    for (const [k, v] of rateStore) {
-      if (now - v.resetTime > 120_000) rateStore.delete(k);
-    }
-  }
-  const entry = rateStore.get(ip);
-  if (!entry || now >= entry.resetTime) {
-    rateStore.set(ip, { count: 1, resetTime: now + windowMs });
-    return { allowed: true, remaining: max - 1 };
-  }
-  if (entry.count >= max) {
-    return { allowed: false, remaining: 0 };
-  }
-  entry.count++;
-  return { allowed: true, remaining: max - entry.count };
-}
 
 // ────────────────────────────────────────────────────────────────
 // Route Classification
@@ -100,7 +72,7 @@ export async function middleware(request: NextRequest) {
 
   // ── Step 3: Rate limiting for auth routes (stricter) ──
   if (method === 'POST' && AUTH_ROUTES.some(r => pathname.startsWith(r))) {
-    const { allowed, remaining } = rateLimit(clientIp, AUTH_RATE_LIMIT, AUTH_RATE_WINDOW);
+    const { allowed, remaining } = await rateLimit(clientIp, AUTH_RATE_LIMIT, AUTH_RATE_WINDOW);
     if (!allowed) {
       const response = NextResponse.json(
         { error: 'Trop de tentatives. Réessayez dans une minute.' },
@@ -114,7 +86,7 @@ export async function middleware(request: NextRequest) {
 
   // ── Step 4: General rate limiting for all API routes ──
   if (pathname.startsWith('/api/')) {
-    const { allowed, remaining } = rateLimit(`api:${clientIp}`, API_RATE_LIMIT, API_RATE_WINDOW);
+    const { allowed, remaining } = await rateLimit(`api:${clientIp}`, API_RATE_LIMIT, API_RATE_WINDOW);
     if (!allowed) {
       const response = NextResponse.json(
         { error: 'Limite de requêtes atteinte. Réessayez plus tard.' },

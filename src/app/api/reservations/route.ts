@@ -34,16 +34,17 @@ export async function GET(request: Request) {
       ...extraFilter,
     });
 
-    // If customer, filter by customer name (server-side filtering)
+    // If customer, filter by customerId (prefer FK) with fallback to customerName
     if (auth.type === "customer") {
       const customer = await db.customer.findUnique({ where: { id: auth.id } });
       if (!customer) return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
 
-      const where = buildWhere({ customerName: customer.name });
+      const where = buildWhere({ OR: [{ customerId: customer.id }, { customerName: customer.name, customerId: null }] });
       const [reservations, total] = await Promise.all([
         db.reservation.findMany({
           where,
           orderBy: { [sortBy]: sortOrder },
+          include: { customer: { select: { id: true, name: true, email: true } } },
           skip: prismaSkip(page, limit),
           take: prismaTake(limit),
         }),
@@ -62,6 +63,7 @@ export async function GET(request: Request) {
       db.reservation.findMany({
         where,
         orderBy: { [sortBy]: sortOrder },
+        include: { customer: { select: { id: true, name: true, email: true } } },
         skip: prismaSkip(page, limit),
         take: prismaTake(limit),
       }),
@@ -91,6 +93,15 @@ export async function POST(request: Request) {
     const restaurant = await db.restaurant.findFirst();
     if (!restaurant) return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
 
+    // Try to attach customerId if authenticated as customer
+    let customerId: string | undefined = validation.data.customerId;
+    try {
+      const auth = await authenticateAny(request);
+      if (auth?.type === "customer") {
+        customerId = auth.id;
+      }
+    } catch { /* not authenticated */ }
+
     const reservation = await db.reservation.create({
       data: {
         customerName: validation.data.customerName,
@@ -102,6 +113,7 @@ export async function POST(request: Request) {
         notes: validation.data.notes ?? "",
         status: validation.data.status ?? "pending",
         restaurantId: restaurant.id,
+        ...(customerId && { customerId }),
       },
     });
 

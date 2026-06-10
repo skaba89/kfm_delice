@@ -36,6 +36,7 @@ export const reservationSchema = z.object({
   zone: z.string().optional(),
   notes: z.string().optional(),
   status: z.string().optional(),
+  customerId: z.string().optional(),
 });
 
 export const orderSchema = z.object({
@@ -55,6 +56,7 @@ export const orderSchema = z.object({
   tax: z.number().optional(),
   note: z.string().optional(),
   driverId: z.string().nullable().optional(),
+  customerId: z.string().optional(),
 });
 
 export const paymentSchema = z.object({
@@ -99,6 +101,7 @@ export const reviewSchema = z.object({
   rating: z.number().min(1).max(5, 'Note entre 1 et 5'),
   comment: z.string().optional(),
   date: z.string().min(1, 'Date requise'),
+  customerId: z.string().optional(),
 });
 
 export const invoiceSchema = z.object({
@@ -191,6 +194,7 @@ export const reservationPatchSchema = z.object({
   zone: z.string().optional(),
   notes: z.string().optional(),
   status: z.string().optional(),
+  customerId: z.string().optional(),
 });
 
 export const orderPatchSchema = z.object({
@@ -211,6 +215,7 @@ export const orderPatchSchema = z.object({
   note: z.string().optional(),
   driverId: z.string().nullable().optional(),
   estimatedDeliveryTime: z.string().optional(),
+  customerId: z.string().optional(),
 });
 
 export const driverPatchSchema = z.object({
@@ -240,10 +245,23 @@ export const adminPatchSchema = z.object({
   id: z.string().min(1, 'ID requis'),
   email: z.string().email('Email invalide').optional(),
   password: z.string().min(6, 'Mot de passe min 6 caractères').optional(),
+  currentPassword: z.string().optional(),
   name: z.string().min(1, 'Nom requis').optional(),
   role: z.string().optional(),
   status: z.string().optional(),
-});
+}).refine(
+  (data) => {
+    // If password is provided, currentPassword must also be provided
+    if (data.password && !data.currentPassword) {
+      return false;
+    }
+    return true;
+  },
+  {
+    message: 'Mot de passe actuel requis pour changer le mot de passe',
+    path: ['currentPassword'],
+  }
+);
 
 export const invoicePatchSchema = z.object({
   id: z.string().min(1, 'ID requis'),
@@ -316,4 +334,25 @@ export const driverOrderPatchSchema = z.object({
   status: z.string().optional(),
   lat: z.number().min(-90).max(90).optional(),
   lng: z.number().min(-180).max(180).optional(),
+});
+
+// ────────────────────────────────────────────────────────────────
+// Webhook signature validation
+// ────────────────────────────────────────────────────────────────
+
+/**
+ * Schema for the x-webhook-signature header value.
+ * Expects a hex-encoded HMAC-SHA256 signature (64 characters).
+ */
+export const webhookSignatureSchema = z.string().regex(
+  /^[0-9a-f]{64}$/,
+  'Signature webhook invalide (format hex SHA-256 attendu)'
+);
+
+/**
+ * Schema for webhook payment status update payloads.
+ * Extends paymentStatusSchema with the webhook flag.
+ */
+export const webhookPaymentStatusSchema = paymentStatusSchema.extend({
+  webhook: z.literal(true),
 });
