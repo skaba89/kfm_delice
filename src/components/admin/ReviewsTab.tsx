@@ -1,12 +1,12 @@
 "use client";
 
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Star, Trash2 } from "lucide-react";
+import { Star } from "lucide-react";
 import type { ReviewDB, Stats } from "@/lib/types";
 import { usePagination } from "@/lib/use-pagination";
 import { Pagination } from "@/components/Pagination";
 import { notify } from "@/lib/notifications";
+import { DeleteConfirmButton } from "@/components/admin/shared";
 
 export interface ReviewsTabProps {
   reviews: ReviewDB[];
@@ -65,16 +65,12 @@ export function ReviewsTab({ reviews, stats, apiDelete, deleteConfirm, setDelete
                   <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{r.comment}</p>
                   <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">{r.date}</p>
                 </div>
-                <div>
-                  {deleteConfirm === r.id ? (
-                    <div className="flex items-center gap-1">
-                      <button onClick={() => handleDelete(r)} className="text-[10px] px-1.5 py-0.5 bg-red-500 text-white rounded">Oui</button>
-                      <button onClick={() => setDeleteConfirm(null)} className="text-[10px] px-1.5 py-0.5 bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 rounded">Non</button>
-                    </div>
-                  ) : (
-                    <button onClick={() => setDeleteConfirm(r.id)} className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-red-100 hover:text-red-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-red-900/30 dark:hover:text-red-400" title="Supprimer"><Trash2 className="w-4 h-4" /></button>
-                  )}
-                </div>
+                <DeleteConfirmButton
+                  confirming={deleteConfirm === r.id}
+                  onConfirm={() => handleDelete(r)}
+                  onRequestConfirm={() => setDeleteConfirm(r.id)}
+                  onCancel={() => setDeleteConfirm(null)}
+                />
               </div>
             </CardContent>
           </Card>

@@ -1,97 +1,89 @@
 "use client";
 
-import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { Plus, Edit3, Trash2, Save, XCircle, Receipt } from "lucide-react";
+import { XCircle, Receipt } from "lucide-react";
 import type { InvoiceDB } from "@/lib/types";
 import { formatPrice, invoiceStatusColors, invoiceStatusLabels } from "@/lib/constants";
 import { usePagination } from "@/lib/use-pagination";
 import { Pagination } from "@/components/Pagination";
 import { notify } from "@/lib/notifications";
+import { AdminFormCard, CrudHeader, DeleteConfirmButton, EditButton, EmptyState, FormField, SummaryCards } from "@/components/admin/shared";
+import type { CrudStateReturn } from "@/lib/hooks/use-crud-state";
+
+type InvoiceForm = { number: string; customerName: string; customerPhone: string; items: string; subtotal: number; tax: number; total: number; status: string; dueDate: string; notes: string };
 
 export interface InvoicesTabProps {
   invoices: InvoiceDB[];
-  showInvoiceForm: boolean;
-  editingInvoice: InvoiceDB | null;
-  invoiceForm: { number: string; customerName: string; customerPhone: string; items: string; subtotal: number; tax: number; total: number; status: string; dueDate: string; notes: string };
-  setInvoiceForm: (v: { number: string; customerName: string; customerPhone: string; items: string; subtotal: number; tax: number; total: number; status: string; dueDate: string; notes: string }) => void;
-  openAddInvoice: () => void;
-  openEditInvoice: (inv: InvoiceDB) => void;
-  saveInvoice: () => Promise<void>;
-  setShowInvoiceForm: (v: boolean) => void;
+  crud: CrudStateReturn<InvoiceDB, InvoiceForm>;
   apiPatch: (url: string, body: object) => Promise<void>;
   apiDelete: (url: string, body: object) => Promise<void>;
-  deleteInvoiceConfirm: string | null;
-  setDeleteInvoiceConfirm: (v: string | null) => void;
 }
 
-export function InvoicesTab({
-  invoices, showInvoiceForm, editingInvoice, invoiceForm, setInvoiceForm,
-  openAddInvoice, openEditInvoice, saveInvoice, setShowInvoiceForm,
-  apiPatch, apiDelete, deleteInvoiceConfirm, setDeleteInvoiceConfirm,
-}: InvoicesTabProps) {
+export function InvoicesTab({ invoices, crud, apiPatch, apiDelete }: InvoicesTabProps) {
   const { currentPage, setCurrentPage, totalPages, paginatedItems, totalItems, itemsPerPage } = usePagination(invoices, 10);
 
-  const handleSaveInvoice = async () => {
-    await saveInvoice();
-    notify.invoiceSaved(invoiceForm.number);
+  const handleSave = async () => {
+    await crud.save();
+    notify.invoiceSaved(crud.form.number);
   };
 
-  const handleDeleteInvoice = async (inv: InvoiceDB) => {
+  const handleDelete = async (inv: InvoiceDB) => {
     await apiDelete("/api/invoices", { id: inv.id });
-    setDeleteInvoiceConfirm(null);
+    crud.setDeleteConfirm(null);
     notify.invoiceDeleted(inv.number);
   };
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">{invoices.filter(i => i.status === "pending").length} En attente</Badge>
-          <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">{invoices.filter(i => i.status === "paid").length} Payées</Badge>
-          <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">{invoices.filter(i => i.status === "overdue").length} En retard</Badge>
+      <CrudHeader
+        badges={[
+          { count: invoices.filter(i => i.status === "pending").length, label: "En attente", color: "amber" },
+          { count: invoices.filter(i => i.status === "paid").length, label: "Payées", color: "green" },
+          { count: invoices.filter(i => i.status === "overdue").length, label: "En retard", color: "red" },
+        ]}
+        addLabel="Nouvelle facture"
+        onAdd={crud.openAdd}
+      />
+
+      <SummaryCards columns={4} items={[
+        { label: "Total facturé", value: formatPrice(invoices.reduce((s, i) => s + i.total, 0)) },
+        { label: "Payé", value: formatPrice(invoices.filter(i => i.status === "paid").reduce((s, i) => s + i.total, 0)), valueColor: "text-green-600 dark:text-green-400" },
+        { label: "En attente", value: formatPrice(invoices.filter(i => i.status === "pending").reduce((s, i) => s + i.total, 0)), valueColor: "text-amber-600 dark:text-amber-400" },
+        { label: "En retard", value: formatPrice(invoices.filter(i => i.status === "overdue").reduce((s, i) => s + i.total, 0)), valueColor: "text-red-600 dark:text-red-400" },
+      ]} />
+
+      <AdminFormCard
+        show={crud.showForm}
+        editing={!!crud.editing}
+        addTitle="Nouvelle facture"
+        editTitle="Modifier la facture"
+        onSave={handleSave}
+        onCancel={() => crud.setShowForm(false)}
+      >
+        <FormField label="N° Facture" value={crud.form.number} onChange={v => crud.setForm({ ...crud.form, number: v })} placeholder="FAC-2026-001" required />
+        <FormField label="Client" value={crud.form.customerName} onChange={v => crud.setForm({ ...crud.form, customerName: v })} placeholder="Nom du client" required />
+        <FormField label="Téléphone" value={crud.form.customerPhone} onChange={v => crud.setForm({ ...crud.form, customerPhone: v })} placeholder="+224 ..." />
+        <div>
+          <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Sous-total (GNF)</label>
+          <Input type="number" value={crud.form.subtotal || ""} onChange={e => { const v = parseInt(e.target.value) || 0; crud.setForm({ ...crud.form, subtotal: v, total: v + crud.form.tax }); }} placeholder="350000" className="dark:bg-gray-800 dark:border-gray-600" />
         </div>
-        <Button onClick={openAddInvoice} className="bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl text-sm">
-          <Plus className="w-4 h-4 mr-1" /> Nouvelle facture
-        </Button>
-      </div>
-
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Card className="dark:bg-gray-800 dark:border-gray-700"><CardContent className="p-3"><p className="text-xs text-gray-500 dark:text-gray-400">Total facturé</p><p className="text-lg font-bold text-gray-900 dark:text-gray-100">{formatPrice(invoices.reduce((s, i) => s + i.total, 0))}</p></CardContent></Card>
-        <Card className="dark:bg-gray-800 dark:border-gray-700"><CardContent className="p-3"><p className="text-xs text-gray-500 dark:text-gray-400">Payé</p><p className="text-lg font-bold text-green-600 dark:text-green-400">{formatPrice(invoices.filter(i => i.status === "paid").reduce((s, i) => s + i.total, 0))}</p></CardContent></Card>
-        <Card className="dark:bg-gray-800 dark:border-gray-700"><CardContent className="p-3"><p className="text-xs text-gray-500 dark:text-gray-400">En attente</p><p className="text-lg font-bold text-amber-600 dark:text-amber-400">{formatPrice(invoices.filter(i => i.status === "pending").reduce((s, i) => s + i.total, 0))}</p></CardContent></Card>
-        <Card className="dark:bg-gray-800 dark:border-gray-700"><CardContent className="p-3"><p className="text-xs text-gray-500 dark:text-gray-400">En retard</p><p className="text-lg font-bold text-red-600 dark:text-red-400">{formatPrice(invoices.filter(i => i.status === "overdue").reduce((s, i) => s + i.total, 0))}</p></CardContent></Card>
-      </div>
-
-      <AnimatePresence>
-        {showInvoiceForm && (
-          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
-            <Card className="border-orange-200 bg-orange-50/30 dark:border-orange-800 dark:bg-orange-900/10">
-              <CardContent className="p-4 sm:p-6">
-                <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">{editingInvoice ? "Modifier la facture" : "Nouvelle facture"}</h3>
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  <div><label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">N° Facture *</label><Input value={invoiceForm.number} onChange={e => setInvoiceForm({ ...invoiceForm, number: e.target.value })} placeholder="FAC-2026-001" className="dark:bg-gray-800 dark:border-gray-600" /></div>
-                  <div><label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Client *</label><Input value={invoiceForm.customerName} onChange={e => setInvoiceForm({ ...invoiceForm, customerName: e.target.value })} placeholder="Nom du client" className="dark:bg-gray-800 dark:border-gray-600" /></div>
-                  <div><label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Téléphone</label><Input value={invoiceForm.customerPhone} onChange={e => setInvoiceForm({ ...invoiceForm, customerPhone: e.target.value })} placeholder="+224 ..." className="dark:bg-gray-800 dark:border-gray-600" /></div>
-                  <div><label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Sous-total (GNF)</label><Input type="number" value={invoiceForm.subtotal || ""} onChange={e => { const v = parseInt(e.target.value) || 0; setInvoiceForm({ ...invoiceForm, subtotal: v, total: v + invoiceForm.tax }); }} placeholder="350000" className="dark:bg-gray-800 dark:border-gray-600" /></div>
-                  <div><label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Taxe (GNF)</label><Input type="number" value={invoiceForm.tax || ""} onChange={e => { const v = parseInt(e.target.value) || 0; setInvoiceForm({ ...invoiceForm, tax: v, total: invoiceForm.subtotal + v }); }} placeholder="52500" className="dark:bg-gray-800 dark:border-gray-600" /></div>
-                  <div><label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Total (GNF)</label><p className="h-9 flex items-center text-sm font-bold text-orange-600 dark:text-orange-400">{formatPrice(invoiceForm.total)}</p></div>
-                  <div><label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Échéance</label><Input type="date" value={invoiceForm.dueDate} onChange={e => setInvoiceForm({ ...invoiceForm, dueDate: e.target.value })} className="dark:bg-gray-800 dark:border-gray-600" /></div>
-                  <div className="sm:col-span-2"><label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Notes</label><Input value={invoiceForm.notes} onChange={e => setInvoiceForm({ ...invoiceForm, notes: e.target.value })} placeholder="Notes" className="dark:bg-gray-800 dark:border-gray-600" /></div>
-                </div>
-                <div className="flex gap-2 mt-4">
-                  <Button onClick={handleSaveInvoice} className="bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl"><Save className="w-4 h-4 mr-1" /> {editingInvoice ? "Enregistrer" : "Créer"}</Button>
-                  <Button variant="outline" onClick={() => { setShowInvoiceForm(false); }} className="dark:border-gray-600">Annuler</Button>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        )}
-      </AnimatePresence>
+        <div>
+          <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Taxe (GNF)</label>
+          <Input type="number" value={crud.form.tax || ""} onChange={e => { const v = parseInt(e.target.value) || 0; crud.setForm({ ...crud.form, tax: v, total: crud.form.subtotal + v }); }} placeholder="52500" className="dark:bg-gray-800 dark:border-gray-600" />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Total (GNF)</label>
+          <p className="h-9 flex items-center text-sm font-bold text-orange-600 dark:text-orange-400">{formatPrice(crud.form.total)}</p>
+        </div>
+        <FormField label="Échéance" value={crud.form.dueDate} onChange={v => crud.setForm({ ...crud.form, dueDate: v })} type="date" />
+        <div className="sm:col-span-2">
+          <FormField label="Notes" value={crud.form.notes} onChange={v => crud.setForm({ ...crud.form, notes: v })} placeholder="Notes" />
+        </div>
+      </AdminFormCard>
 
       <div className="space-y-3">
         {paginatedItems.map(inv => {
@@ -124,18 +116,19 @@ export function InvoicesTab({
                   {inv.status === "pending" && <Button size="sm" variant="outline" onClick={() => apiPatch("/api/invoices", { id: inv.id, status: "overdue" })} className="text-red-500 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/30 text-xs rounded-lg">En retard</Button>}
                   {inv.status === "overdue" && <Button size="sm" onClick={() => apiPatch("/api/invoices", { id: inv.id, status: "paid" })} className="bg-green-500 hover:bg-green-600 text-white text-xs rounded-lg">Marquer payée</Button>}
                   {inv.status !== "cancelled" && inv.status !== "paid" && <Button size="sm" variant="outline" onClick={() => apiPatch("/api/invoices", { id: inv.id, status: "cancelled" })} className="text-red-500 border-red-200 dark:border-red-800 text-xs rounded-lg"><XCircle className="w-3 h-3" /></Button>}
-                  <button onClick={() => openEditInvoice(inv)} className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-orange-100 hover:text-orange-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-orange-900/30 dark:hover:text-orange-400" title="Modifier"><Edit3 className="w-4 h-4" /></button>
-                  {deleteInvoiceConfirm === inv.id ? (
-                    <div className="flex items-center gap-1"><button onClick={() => handleDeleteInvoice(inv)} className="text-[10px] px-1.5 py-0.5 bg-red-500 text-white rounded">Oui</button><button onClick={() => setDeleteInvoiceConfirm(null)} className="text-[10px] px-1.5 py-0.5 bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 rounded">Non</button></div>
-                  ) : (
-                    <button onClick={() => setDeleteInvoiceConfirm(inv.id)} className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-red-100 hover:text-red-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-red-900/30 dark:hover:text-red-400" title="Supprimer"><Trash2 className="w-4 h-4" /></button>
-                  )}
+                  <EditButton onClick={() => crud.openEdit(inv)} />
+                  <DeleteConfirmButton
+                    confirming={crud.deleteConfirm === inv.id}
+                    onConfirm={() => handleDelete(inv)}
+                    onRequestConfirm={() => crud.setDeleteConfirm(inv.id)}
+                    onCancel={() => crud.setDeleteConfirm(null)}
+                  />
                 </div>
               </CardContent>
             </Card>
           );
         })}
-        {invoices.length === 0 && <Card className="dark:bg-gray-800 dark:border-gray-700"><CardContent className="p-8 text-center"><Receipt className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" /><p className="text-gray-500 dark:text-gray-400">Aucune facture</p></CardContent></Card>}
+        {invoices.length === 0 && <EmptyState icon={Receipt} message="Aucune facture" />}
       </div>
       <Pagination currentPage={currentPage} totalPages={totalPages} totalItems={totalItems} itemsPerPage={itemsPerPage} onPageChange={setCurrentPage} label="factures" />
     </div>

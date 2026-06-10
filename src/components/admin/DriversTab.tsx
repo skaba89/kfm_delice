@@ -1,80 +1,63 @@
 "use client";
 
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Car } from "lucide-react";
 import { VehicleIcon } from "@/components/VehicleIcon";
 import type { DriverDB } from "@/lib/types";
 import { vehicleLabels, driverStatusColors, driverStatusLabels } from "@/lib/constants";
 import { usePagination } from "@/lib/use-pagination";
 import { Pagination } from "@/components/Pagination";
 import { notify } from "@/lib/notifications";
-import { AdminFormCard } from "@/components/admin/shared/AdminFormCard";
-import { FormField } from "@/components/admin/shared/FormField";
-import { FormSelect } from "@/components/admin/shared/FormSelect";
-import { DeleteConfirmButton } from "@/components/admin/shared/DeleteConfirmButton";
-import { EditButton } from "@/components/admin/shared/EditButton";
+import { AdminFormCard, CrudHeader, DeleteConfirmButton, EditButton, FormField, FormSelect } from "@/components/admin/shared";
+import type { CrudStateReturn } from "@/lib/hooks/use-crud-state";
+
+type DriverForm = { name: string; phone: string; vehicle: string; zone: string };
 
 export interface DriversTabProps {
   drivers: DriverDB[];
-  showDriverForm: boolean;
-  editingDriver: DriverDB | null;
-  driverForm: { name: string; phone: string; vehicle: string; zone: string };
-  setDriverForm: (v: { name: string; phone: string; vehicle: string; zone: string }) => void;
-  openAddDriver: () => void;
-  openEditDriver: (d: DriverDB) => void;
-  saveDriver: () => Promise<void>;
-  setShowDriverForm: (v: boolean) => void;
+  crud: CrudStateReturn<DriverDB, DriverForm>;
   apiPatch: (url: string, body: object) => Promise<void>;
   apiDelete: (url: string, body: object) => Promise<void>;
-  deleteDriverConfirm: string | null;
-  setDeleteDriverConfirm: (v: string | null) => void;
 }
 
-export function DriversTab({
-  drivers, showDriverForm, editingDriver, driverForm, setDriverForm,
-  openAddDriver, openEditDriver, saveDriver, setShowDriverForm,
-  apiPatch, apiDelete, deleteDriverConfirm, setDeleteDriverConfirm,
-}: DriversTabProps) {
+export function DriversTab({ drivers, crud, apiPatch, apiDelete }: DriversTabProps) {
   const { currentPage, setCurrentPage, totalPages, paginatedItems, totalItems, itemsPerPage } = usePagination(drivers, 10);
 
-  const handleSaveDriver = async () => {
-    await saveDriver();
-    notify.driverSaved(driverForm.name, !!editingDriver);
+  const handleSave = async () => {
+    await crud.save();
+    notify.driverSaved(crud.form.name, !!crud.editing);
   };
 
-  const handleDeleteDriver = async (d: DriverDB) => {
+  const handleDelete = async (d: DriverDB) => {
     await apiDelete("/api/drivers", { id: d.id });
-    setDeleteDriverConfirm(null);
+    crud.setDeleteConfirm(null);
     notify.driverDeleted(d.name);
   };
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">{drivers.filter(d => d.status === "available").length} Disponibles</Badge>
-          <Badge className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">{drivers.filter(d => d.status === "busy").length} En livraison</Badge>
-          <Badge className="bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300">{drivers.filter(d => d.status === "offline").length} Hors ligne</Badge>
-        </div>
-        <Button onClick={openAddDriver} className="bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl text-sm">
-          <Plus className="w-4 h-4 mr-1" /> Ajouter un livreur
-        </Button>
-      </div>
+      <CrudHeader
+        badges={[
+          { count: drivers.filter(d => d.status === "available").length, label: "Disponibles", color: "green" },
+          { count: drivers.filter(d => d.status === "busy").length, label: "En livraison", color: "orange" },
+          { count: drivers.filter(d => d.status === "offline").length, label: "Hors ligne", color: "gray" },
+        ]}
+        addLabel="Ajouter un livreur"
+        onAdd={crud.openAdd}
+      />
 
       <AdminFormCard
-        show={showDriverForm}
-        editing={!!editingDriver}
+        show={crud.showForm}
+        editing={!!crud.editing}
         addTitle="Ajouter un livreur"
         editTitle="Modifier le livreur"
-        onSave={handleSaveDriver}
-        onCancel={() => setShowDriverForm(false)}
+        onSave={handleSave}
+        onCancel={() => crud.setShowForm(false)}
       >
-        <FormField label="Nom" value={driverForm.name} onChange={v => setDriverForm({...driverForm, name: v})} placeholder="Nom complet" required />
-        <FormField label="Téléphone" value={driverForm.phone} onChange={v => setDriverForm({...driverForm, phone: v})} placeholder="+224 6XX XX XX XX" required />
-        <FormSelect label="Véhicule" value={driverForm.vehicle} onChange={v => setDriverForm({...driverForm, vehicle: v})} options={[{value: "moto", label: "Moto"}, {value: "velo", label: "Vélo"}, {value: "voiture", label: "Voiture"}]} />
-        <FormField label="Zone" value={driverForm.zone} onChange={v => setDriverForm({...driverForm, zone: v})} placeholder="Conakry" />
+        <FormField label="Nom" value={crud.form.name} onChange={v => crud.setForm({...crud.form, name: v})} placeholder="Nom complet" required />
+        <FormField label="Téléphone" value={crud.form.phone} onChange={v => crud.setForm({...crud.form, phone: v})} placeholder="+224 6XX XX XX XX" required />
+        <FormSelect label="Véhicule" value={crud.form.vehicle} onChange={v => crud.setForm({...crud.form, vehicle: v})} options={[{value: "moto", label: "Moto"}, {value: "velo", label: "Vélo"}, {value: "voiture", label: "Voiture"}]} />
+        <FormField label="Zone" value={crud.form.zone} onChange={v => crud.setForm({...crud.form, zone: v})} placeholder="Conakry" />
       </AdminFormCard>
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -106,18 +89,18 @@ export function DriversTab({
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Button size="sm" variant="outline" onClick={() => {
+                <button onClick={() => {
                   const newStatus = d.status === "available" ? "offline" : "available";
                   apiPatch("/api/drivers", { id: d.id, status: newStatus });
-                }} className={`flex-1 text-xs rounded-lg ${d.status === "available" ? "text-orange-600 border-orange-200 hover:bg-orange-50 dark:text-orange-400 dark:border-orange-800 dark:hover:bg-orange-900/30" : "text-green-600 border-green-200 hover:bg-green-50 dark:text-green-400 dark:border-green-800 dark:hover:bg-green-900/30"}`}>
+                }} className={`flex-1 text-xs px-2 py-1.5 rounded-lg border ${d.status === "available" ? "text-orange-600 border-orange-200 hover:bg-orange-50 dark:text-orange-400 dark:border-orange-800 dark:hover:bg-orange-900/30" : "text-green-600 border-green-200 hover:bg-green-50 dark:text-green-400 dark:border-green-800 dark:hover:bg-green-900/30"}`}>
                   {d.status === "available" ? "M hors ligne" : "M dispo"}
-                </Button>
-                <EditButton onClick={() => openEditDriver(d)} />
+                </button>
+                <EditButton onClick={() => crud.openEdit(d)} />
                 <DeleteConfirmButton
-                  confirming={deleteDriverConfirm === d.id}
-                  onConfirm={() => handleDeleteDriver(d)}
-                  onRequestConfirm={() => setDeleteDriverConfirm(d.id)}
-                  onCancel={() => setDeleteDriverConfirm(null)}
+                  confirming={crud.deleteConfirm === d.id}
+                  onConfirm={() => handleDelete(d)}
+                  onRequestConfirm={() => crud.setDeleteConfirm(d.id)}
+                  onCancel={() => crud.setDeleteConfirm(null)}
                 />
               </div>
             </CardContent>
@@ -125,9 +108,6 @@ export function DriversTab({
         ))}
       </div>
       <Pagination currentPage={currentPage} totalPages={totalPages} totalItems={totalItems} itemsPerPage={itemsPerPage} onPageChange={setCurrentPage} label="livreurs" />
-      {drivers.length === 0 && (
-        <Card className="dark:bg-gray-800 dark:border-gray-700"><CardContent className="p-8 text-center"><Car className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" /><p className="text-gray-500 dark:text-gray-400">Aucun livreur enregistré</p></CardContent></Card>
-      )}
     </div>
   );
 }

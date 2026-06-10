@@ -23,18 +23,87 @@ import { CustomersTab } from "@/components/admin/CustomersTab";
 import { PaymentsTab } from "@/components/admin/PaymentsTab";
 import { PosTab } from "@/components/admin/PosTab";
 import { DashboardShell, type SidebarItem } from "@/components/layout/DashboardShell";
-import type { AdminUser, MenuItemDB, OrderDB } from "@/lib/types";
+import type { AdminDB, AdminUser, MenuItemDB, OrderDB, DriverDB, StaffDB, InvoiceDB, QuoteDB, ExpenseDB, CustomerDB } from "@/lib/types";
 import { useAdminData } from "@/lib/hooks/use-admin-data";
-import { useMenuCrud } from "@/lib/hooks/use-menu-crud";
-import { useDriverCrud } from "@/lib/hooks/use-driver-crud";
-import { useStaffCrud } from "@/lib/hooks/use-staff-crud";
-import { useAdminCrud } from "@/lib/hooks/use-admin-crud";
-import { useInvoiceCrud } from "@/lib/hooks/use-invoice-crud";
-import { useQuoteCrud } from "@/lib/hooks/use-quote-crud";
-import { useExpenseCrud } from "@/lib/hooks/use-expense-crud";
-import { useCustomerCrud } from "@/lib/hooks/use-customer-crud";
+import { useCrudState, type CrudConfig } from "@/lib/hooks/use-crud-state";
 import { usePosCart } from "@/lib/hooks/use-pos-cart";
 import { useAuth } from "@/lib/auth-context";
+
+// ─── Form type aliases ───────────────────────────────────────────
+type DriverForm = { name: string; phone: string; vehicle: string; zone: string };
+type StaffForm = { name: string; phone: string; role: string; salary: number; status: string; hireDate: string; notes: string };
+type AdminForm = { email: string; password: string; name: string; role: string; status: string };
+type ExpenseForm = { description: string; amount: number; category: string; date: string; paidBy: string; notes: string };
+type CustomerForm = { name: string; email: string; phone: string; address: string; status: string };
+type InvoiceForm = { number: string; customerName: string; customerPhone: string; items: string; subtotal: number; tax: number; total: number; status: string; dueDate: string; notes: string };
+type QuoteForm = { number: string; customerName: string; customerPhone: string; items: string; subtotal: number; discount: number; total: number; status: string; validUntil: string; notes: string };
+type MenuForm = { name: string; description: string; price: number; category: string; image: string; badge: string; popular: boolean; available: boolean };
+
+// ─── CRUD configurations (replace 7 individual hooks) ───────────
+const driverConfig: CrudConfig<DriverDB, DriverForm> = {
+  apiEndpoint: "/api/drivers",
+  defaultForm: { name: "", phone: "", vehicle: "moto", zone: "Conakry" },
+  mapEntityToForm: (d) => ({ name: d.name, phone: d.phone, vehicle: d.vehicle, zone: d.zone }),
+  prepareCreate: (form) => ({ ...form, status: "available", rating: 5.0, totalDeliveries: 0 }),
+};
+
+const staffConfig: CrudConfig<StaffDB, StaffForm> = {
+  apiEndpoint: "/api/staff",
+  defaultForm: { name: "", phone: "", role: "serveur", salary: 0, status: "active", hireDate: "", notes: "" },
+  mapEntityToForm: (s) => ({ name: s.name, phone: s.phone, role: s.role, salary: s.salary, status: s.status, hireDate: s.hireDate, notes: s.notes }),
+  getAddForm: () => ({ name: "", phone: "", role: "serveur", salary: 0, status: "active", hireDate: new Date().toISOString().split("T")[0], notes: "" }),
+};
+
+const adminConfig: CrudConfig<AdminDB, AdminForm> = {
+  apiEndpoint: "/api/admins",
+  defaultForm: { email: "", password: "", name: "", role: "staff", status: "active" },
+  mapEntityToForm: (a) => ({ email: a.email, password: "", name: a.name, role: a.role, status: a.status || "active" }),
+  prepareUpdate: (form) => {
+    const body: Record<string, string> = { ...form };
+    if (!body.password) delete body.password;
+    return body;
+  },
+};
+
+const expenseConfig: CrudConfig<ExpenseDB, ExpenseForm> = {
+  apiEndpoint: "/api/expenses",
+  defaultForm: { description: "", amount: 0, category: "other", date: "", paidBy: "", notes: "" },
+  mapEntityToForm: (e) => ({ description: e.description, amount: e.amount, category: e.category, date: e.date, paidBy: e.paidBy, notes: e.notes }),
+  getAddForm: () => ({ description: "", amount: 0, category: "other", date: new Date().toISOString().split("T")[0], paidBy: "", notes: "" }),
+};
+
+const customerConfig: CrudConfig<CustomerDB, CustomerForm> = {
+  apiEndpoint: "/api/customers",
+  defaultForm: { name: "", email: "", phone: "", address: "", status: "active" },
+  mapEntityToForm: (c) => ({ name: c.name, email: c.email, phone: c.phone, address: c.address, status: c.status }),
+};
+
+const invoiceConfig: CrudConfig<InvoiceDB, InvoiceForm> = {
+  apiEndpoint: "/api/invoices",
+  defaultForm: { number: "FAC-2026-001", customerName: "", customerPhone: "", items: "[]", subtotal: 0, tax: 0, total: 0, status: "pending", dueDate: "", notes: "" },
+  mapEntityToForm: (inv) => ({ number: inv.number, customerName: inv.customerName, customerPhone: inv.customerPhone, items: inv.items, subtotal: inv.subtotal, tax: inv.tax, total: inv.total, status: inv.status, dueDate: inv.dueDate, notes: inv.notes }),
+  getAddForm: (context?: Record<string, unknown>) => {
+    const count = (context?.count as number) || 0;
+    const today = new Date().toISOString().split("T")[0];
+    return { number: `FAC-2026-${String(count + 1).padStart(3, "0")}`, customerName: "", customerPhone: "", items: "[]", subtotal: 0, tax: 0, total: 0, status: "pending", dueDate: today, notes: "" };
+  },
+};
+
+const quoteConfig: CrudConfig<QuoteDB, QuoteForm> = {
+  apiEndpoint: "/api/quotes",
+  defaultForm: { number: "DEV-2026-001", customerName: "", customerPhone: "", items: "[]", subtotal: 0, discount: 0, total: 0, status: "draft", validUntil: "", notes: "" },
+  mapEntityToForm: (q) => ({ number: q.number, customerName: q.customerName, customerPhone: q.customerPhone, items: q.items, subtotal: q.subtotal, discount: q.discount, total: q.total, status: q.status, validUntil: q.validUntil, notes: q.notes }),
+  getAddForm: (context?: Record<string, unknown>) => {
+    const count = (context?.count as number) || 0;
+    return { number: `DEV-2026-${String(count + 1).padStart(3, "0")}`, customerName: "", customerPhone: "", items: "[]", subtotal: 0, discount: 0, total: 0, status: "draft", validUntil: "", notes: "" };
+  },
+};
+
+const menuConfig: CrudConfig<MenuItemDB, MenuForm> = {
+  apiEndpoint: "/api/menu",
+  defaultForm: { name: "", description: "", price: 0, category: "entrees", image: "", badge: "", popular: false, available: true },
+  mapEntityToForm: (item) => ({ name: item.name, description: item.description, price: item.price, category: item.category, image: item.image, badge: item.badge, popular: item.popular, available: item.available }),
+};
 
 export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout: () => void }) {
   const [activeTab, setActiveTab] = useState("overview");
@@ -47,15 +116,18 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
     loadData, apiPatch, apiPost, apiDelete, apiFetch,
   } = useAdminData(activeTab, admin.id);
 
-  // ─── Domain-specific CRUD hooks ──────────────────────────────
-  const menuCrud = useMenuCrud(menuItems, apiPatch, apiPost);
-  const driverCrud = useDriverCrud(apiPatch, apiPost);
-  const staffCrud = useStaffCrud(apiPatch, apiPost);
-  const adminCrud = useAdminCrud(apiPatch, apiPost);
-  const invoiceCrud = useInvoiceCrud(invoices, apiPatch, apiPost);
-  const quoteCrud = useQuoteCrud(quotes, apiPatch, apiPost);
-  const expenseCrud = useExpenseCrud(apiPatch, apiPost);
-  const customerCrud = useCustomerCrud(apiPatch, apiPost);
+  // ─── Generic CRUD hooks (replaces 7 individual hooks) ──────────
+  const driverCrud = useCrudState(driverConfig, apiPatch, apiPost);
+  const staffCrud = useCrudState(staffConfig, apiPatch, apiPost);
+  const adminCrud = useCrudState(adminConfig, apiPatch, apiPost);
+  const expenseCrud = useCrudState(expenseConfig, apiPatch, apiPost);
+  const customerCrud = useCrudState(customerConfig, apiPatch, apiPost);
+  const invoiceCrud = useCrudState(invoiceConfig, apiPatch, apiPost);
+  const quoteCrud = useCrudState(quoteConfig, apiPatch, apiPost);
+  const menuCrud = useCrudState(menuConfig, apiPatch, apiPost);
+
+  // ─── Menu: local filter state ────────────────────────────────
+  const [menuFilter, setMenuFilter] = useState("all");
 
   // ─── Reviews: delete confirmation ────────────────────────────
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
@@ -126,80 +198,47 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
       {activeTab === "orders" && <OrdersTab orders={orders} apiPatch={apiPatch} />}
       {activeTab === "menu" && <MenuTab
         menuItems={menuItems}
-        filteredMenuItems={menuCrud.filteredMenuItems}
-        menuFilter={menuCrud.menuFilter} setMenuFilter={menuCrud.setMenuFilter}
-        showMenuForm={menuCrud.showMenuForm} editingItem={menuCrud.editingItem}
-        menuForm={menuCrud.menuForm} setMenuForm={menuCrud.setMenuForm}
-        openAddMenu={menuCrud.openAddMenu} openEditMenu={menuCrud.openEditMenu} saveMenu={menuCrud.saveMenu}
-        setShowMenuForm={menuCrud.setShowMenuForm}
+        menuFilter={menuFilter} setMenuFilter={setMenuFilter}
+        crud={menuCrud}
         apiPatch={apiPatch} apiDelete={apiDelete}
-        deleteConfirm={deleteConfirm} setDeleteConfirm={setDeleteConfirm}
         apiFetch={apiFetch}
       />}
       {activeTab === "deliveries" && <DeliveriesTab orders={orders} drivers={drivers} apiPatch={apiPatch} apiFetch={apiFetch} assigningOrderId={null} setAssigningOrderId={() => {}} loadData={loadData} />}
       {activeTab === "drivers" && <DriversTab
         drivers={drivers}
-        showDriverForm={driverCrud.showDriverForm} editingDriver={driverCrud.editingDriver}
-        driverForm={driverCrud.driverForm} setDriverForm={driverCrud.setDriverForm}
-        openAddDriver={driverCrud.openAddDriver} openEditDriver={driverCrud.openEditDriver} saveDriver={driverCrud.saveDriver}
-        setShowDriverForm={driverCrud.setShowDriverForm}
+        crud={driverCrud}
         apiPatch={apiPatch} apiDelete={apiDelete}
-        deleteDriverConfirm={driverCrud.deleteDriverConfirm} setDeleteDriverConfirm={driverCrud.setDeleteDriverConfirm}
       />}
       {activeTab === "reviews" && <ReviewsTab reviews={reviews} stats={stats} apiDelete={apiDelete} deleteConfirm={deleteConfirm} setDeleteConfirm={setDeleteConfirm} />}
       {activeTab === "staff" && <StaffTab
         staffList={staffList}
-        showStaffForm={staffCrud.showStaffForm} editingStaff={staffCrud.editingStaff}
-        staffForm={staffCrud.staffForm} setStaffForm={staffCrud.setStaffForm}
-        openAddStaff={staffCrud.openAddStaff} openEditStaff={staffCrud.openEditStaff} saveStaff={staffCrud.saveStaff}
-        setShowStaffForm={staffCrud.setShowStaffForm}
-        apiPatch={apiPatch} apiDelete={apiDelete}
-        deleteStaffConfirm={staffCrud.deleteStaffConfirm} setDeleteStaffConfirm={staffCrud.setDeleteStaffConfirm}
+        crud={staffCrud}
+        apiDelete={apiDelete}
       />}
       {activeTab === "customers" && <CustomersTab
         customers={customers}
-        showCustomerForm={customerCrud.showCustomerForm} editingCustomer={customerCrud.editingCustomer}
-        customerForm={customerCrud.customerForm} setCustomerForm={customerCrud.setCustomerForm}
-        openAddCustomer={customerCrud.openAddCustomer} openEditCustomer={customerCrud.openEditCustomer} saveCustomer={customerCrud.saveCustomer}
-        setShowCustomerForm={customerCrud.setShowCustomerForm}
+        crud={customerCrud}
         apiPatch={apiPatch} apiDelete={apiDelete}
-        deleteCustomerConfirm={customerCrud.deleteCustomerConfirm} setDeleteCustomerConfirm={customerCrud.setDeleteCustomerConfirm}
       />}
       {activeTab === "admins" && <AdminsTab
         admins={admins} admin={admin}
-        showAdminForm={adminCrud.showAdminForm} editingAdmin={adminCrud.editingAdmin}
-        adminForm={adminCrud.adminForm} setAdminForm={adminCrud.setAdminForm}
-        openAddAdmin={adminCrud.openAddAdmin} openEditAdmin={adminCrud.openEditAdmin} saveAdmin={adminCrud.saveAdmin}
-        setShowAdminForm={adminCrud.setShowAdminForm}
+        crud={adminCrud}
         apiPatch={apiPatch} apiDelete={apiDelete}
-        deleteAdminConfirm={adminCrud.deleteAdminConfirm} setDeleteAdminConfirm={adminCrud.setDeleteAdminConfirm}
       />}
       {activeTab === "invoices" && <InvoicesTab
         invoices={invoices}
-        showInvoiceForm={invoiceCrud.showInvoiceForm} editingInvoice={invoiceCrud.editingInvoice}
-        invoiceForm={invoiceCrud.invoiceForm} setInvoiceForm={invoiceCrud.setInvoiceForm}
-        openAddInvoice={invoiceCrud.openAddInvoice} openEditInvoice={invoiceCrud.openEditInvoice} saveInvoice={invoiceCrud.saveInvoice}
-        setShowInvoiceForm={invoiceCrud.setShowInvoiceForm}
+        crud={invoiceCrud}
         apiPatch={apiPatch} apiDelete={apiDelete}
-        deleteInvoiceConfirm={invoiceCrud.deleteInvoiceConfirm} setDeleteInvoiceConfirm={invoiceCrud.setDeleteInvoiceConfirm}
       />}
       {activeTab === "quotes" && <QuotesTab
         quotes={quotes}
-        showQuoteForm={quoteCrud.showQuoteForm} editingQuote={quoteCrud.editingQuote}
-        quoteForm={quoteCrud.quoteForm} setQuoteForm={quoteCrud.setQuoteForm}
-        openAddQuote={quoteCrud.openAddQuote} openEditQuote={quoteCrud.openEditQuote} saveQuote={quoteCrud.saveQuote}
-        setShowQuoteForm={quoteCrud.setShowQuoteForm}
+        crud={quoteCrud}
         apiPatch={apiPatch} apiDelete={apiDelete}
-        deleteQuoteConfirm={quoteCrud.deleteQuoteConfirm} setDeleteQuoteConfirm={quoteCrud.setDeleteQuoteConfirm}
       />}
       {activeTab === "expenses" && <ExpensesTab
         expenses={expenses}
-        showExpenseForm={expenseCrud.showExpenseForm} editingExpense={expenseCrud.editingExpense}
-        expenseForm={expenseCrud.expenseForm} setExpenseForm={expenseCrud.setExpenseForm}
-        openAddExpense={expenseCrud.openAddExpense} openEditExpense={expenseCrud.openEditExpense} saveExpense={expenseCrud.saveExpense}
-        setShowExpenseForm={expenseCrud.setShowExpenseForm}
-        apiPatch={apiPatch} apiDelete={apiDelete}
-        deleteExpenseConfirm={expenseCrud.deleteExpenseConfirm} setDeleteExpenseConfirm={expenseCrud.setDeleteExpenseConfirm}
+        crud={expenseCrud}
+        apiDelete={apiDelete}
       />}
       {activeTab === "payments" && <PaymentsTab payments={payments} apiPatch={apiPatch} />}
       {activeTab === "pos" && <PosTabWithState menuItems={menuItems} orders={orders} loadData={loadData} />}

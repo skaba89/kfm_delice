@@ -1,65 +1,63 @@
 "use client";
 
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Plus } from "lucide-react";
 import type { ExpenseDB } from "@/lib/types";
 import { formatPrice, expenseCategoryLabels, expenseCategoryColors } from "@/lib/constants";
 import { usePagination } from "@/lib/use-pagination";
 import { Pagination } from "@/components/Pagination";
 import { notify } from "@/lib/notifications";
-import { AdminFormCard } from "@/components/admin/shared/AdminFormCard";
-import { DeleteConfirmButton } from "@/components/admin/shared/DeleteConfirmButton";
-import { EditButton } from "@/components/admin/shared/EditButton";
-import { FormField } from "@/components/admin/shared/FormField";
-import { FormSelect } from "@/components/admin/shared/FormSelect";
+import { AdminFormCard, CrudHeader, DataTable, type DataTableColumn, DeleteConfirmButton, EditButton, FormField, FormSelect, SummaryCards } from "@/components/admin/shared";
+import type { CrudStateReturn } from "@/lib/hooks/use-crud-state";
+
+type ExpenseForm = { description: string; amount: number; category: string; date: string; paidBy: string; notes: string };
 
 export interface ExpensesTabProps {
   expenses: ExpenseDB[];
-  showExpenseForm: boolean;
-  editingExpense: ExpenseDB | null;
-  expenseForm: { description: string; amount: number; category: string; date: string; paidBy: string; notes: string };
-  setExpenseForm: (v: { description: string; amount: number; category: string; date: string; paidBy: string; notes: string }) => void;
-  openAddExpense: () => void;
-  openEditExpense: (e: ExpenseDB) => void;
-  saveExpense: () => Promise<void>;
-  setShowExpenseForm: (v: boolean) => void;
-  apiPatch: (url: string, body: object) => Promise<void>;
+  crud: CrudStateReturn<ExpenseDB, ExpenseForm>;
   apiDelete: (url: string, body: object) => Promise<void>;
-  deleteExpenseConfirm: string | null;
-  setDeleteExpenseConfirm: (v: string | null) => void;
 }
 
-export function ExpensesTab({
-  expenses, showExpenseForm, editingExpense, expenseForm, setExpenseForm,
-  openAddExpense, openEditExpense, saveExpense, setShowExpenseForm,
-  apiPatch, apiDelete, deleteExpenseConfirm, setDeleteExpenseConfirm,
-}: ExpensesTabProps) {
+export function ExpensesTab({ expenses, crud, apiDelete }: ExpensesTabProps) {
   const { currentPage, setCurrentPage, totalPages, paginatedItems, totalItems, itemsPerPage } = usePagination(expenses, 10);
 
-  const handleSaveExpense = async () => {
-    await saveExpense();
-    notify.expenseSaved(expenseForm.description);
+  const handleSave = async () => {
+    await crud.save();
+    notify.expenseSaved(crud.form.description);
   };
 
-  const handleDeleteExpense = async (e: ExpenseDB) => {
+  const handleDelete = async (e: ExpenseDB) => {
     await apiDelete("/api/expenses", { id: e.id });
-    setDeleteExpenseConfirm(null);
+    crud.setDeleteConfirm(null);
     notify.expenseDeleted(e.description);
   };
 
+  const columns: DataTableColumn<ExpenseDB>[] = [
+    { header: "Description", cell: (e) => (<><p className="text-sm font-medium text-gray-900 dark:text-gray-100">{e.description}</p>{e.notes && <p className="text-xs text-gray-500 dark:text-gray-400">{e.notes}</p>}</>) },
+    { header: "Montant", cell: (e) => <span className="text-sm font-bold text-red-600 dark:text-red-400">{formatPrice(e.amount)}</span> },
+    { header: "Catégorie", cell: (e) => <Badge className={`${expenseCategoryColors[e.category] || "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300"} text-xs`}>{expenseCategoryLabels[e.category] || e.category}</Badge> },
+    { header: "Date", cell: (e) => <span className="text-sm text-gray-700 dark:text-gray-300">{e.date}</span> },
+    { header: "Payé par", cell: (e) => <span className="text-sm text-gray-700 dark:text-gray-300">{e.paidBy || "-"}</span> },
+    { header: "Actions", cell: (e) => (
+      <div className="flex items-center gap-1">
+        <EditButton onClick={() => crud.openEdit(e)} />
+        <DeleteConfirmButton confirming={crud.deleteConfirm === e.id} onConfirm={() => handleDelete(e)} onRequestConfirm={() => crud.setDeleteConfirm(e.id)} onCancel={() => crud.setDeleteConfirm(null)} />
+      </div>
+    )},
+  ];
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Total: <span className="font-bold text-gray-900 dark:text-gray-100">{formatPrice(expenses.reduce((s, e) => s + e.amount, 0))}</span></p>
-        </div>
-        <Button onClick={openAddExpense} className="bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl text-sm">
-          <Plus className="w-4 h-4 mr-1" /> Ajouter une dépense
-        </Button>
-      </div>
+      <CrudHeader
+        leftContent={
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Total: <span className="font-bold text-gray-900 dark:text-gray-100">{formatPrice(expenses.reduce((s, e) => s + e.amount, 0))}</span>
+          </p>
+        }
+        addLabel="Ajouter une dépense"
+        onAdd={crud.openAdd}
+      />
 
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
         {Object.entries(expenseCategoryLabels).map(([key, label]) => {
@@ -74,58 +72,25 @@ export function ExpensesTab({
       </div>
 
       <AdminFormCard
-        show={showExpenseForm}
-        editing={!!editingExpense}
+        show={crud.showForm}
+        editing={!!crud.editing}
         addTitle="Ajouter une dépense"
         editTitle="Modifier la dépense"
-        onSave={handleSaveExpense}
-        onCancel={() => setShowExpenseForm(false)}
+        onSave={handleSave}
+        onCancel={() => crud.setShowForm(false)}
       >
-        <FormField label="Description" value={expenseForm.description} onChange={v => setExpenseForm({ ...expenseForm, description: v })} placeholder="Description de la dépense" required />
+        <FormField label="Description" value={crud.form.description} onChange={v => crud.setForm({ ...crud.form, description: v })} placeholder="Description de la dépense" required />
         <div>
           <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Montant (GNF) *</label>
-          <Input type="number" value={expenseForm.amount || ""} onChange={e => setExpenseForm({ ...expenseForm, amount: parseInt(e.target.value) || 0 })} placeholder="500000" className="dark:bg-gray-800 dark:border-gray-600" />
+          <Input type="number" value={crud.form.amount || ""} onChange={e => crud.setForm({ ...crud.form, amount: parseInt(e.target.value) || 0 })} placeholder="500000" className="dark:bg-gray-800 dark:border-gray-600" />
         </div>
-        <FormSelect label="Catégorie" value={expenseForm.category} onChange={v => setExpenseForm({ ...expenseForm, category: v })} options={Object.entries(expenseCategoryLabels).map(([k, v]) => ({ value: k, label: v }))} required />
-        <FormField label="Date" value={expenseForm.date} onChange={v => setExpenseForm({ ...expenseForm, date: v })} type="date" required />
-        <FormField label="Payé par" value={expenseForm.paidBy} onChange={v => setExpenseForm({ ...expenseForm, paidBy: v })} placeholder="Nom" />
-        <FormField label="Notes" value={expenseForm.notes} onChange={v => setExpenseForm({ ...expenseForm, notes: v })} placeholder="Notes" />
+        <FormSelect label="Catégorie" value={crud.form.category} onChange={v => crud.setForm({ ...crud.form, category: v })} options={Object.entries(expenseCategoryLabels).map(([k, v]) => ({ value: k, label: v }))} required />
+        <FormField label="Date" value={crud.form.date} onChange={v => crud.setForm({ ...crud.form, date: v })} type="date" required />
+        <FormField label="Payé par" value={crud.form.paidBy} onChange={v => crud.setForm({ ...crud.form, paidBy: v })} placeholder="Nom" />
+        <FormField label="Notes" value={crud.form.notes} onChange={v => crud.setForm({ ...crud.form, notes: v })} placeholder="Notes" />
       </AdminFormCard>
 
-      <div className="bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead><tr className="bg-gray-50 dark:bg-gray-700 border-b dark:border-gray-600">
-              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Description</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Montant</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Catégorie</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Date</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Payé par</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Actions</th>
-            </tr></thead>
-            <tbody className="divide-y dark:divide-gray-700">
-              {paginatedItems.map(e => (
-                <tr key={e.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                  <td className="px-4 py-3"><p className="text-sm font-medium text-gray-900 dark:text-gray-100">{e.description}</p>{e.notes && <p className="text-xs text-gray-500 dark:text-gray-400">{e.notes}</p>}</td>
-                  <td className="px-4 py-3 text-sm font-bold text-red-600 dark:text-red-400">{formatPrice(e.amount)}</td>
-                  <td className="px-4 py-3"><Badge className={`${expenseCategoryColors[e.category] || "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300"} text-xs`}>{expenseCategoryLabels[e.category] || e.category}</Badge></td>
-                  <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{e.date}</td>
-                  <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{e.paidBy || "-"}</td>
-                  <td className="px-4 py-3"><div className="flex items-center gap-1">
-                    <EditButton onClick={() => openEditExpense(e)} />
-                    <DeleteConfirmButton
-                      confirming={deleteExpenseConfirm === e.id}
-                      onConfirm={() => handleDeleteExpense(e)}
-                      onRequestConfirm={() => setDeleteExpenseConfirm(e.id)}
-                      onCancel={() => setDeleteExpenseConfirm(null)}
-                    />
-                  </div></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <DataTable columns={columns} data={paginatedItems} />
       <Pagination currentPage={currentPage} totalPages={totalPages} totalItems={totalItems} itemsPerPage={itemsPerPage} onPageChange={setCurrentPage} label="dépenses" />
     </div>
   );
