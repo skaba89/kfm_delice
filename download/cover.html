@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Playfair+Display:wght@700;800;900&display=swap');
+
+:root {
+  --c-accent: #af4c2b;
+  --c-text: #22211e;
+  --c-muted: #7a766e;
+  --c-bg: #efeeec;
+  --c-surface: #dedbd6;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+@page {
+  size: 794px 1123px;
+  margin: 0;
+}
+
+html, body {
+  width: 794px;
+  height: 1123px;
+  margin: 0;
+  padding: 0;
+  background: #ffffff;
+  overflow: hidden;
+  font-family: 'Inter', sans-serif;
+}
+
+.cover {
+  position: relative;
+  width: 794px;
+  height: 1123px;
+  background: #ffffff;
+}
+
+/* Layer 1: Background */
+.cover-bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  z-index: 1;
+}
+
+.watermark {
+  position: absolute;
+  right: -20px;
+  top: 0.10 * 1123px;
+  font-family: 'Inter', sans-serif;
+  font-size: 200px;
+  font-weight: 900;
+  color: #af4c2b;
+  opacity: 0.04;
+  line-height: 1;
+  letter-spacing: -8px;
+}
+
+/* Layer 2: Structure lines */
+.cover-structure {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+}
+
+.color-dash {
+  position: absolute;
+  left: 95px;
+  top: 168px;
+  width: 50px;
+  height: 5px;
+  background: #af4c2b;
+}
+
+.meta-accent-line {
+  position: absolute;
+  left: 95px;
+  bottom: 258px;
+  width: 2px;
+  height: 80px;
+  background: #af4c2b;
+  opacity: 0.5;
+}
+
+.bottom-line {
+  position: absolute;
+  left: 95px;
+  right: 79px;
+  bottom: 80px;
+  height: 1px;
+  background: #af4c2b;
+  opacity: 0.15;
+}
+
+/* Layer 3: Content */
+.cover-content {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+}
+
+.kicker {
+  position: absolute;
+  left: 95px;
+  top: 196px;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 3px;
+  color: #7a766e;
+  text-transform: uppercase;
+}
+
+.hero-title {
+  position: absolute;
+  left: 95px;
+  top: 246px;
+  width: 420px;
+  font-family: 'Playfair Display', serif;
+  font-size: 52px;
+  font-weight: 900;
+  line-height: 1.15;
+  color: #22211e;
+}
+
+.summary {
+  position: absolute;
+  left: 95px;
+  top: 460px;
+  width: 440px;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.7;
+  color: #7a766e;
+}
+
+.global-score {
+  position: absolute;
+  left: 95px;
+  top: 580px;
+}
+
+.global-score .score-value {
+  font-family: 'Inter', sans-serif;
+  font-size: 72px;
+  font-weight: 900;
+  color: #af4c2b;
+  line-height: 1;
+}
+
+.global-score .score-label {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: #7a766e;
+  text-transform: uppercase;
+  margin-top: 8px;
+}
+
+.global-score .score-desc {
+  font-size: 15px;
+  font-weight: 400;
+  color: #7a766e;
+  margin-top: 4px;
+}
+
+.meta-block {
+  position: absolute;
+  left: 111px;
+  bottom: 210px;
+  font-size: 14px;
+  line-height: 2.2;
+  color: #22211e;
+}
+
+.meta-block .label {
+  font-weight: 600;
+  color: #7a766e;
+}
+
+.footer-left {
+  position: absolute;
+  left: 95px;
+  bottom: 44px;
+  font-size: 12px;
+  color: #7a766e;
+  opacity: 0.6;
+}
+
+.footer-right {
+  position: absolute;
+  right: 79px;
+  bottom: 44px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  color: #7a766e;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+</style>
+</head>
+<body>
+<div class="cover">
+  <!-- Layer 1: Background -->
+  <div class="cover-bg">
+    <div class="watermark">AUDIT</div>
+  </div>
+
+  <!-- Layer 2: Structure -->
+  <div class="cover-structure">
+    <div class="color-dash"></div>
+    <div class="meta-accent-line"></div>
+    <div class="bottom-line"></div>
+  </div>
+
+  <!-- Layer 3: Content -->
+  <div class="cover-content">
+    <div class="kicker">AUDIT TECHNIQUE COMPLET</div>
+    <div class="hero-title">KFM<br>Delice</div>
+    <div class="summary">
+      Analyse approfondie de l'application KFM Delice couvrant l'architecture, la securite, l'experience utilisateur, les fonctionnalites, la qualite du code, la performance et la maintenabilite. Ce rapport identifie les forces, les faiblesses critiques et propose une feuille de route concrete vers la production.
+    </div>
+    <div class="global-score">
+      <div class="score-value">6.4</div>
+      <div class="score-label">Score Global / 10</div>
+      <div class="score-desc">Prototype avance, pas encore production-ready</div>
+    </div>
+    <div class="meta-block">
+      <span class="label">Date :</span> 10 Juin 2026<br>
+      <span class="label">Version :</span> 1.0<br>
+      <span class="label">Classification :</span> Confidentiel
+    </div>
+    <div class="footer-left">Rapport genere par Z.ai</div>
+    <div class="footer-right">KFM Delice</div>
+  </div>
+</div>
+</body>
+</html>
