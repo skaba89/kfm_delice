@@ -22,6 +22,8 @@ export async function GET(request: Request) {
         deliveryOrders: 0, activeDeliveries: 0, availableDrivers: 0, totalDrivers: 0,
         deliveryRevenue: 0, dineInOrders: 0, takeawayOrders: 0,
         ordersByHour: [],
+        menuCount: 0, staffCount: 0, customerCount: 0, adminCount: 0,
+        pendingInvoices: 0, sentQuotes: 0, expenseCount: 0, pendingPayments: 0,
       });
     }
 
@@ -46,6 +48,15 @@ export async function GET(request: Request) {
       deliveryRevenueAgg,
       recentReservations,
       menuItems,
+      // Badge counts (avoid loading full arrays just for sidebar badges)
+      menuCount,
+      staffCount,
+      customerCount,
+      adminCount,
+      pendingInvoices,
+      sentQuotes,
+      expenseCount,
+      pendingPayments,
     ] = await Promise.all([
       db.reservation.count({ where: { restaurantId: rid, date: today } }),
       db.reservation.count({ where: { restaurantId: rid, status: "pending" } }),
@@ -79,6 +90,15 @@ export async function GET(request: Request) {
         where: { restaurantId: rid },
         select: { name: true, price: true, category: true },
       }),
+      // Badge counts — efficient DB-level counts for sidebar
+      db.menuItem.count({ where: { restaurantId: rid } }),
+      db.staff.count({ where: { restaurantId: rid } }),
+      db.customer.count(),
+      db.admin.count(),
+      db.invoice.count({ where: { restaurantId: rid, status: "pending" } }),
+      db.quote.count({ where: { restaurantId: rid, status: "sent" } }),
+      db.expense.count({ where: { restaurantId: rid } }),
+      db.payment.count({ where: { restaurantId: rid, status: "pending" } }),
     ]);
 
     const todayRevenue = todayOrderStats.reduce((sum, o) => sum + o.total + (o.deliveryFee || 0), 0);
@@ -127,6 +147,9 @@ export async function GET(request: Request) {
       deliveryRevenue, dineInOrders, takeawayOrders, ordersByHour,
       deliveryFee: restaurant.deliveryFee,
       minDelivery: restaurant.minDelivery,
+      // Badge counts for sidebar (avoid loading full arrays just for counts)
+      menuCount, staffCount, customerCount, adminCount,
+      pendingInvoices, sentQuotes, expenseCount, pendingPayments,
     });
   } catch (error) {
     console.error(error);

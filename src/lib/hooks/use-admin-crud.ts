@@ -21,7 +21,7 @@ export function useAdminCrud(
 
   const openEditAdmin = useCallback((a: AdminDB) => {
     setEditingAdmin(a);
-    setAdminForm({ email: a.email, password: "", name: a.name, role: a.role, status: a.status });
+    setAdminForm({ email: a.email, password: "", name: a.name, role: a.role, status: a.status || "active" });
     setShowAdminForm(true);
   }, []);
 

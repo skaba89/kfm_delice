@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
 import { staffSchema, staffPatchSchema } from "@/lib/validations";
-import { parsePagination, prismaSkip, prismaTake } from "@/lib/pagination";
+import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, parseStatusFilter, buildSearchWhere } from "@/lib/pagination";
 
 // All methods: Admin/Manager auth required
 export async function GET(request: Request) {
@@ -15,16 +15,26 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 
-    const { page, limit } = parsePagination(new URL(request.url).searchParams);
+    const sp = new URL(request.url).searchParams;
+    const { page, limit } = parsePagination(sp);
+    const { sortBy, sortOrder } = parseSorting(sp, ['createdAt', 'name', 'role', 'status'] as const, 'createdAt');
+    const search = parseSearch(sp);
+    const roleFilter = parseStatusFilter(sp, ['cuisinier', 'serveur', 'barman', 'gerant', 'plongeur', 'securite', 'caissier'], 'role');
+    const statusFilter = parseStatusFilter(sp, ['active', 'inactive', 'on_leave']);
 
     const restaurant = await db.restaurant.findFirst();
     if (!restaurant) return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
 
-    const where = { restaurantId: restaurant.id };
+    const where = {
+      restaurantId: restaurant.id,
+      ...(roleFilter && { role: roleFilter }),
+      ...(statusFilter && { status: statusFilter }),
+      ...(search && buildSearchWhere(search, ['name', 'phone', 'role'])),
+    };
     const [staff, total] = await Promise.all([
       db.staff.findMany({
         where,
-        orderBy: { createdAt: "desc" },
+        orderBy: { [sortBy]: sortOrder },
         skip: prismaSkip(page, limit),
         take: prismaTake(limit),
       }),

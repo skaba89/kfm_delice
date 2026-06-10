@@ -5,7 +5,7 @@ import {
   UtensilsCrossed, CalendarCheck, Users, LayoutDashboard,
   ShoppingBag, Bike, Car, RefreshCw,
   FileText, Wallet, Receipt, UserCog, ClipboardList,
-  MessageSquare, CreditCard,
+  MessageSquare, CreditCard, Wifi, WifiOff,
 } from "lucide-react";
 import { OverviewTab } from "@/components/admin/OverviewTab";
 import { ReservationsTab } from "@/components/admin/ReservationsTab";
@@ -39,12 +39,13 @@ import { useAuth } from "@/lib/auth-context";
 export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout: () => void }) {
   const [activeTab, setActiveTab] = useState("overview");
 
-  // ─── Data loading + generic CRUD helpers ─────────────────────
+  // ─── Data loading + WS real-time ───────────────────────────────
   const {
     stats, reservations, menuItems, orders, drivers, reviews,
-    staffList, admins, invoices, quotes, expenses, customers, payments, loading,
+    staffList, admins, invoices, quotes, expenses, customers, payments,
+    loading, tabLoading, wsConnected,
     loadData, apiPatch, apiPost, apiDelete, apiFetch,
-  } = useAdminData();
+  } = useAdminData(activeTab, admin.id);
 
   // ─── Domain-specific CRUD hooks ──────────────────────────────
   const menuCrud = useMenuCrud(menuItems, apiPatch, apiPost);
@@ -59,22 +60,22 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
   // ─── Reviews: delete confirmation ────────────────────────────
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
-  // ─── Sidebar config ──────────────────────────────────────────
+  // ─── Sidebar config (badges from stats — no full arrays needed) ─
   const allSidebarItems: SidebarItem[] = [
     { id: "overview", label: "Vue d'ensemble", icon: LayoutDashboard },
     { id: "reservations", label: "Réservations", icon: CalendarCheck, badge: stats?.pendingReservations },
     { id: "orders", label: "Commandes", icon: ShoppingBag, badge: stats?.activeOrders },
-    { id: "menu", label: "Menu", icon: UtensilsCrossed, badge: menuItems.length },
+    { id: "menu", label: "Menu", icon: UtensilsCrossed, badge: stats?.menuCount },
     { id: "deliveries", label: "Livraisons", icon: Bike, badge: stats?.activeDeliveries },
     { id: "drivers", label: "Livreurs", icon: Car, badge: stats?.availableDrivers },
     { id: "reviews", label: "Avis", icon: MessageSquare, badge: stats?.totalReviews },
-    { id: "staff", label: "Personnel", icon: Users, badge: staffList.length },
-    { id: "customers", label: "Clients", icon: Users, badge: customers.length },
-    { id: "admins", label: "Utilisateurs", icon: UserCog, badge: admins.length },
-    { id: "invoices", label: "Factures", icon: FileText, badge: invoices.filter(i => i.status === "pending").length || undefined },
-    { id: "quotes", label: "Devis", icon: ClipboardList, badge: quotes.filter(q => q.status === "sent").length || undefined },
-    { id: "expenses", label: "Dépenses", icon: Wallet, badge: expenses.length },
-    { id: "payments", label: "Paiements", icon: CreditCard, badge: payments.filter(p => p.status === "pending").length || undefined },
+    { id: "staff", label: "Personnel", icon: Users, badge: stats?.staffCount },
+    { id: "customers", label: "Clients", icon: Users, badge: stats?.customerCount },
+    { id: "admins", label: "Utilisateurs", icon: UserCog, badge: stats?.adminCount },
+    { id: "invoices", label: "Factures", icon: FileText, badge: stats?.pendingInvoices || undefined },
+    { id: "quotes", label: "Devis", icon: ClipboardList, badge: stats?.sentQuotes || undefined },
+    { id: "expenses", label: "Dépenses", icon: Wallet, badge: stats?.expenseCount },
+    { id: "payments", label: "Paiements", icon: CreditCard, badge: stats?.pendingPayments || undefined },
     { id: "pos", label: "Caisse POS", icon: Receipt },
   ];
   const sidebarItems = allSidebarItems.filter(item => {
@@ -117,6 +118,8 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
       notificationCount={stats.pendingReservations}
       onRefresh={loadData}
       onLogout={onLogout}
+      wsIndicator={wsConnected ? <Wifi className="w-3.5 h-3.5 text-green-500" /> : <WifiOff className="w-3.5 h-3.5 text-amber-500" />}
+      loading={tabLoading}
     >
       {activeTab === "overview" && <OverviewTab stats={stats} orders={orders} apiFetch={apiFetch} />}
       {activeTab === "reservations" && <ReservationsTab reservations={reservations} apiPatch={apiPatch} />}

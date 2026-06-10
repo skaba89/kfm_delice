@@ -42,6 +42,10 @@ interface DashboardShellProps {
   onLogout: () => void;
   /** Collapsible sidebar? (default: true) */
   collapsible?: boolean;
+  /** Optional: WebSocket connection indicator */
+  wsIndicator?: ReactNode;
+  /** Optional: Tab content loading state */
+  loading?: boolean;
   /** Page content */
   children: ReactNode;
 }
@@ -65,6 +69,8 @@ export function DashboardShell({
   onRefresh,
   onLogout,
   collapsible = true,
+  wsIndicator,
+  loading = false,
   children,
 }: DashboardShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -243,6 +249,14 @@ export function DashboardShell({
             <p className="text-sm text-gray-500 dark:text-gray-400">Bienvenue, {userName}</p>
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
+            {wsIndicator && (
+              <div className="flex items-center gap-1" title={wsIndicator ? "Connecté en temps réel" : "Hors ligne"}>
+                {wsIndicator}
+              </div>
+            )}
+            {loading && (
+              <div className="w-4 h-4 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" />
+            )}
             {onRefresh && (
               <button
                 onClick={onRefresh}

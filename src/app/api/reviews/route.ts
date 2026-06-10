@@ -2,21 +2,29 @@ import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, authenticateCustomer, hasRole } from "@/lib/auth";
 import { reviewSchema } from "@/lib/validations";
-import { parsePagination, prismaSkip, prismaTake } from "@/lib/pagination";
+import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, parseStatusFilter, buildSearchWhere } from "@/lib/pagination";
 
 // GET: Public
 export async function GET(request: Request) {
   try {
-    const { page, limit } = parsePagination(new URL(request.url).searchParams);
+    const sp = new URL(request.url).searchParams;
+    const { page, limit } = parsePagination(sp);
+    const { sortBy, sortOrder } = parseSorting(sp, ['createdAt', 'rating', 'customerName'] as const, 'createdAt');
+    const search = parseSearch(sp);
+    const ratingFilter = parseStatusFilter(sp, ['1', '2', '3', '4', '5'], 'rating');
 
     const restaurant = await db.restaurant.findFirst();
     if (!restaurant) return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
 
-    const where = { restaurantId: restaurant.id };
+    const where = {
+      restaurantId: restaurant.id,
+      ...(ratingFilter && { rating: parseInt(ratingFilter) }),
+      ...(search && buildSearchWhere(search, ['customerName', 'comment'])),
+    };
     const [reviews, total] = await Promise.all([
       db.review.findMany({
         where,
-        orderBy: { createdAt: "desc" },
+        orderBy: { [sortBy]: sortOrder },
         include: { customer: { select: { id: true, name: true, email: true } } },
         skip: prismaSkip(page, limit),
         take: prismaTake(limit),

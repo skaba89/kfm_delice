@@ -36,13 +36,16 @@ export interface Stats {
   totalDrivers: number; deliveryRevenue: number; dineInOrders: number; takeawayOrders: number;
   deliveryFee?: number; minDelivery?: number;
   ordersByHour?: { hour: string; count: number }[];
+  // Badge counts for sidebar (avoid loading full arrays just for counts)
+  menuCount: number; staffCount: number; customerCount: number; adminCount: number;
+  pendingInvoices: number; sentQuotes: number; expenseCount: number; pendingPayments: number;
 }
 export interface StaffDB {
   id: string; name: string; phone: string; role: string;
   salary: number; status: string; hireDate: string; notes: string; createdAt: string;
 }
 export interface AdminDB {
-  id: string; email: string; password: string; name: string;
+  id: string; email: string; password?: string; name: string;
   role: string; status: string; createdAt: string;
 }
 export interface InvoiceDB {

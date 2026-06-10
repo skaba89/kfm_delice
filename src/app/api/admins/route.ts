@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole, hashPassword, verifyPassword } from "@/lib/auth";
 import { adminSchema, adminPatchSchema } from "@/lib/validations";
-import { parsePagination, prismaSkip, prismaTake } from "@/lib/pagination";
+import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, parseStatusFilter, buildSearchWhere } from "@/lib/pagination";
 
 // All methods: Admin only (most restrictive)
 export async function GET(request: Request) {
@@ -15,15 +15,35 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 
-    const { page, limit } = parsePagination(new URL(request.url).searchParams);
+    const sp = new URL(request.url).searchParams;
+    const { page, limit } = parsePagination(sp);
+    const { sortBy, sortOrder } = parseSorting(sp, ['createdAt', 'name', 'role'] as const, 'createdAt');
+    const search = parseSearch(sp);
+    const roleFilter = parseStatusFilter(sp, ['admin', 'manager', 'staff'], 'role');
+    const statusFilter = parseStatusFilter(sp, ['active', 'inactive']);
 
+    const where = {
+      ...(roleFilter && { role: roleFilter }),
+      ...(statusFilter && { status: statusFilter }),
+      ...(search && buildSearchWhere(search, ['name', 'email'])),
+    };
     const [admins, total] = await Promise.all([
       db.admin.findMany({
-        orderBy: { createdAt: "desc" },
+        where,
+        orderBy: { [sortBy]: sortOrder },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          status: true,
+          createdAt: true,
+          updatedAt: true,
+        },
         skip: prismaSkip(page, limit),
         take: prismaTake(limit),
       }),
-      db.admin.count(),
+      db.admin.count({ where }),
     ]);
     const totalPages = Math.ceil(total / limit);
     return NextResponse.json({
