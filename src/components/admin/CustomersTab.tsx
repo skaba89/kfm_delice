@@ -1,16 +1,19 @@
 "use client";
 
-import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Plus, Edit3, Trash2, Save, UserCheck } from "lucide-react";
+import { Plus, UserCheck } from "lucide-react";
 import type { CustomerDB } from "@/lib/types";
 import { formatPrice } from "@/lib/constants";
 import { usePagination } from "@/lib/use-pagination";
 import { Pagination } from "@/components/Pagination";
 import { notify } from "@/lib/notifications";
+import { AdminFormCard } from "@/components/admin/shared/AdminFormCard";
+import { FormField } from "@/components/admin/shared/FormField";
+import { FormSelect } from "@/components/admin/shared/FormSelect";
+import { DeleteConfirmButton } from "@/components/admin/shared/DeleteConfirmButton";
+import { EditButton } from "@/components/admin/shared/EditButton";
 
 export interface CustomersTabProps {
   customers: CustomerDB[];
@@ -69,32 +72,22 @@ export function CustomersTab({
         <Card className="dark:bg-gray-800 dark:border-gray-700"><CardContent className="p-3"><p className="text-xs text-gray-500 dark:text-gray-400">Commandes totales</p><p className="text-lg font-bold text-blue-600 dark:text-blue-400">{customers.reduce((s, c) => s + c.totalOrders, 0)}</p></CardContent></Card>
       </div>
 
-      <AnimatePresence>
-        {showCustomerForm && (
-          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
-            <Card className="border-orange-200 bg-orange-50/30 dark:border-orange-800 dark:bg-orange-900/10">
-              <CardContent className="p-4 sm:p-6">
-                <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">{editingCustomer ? "Modifier le client" : "Ajouter un client"}</h3>
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  <div><label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Nom *</label><Input value={customerForm.name} onChange={e => setCustomerForm({ ...customerForm, name: e.target.value })} placeholder="Nom complet" className="dark:bg-gray-800 dark:border-gray-600" /></div>
-                  <div><label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Email *</label><Input type="email" value={customerForm.email} onChange={e => setCustomerForm({ ...customerForm, email: e.target.value })} placeholder="email@exemple.com" className="dark:bg-gray-800 dark:border-gray-600" /></div>
-                  <div><label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Téléphone</label><Input value={customerForm.phone} onChange={e => setCustomerForm({ ...customerForm, phone: e.target.value })} placeholder="+224 6XX XX XX XX" className="dark:bg-gray-800 dark:border-gray-600" /></div>
-                  <div className="sm:col-span-2"><label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Adresse</label><Input value={customerForm.address} onChange={e => setCustomerForm({ ...customerForm, address: e.target.value })} placeholder="Adresse de livraison" className="dark:bg-gray-800 dark:border-gray-600" /></div>
-                  <div><label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Statut</label>
-                    <select value={customerForm.status} onChange={e => setCustomerForm({ ...customerForm, status: e.target.value })} className="w-full h-9 rounded-md border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 text-sm dark:text-gray-100">
-                      <option value="active">Actif</option><option value="inactive">Inactif</option>
-                    </select>
-                  </div>
-                </div>
-                <div className="flex gap-2 mt-4">
-                  <Button onClick={handleSaveCustomer} className="bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl"><Save className="w-4 h-4 mr-1" /> {editingCustomer ? "Enregistrer" : "Ajouter"}</Button>
-                  <Button variant="outline" onClick={() => { setShowCustomerForm(false); }} className="dark:border-gray-600">Annuler</Button>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <AdminFormCard
+        show={showCustomerForm}
+        editing={!!editingCustomer}
+        addTitle="Ajouter un client"
+        editTitle="Modifier le client"
+        onSave={handleSaveCustomer}
+        onCancel={() => setShowCustomerForm(false)}
+      >
+        <FormField label="Nom" value={customerForm.name} onChange={v => setCustomerForm({...customerForm, name: v})} placeholder="Nom complet" required />
+        <FormField label="Email" value={customerForm.email} onChange={v => setCustomerForm({...customerForm, email: v})} placeholder="email@exemple.com" type="email" required />
+        <FormField label="Téléphone" value={customerForm.phone} onChange={v => setCustomerForm({...customerForm, phone: v})} placeholder="+224 6XX XX XX XX" />
+        <div className="sm:col-span-2">
+          <FormField label="Adresse" value={customerForm.address} onChange={v => setCustomerForm({...customerForm, address: v})} placeholder="Adresse de livraison" />
+        </div>
+        <FormSelect label="Statut" value={customerForm.status} onChange={v => setCustomerForm({...customerForm, status: v})} options={[{value: "active", label: "Actif"}, {value: "inactive", label: "Inactif"}]} />
+      </AdminFormCard>
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {paginatedItems.map(c => (
@@ -118,12 +111,13 @@ export function CustomersTab({
                 <Button size="sm" variant="outline" onClick={() => apiPatch("/api/customers", { id: c.id, status: c.status === "active" ? "inactive" : "active" })} className={`flex-1 text-xs rounded-lg ${c.status === "active" ? "text-red-500 border-red-200 dark:border-red-800" : "text-green-500 border-green-200 dark:border-green-800"}`}>
                   {c.status === "active" ? "Désactiver" : "Activer"}
                 </Button>
-                <button onClick={() => openEditCustomer(c)} className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-orange-100 hover:text-orange-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-orange-900/30 dark:hover:text-orange-400" title="Modifier"><Edit3 className="w-4 h-4" /></button>
-                {deleteCustomerConfirm === c.id ? (
-                  <div className="flex items-center gap-1"><button onClick={() => handleDeleteCustomer(c)} className="text-[10px] px-1.5 py-0.5 bg-red-500 text-white rounded">Oui</button><button onClick={() => setDeleteCustomerConfirm(null)} className="text-[10px] px-1.5 py-0.5 bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 rounded">Non</button></div>
-                ) : (
-                  <button onClick={() => setDeleteCustomerConfirm(c.id)} className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-red-100 hover:text-red-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-red-900/30 dark:hover:text-red-400" title="Supprimer"><Trash2 className="w-4 h-4" /></button>
-                )}
+                <EditButton onClick={() => openEditCustomer(c)} />
+                <DeleteConfirmButton
+                  confirming={deleteCustomerConfirm === c.id}
+                  onConfirm={() => handleDeleteCustomer(c)}
+                  onRequestConfirm={() => setDeleteCustomerConfirm(c.id)}
+                  onCancel={() => setDeleteCustomerConfirm(null)}
+                />
               </div>
             </CardContent>
           </Card>

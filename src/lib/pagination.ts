@@ -16,8 +16,11 @@ export interface PaginatedResponse<T> {
 }
 
 export function parsePagination(searchParams: URLSearchParams): { page: number; limit: number } {
-  const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
-  const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '20')));
+  const rawPage = parseInt(searchParams.get('page') || '1');
+  const rawLimit = parseInt(searchParams.get('limit') || '20');
+  // Guard against NaN from non-numeric query params
+  const page = Math.max(1, isNaN(rawPage) ? 1 : rawPage);
+  const limit = Math.min(100, Math.max(1, isNaN(rawLimit) ? 20 : rawLimit));
   return { page, limit };
 }
 

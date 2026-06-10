@@ -19,43 +19,78 @@ Work Log:
   - On tab change: loads only that tab's data with `limit=100-200`
   - Caches previously loaded tabs (instant switch on revisit)
   - CRUD operations: refresh stats + active tab only (not all 13 endpoints)
-  - `loadData()` full refresh: clears cache, reloads stats + active tab
-- Added badge counts to `/api/stats` endpoint:
-  - `menuCount`, `staffCount`, `customerCount`, `adminCount`
-  - `pendingInvoices`, `sentQuotes`, `expenseCount`, `pendingPayments`
-  - These are DB-level counts (no full table scans), replacing the need to load full arrays just for sidebar badges
+- Added badge counts to `/api/stats` endpoint (8 DB-level counts)
 - Updated `Stats` type with new badge count fields
 - Updated `AdminDashboard` sidebar to use stats-based badges instead of array lengths
 
 ### Task 2.3: Search/Filter/Sort for Reviews, Staff, Admins Routes
-- Reviews: added search (customerName, comment), filter (rating 1-5), sort (createdAt, rating, customerName)
-- Staff: added search (name, phone, role), filter (role, status), sort (createdAt, name, role, status)
-- Admins: added search (name, email), filter (role, status), sort (createdAt, name, role)
-- Admins GET: added `select` clause to exclude password hashes from responses
-- Updated `AdminDB` type: `password` is now optional
+- Reviews: search + filter + sort
+- Staff: search + filter + sort
+- Admins: search + filter + sort + password hash exclusion from GET
 
-### DashboardShell Enhancements
-- Added `wsIndicator` prop (ReactNode) for WebSocket status indicator
-- Added `loading` prop for tab content loading spinner
-- Both rendered in the header area alongside refresh button and theme toggle
+---
+Task ID: 3
+Agent: Super Z (Main)
+Task: Phase 3 — Maintenabilité et qualité
+
+Work Log:
+
+### Task 3.1: Shared Components Creation
+Created 5 shared admin components in `src/components/admin/shared/`:
+- `AdminFormCard` — Animated form card wrapper (eliminates ~60 lines × 6 tabs)
+- `DeleteConfirmButton` — Inline Oui/Non delete confirmation toggle
+- `FormField` — Standardized label + Input with dark mode
+- `FormSelect` — Standardized label + select with dark mode
+- `EditButton` — Styled edit icon button
+
+### Task 3.2: Admin Tab Refactoring (4 tabs)
+Refactored 4 admin tabs to use shared components:
+- **StaffTab** — AdminFormCard, FormField, FormSelect, DeleteConfirmButton, EditButton
+- **ExpensesTab** — AdminFormCard, FormField, FormSelect, DeleteConfirmButton, EditButton
+- **DriversTab** — AdminFormCard, FormField, FormSelect, DeleteConfirmButton, EditButton
+- **CustomersTab** — AdminFormCard, FormField, FormSelect, DeleteConfirmButton, EditButton
+
+Estimated lines saved: ~360+ across 4 tabs (form shell, delete confirm, edit buttons, field templates)
+
+### Task 3.3: Test Suite Expansion
+Fixed broken tests and added new test files:
+- **Fixed** `rate-limit.test.ts` — Updated from sync `success` → async `allowed` API
+- **Fixed** `middleware-security.test.ts` — Same async/allowed update
+- **New** `validations-extended.test.ts` — 18 tests covering orderSchema, reservationSchema, reviewSchema, adminSchema, adminPatchSchema, webhookSignatureSchema, webhookPaymentStatusSchema
+- **New** `webhook-hmac.test.ts` — 8 tests covering HMAC signature generation/verification
+- **New** `pagination-extended.test.ts` — 27 tests covering parsePagination, paginate, prismaSkip/Take, parseSorting, parseSearch, parseStatusFilter, parseDateRange, buildSearchWhere
+
+### Task 3.4: Bug Fix — parsePagination NaN handling
+Fixed `parsePagination` in `src/lib/pagination.ts`:
+- Before: `Math.max(1, parseInt('abc'))` → NaN (parseInt returns NaN, Math.max(1, NaN) = NaN)
+- After: Added `isNaN()` check to fall back to defaults for non-numeric query params
+
+Files Created:
+- `src/components/admin/shared/AdminFormCard.tsx`
+- `src/components/admin/shared/DeleteConfirmButton.tsx`
+- `src/components/admin/shared/FormField.tsx`
+- `src/components/admin/shared/FormSelect.tsx`
+- `src/components/admin/shared/EditButton.tsx`
+- `src/components/admin/shared/index.ts`
+- `src/__tests__/lib/validations-extended.test.ts`
+- `src/__tests__/lib/webhook-hmac.test.ts`
+- `src/__tests__/lib/pagination-extended.test.ts`
 
 Files Modified:
-- `src/lib/hooks/use-admin-data.ts` — Complete rewrite with lazy loading + WS integration
-- `src/components/AdminDashboard.tsx` — Updated to pass activeTab, admin.id; use stats-based badges; show WS indicator
-- `src/components/layout/DashboardShell.tsx` — Added wsIndicator + loading props
-- `src/app/api/stats/route.ts` — Added 8 badge count fields (DB-level counts)
-- `src/lib/types.ts` — Added badge counts to Stats type; made AdminDB.password optional
-- `src/lib/hooks/use-admin-crud.ts` — Minor fix for optional password
-- `src/app/api/reviews/route.ts` — Search/filter/sort support
-- `src/app/api/staff/route.ts` — Search/filter/sort support
-- `src/app/api/admins/route.ts` — Search/filter/sort + password exclusion
+- `src/components/admin/StaffTab.tsx`
+- `src/components/admin/ExpensesTab.tsx`
+- `src/components/admin/DriversTab.tsx`
+- `src/components/admin/CustomersTab.tsx`
+- `src/__tests__/lib/rate-limit.test.ts` — Fixed for async API
+- `src/__tests__/lib/middleware-security.test.ts` — Fixed for async API
+- `src/lib/pagination.ts` — Fixed NaN bug
 
-Build: `npx next build` passes ✅
+Build: `npx next build` ✅
 TypeScript: `npx tsc --noEmit` — zero errors ✅
-ESLint: Only pre-existing warnings ✅
+Tests: 230 passed, 0 failed ✅
 
 Stage Summary:
-- Phase 2 complete: WebSocket real-time + lazy tab loading + search/filter/sort
-- Performance improvement: 13×1000 items on mount → 1 stats call + 1 tab call (100-200 items)
-- Real-time: Polling replaced by WebSocket events with selective refresh
-- All 12 list endpoints now have consistent search/filter/sort support
+- Phase 3 complete: shared components + refactoring + 53 new/updated tests + 1 bug fix
+- Test count: 169 → 230 (36% increase)
+- 4 admin tabs refactored with shared components
+- Critical NaN bug fixed in pagination helper

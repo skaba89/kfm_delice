@@ -1,16 +1,20 @@
 "use client";
 
-import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Plus, Edit3, Trash2, Save } from "lucide-react";
+import { Plus } from "lucide-react";
 import type { ExpenseDB } from "@/lib/types";
 import { formatPrice, expenseCategoryLabels, expenseCategoryColors } from "@/lib/constants";
 import { usePagination } from "@/lib/use-pagination";
 import { Pagination } from "@/components/Pagination";
 import { notify } from "@/lib/notifications";
+import { AdminFormCard } from "@/components/admin/shared/AdminFormCard";
+import { DeleteConfirmButton } from "@/components/admin/shared/DeleteConfirmButton";
+import { EditButton } from "@/components/admin/shared/EditButton";
+import { FormField } from "@/components/admin/shared/FormField";
+import { FormSelect } from "@/components/admin/shared/FormSelect";
 
 export interface ExpensesTabProps {
   expenses: ExpenseDB[];
@@ -69,33 +73,24 @@ export function ExpensesTab({
         })}
       </div>
 
-      <AnimatePresence>
-        {showExpenseForm && (
-          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
-            <Card className="border-orange-200 bg-orange-50/30 dark:border-orange-800 dark:bg-orange-900/10">
-              <CardContent className="p-4 sm:p-6">
-                <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">{editingExpense ? "Modifier la dépense" : "Ajouter une dépense"}</h3>
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  <div><label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Description *</label><Input value={expenseForm.description} onChange={e => setExpenseForm({ ...expenseForm, description: e.target.value })} placeholder="Description de la dépense" className="dark:bg-gray-800 dark:border-gray-600" /></div>
-                  <div><label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Montant (GNF) *</label><Input type="number" value={expenseForm.amount || ""} onChange={e => setExpenseForm({ ...expenseForm, amount: parseInt(e.target.value) || 0 })} placeholder="500000" className="dark:bg-gray-800 dark:border-gray-600" /></div>
-                  <div><label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Catégorie *</label>
-                    <select value={expenseForm.category} onChange={e => setExpenseForm({ ...expenseForm, category: e.target.value })} className="w-full h-9 rounded-md border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 text-sm dark:text-gray-100">
-                      {Object.entries(expenseCategoryLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                    </select>
-                  </div>
-                  <div><label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Date *</label><Input type="date" value={expenseForm.date} onChange={e => setExpenseForm({ ...expenseForm, date: e.target.value })} className="dark:bg-gray-800 dark:border-gray-600" /></div>
-                  <div><label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Payé par</label><Input value={expenseForm.paidBy} onChange={e => setExpenseForm({ ...expenseForm, paidBy: e.target.value })} placeholder="Nom" className="dark:bg-gray-800 dark:border-gray-600" /></div>
-                  <div><label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Notes</label><Input value={expenseForm.notes} onChange={e => setExpenseForm({ ...expenseForm, notes: e.target.value })} placeholder="Notes" className="dark:bg-gray-800 dark:border-gray-600" /></div>
-                </div>
-                <div className="flex gap-2 mt-4">
-                  <Button onClick={handleSaveExpense} className="bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl"><Save className="w-4 h-4 mr-1" /> {editingExpense ? "Enregistrer" : "Ajouter"}</Button>
-                  <Button variant="outline" onClick={() => { setShowExpenseForm(false); }} className="dark:border-gray-600">Annuler</Button>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <AdminFormCard
+        show={showExpenseForm}
+        editing={!!editingExpense}
+        addTitle="Ajouter une dépense"
+        editTitle="Modifier la dépense"
+        onSave={handleSaveExpense}
+        onCancel={() => setShowExpenseForm(false)}
+      >
+        <FormField label="Description" value={expenseForm.description} onChange={v => setExpenseForm({ ...expenseForm, description: v })} placeholder="Description de la dépense" required />
+        <div>
+          <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Montant (GNF) *</label>
+          <Input type="number" value={expenseForm.amount || ""} onChange={e => setExpenseForm({ ...expenseForm, amount: parseInt(e.target.value) || 0 })} placeholder="500000" className="dark:bg-gray-800 dark:border-gray-600" />
+        </div>
+        <FormSelect label="Catégorie" value={expenseForm.category} onChange={v => setExpenseForm({ ...expenseForm, category: v })} options={Object.entries(expenseCategoryLabels).map(([k, v]) => ({ value: k, label: v }))} required />
+        <FormField label="Date" value={expenseForm.date} onChange={v => setExpenseForm({ ...expenseForm, date: v })} type="date" required />
+        <FormField label="Payé par" value={expenseForm.paidBy} onChange={v => setExpenseForm({ ...expenseForm, paidBy: v })} placeholder="Nom" />
+        <FormField label="Notes" value={expenseForm.notes} onChange={v => setExpenseForm({ ...expenseForm, notes: v })} placeholder="Notes" />
+      </AdminFormCard>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 overflow-hidden">
         <div className="overflow-x-auto">
@@ -117,12 +112,13 @@ export function ExpensesTab({
                   <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{e.date}</td>
                   <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{e.paidBy || "-"}</td>
                   <td className="px-4 py-3"><div className="flex items-center gap-1">
-                    <button onClick={() => openEditExpense(e)} className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-orange-100 hover:text-orange-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-orange-900/30 dark:hover:text-orange-400" title="Modifier"><Edit3 className="w-4 h-4" /></button>
-                    {deleteExpenseConfirm === e.id ? (
-                      <div className="flex items-center gap-1"><button onClick={() => handleDeleteExpense(e)} className="text-[10px] px-1.5 py-0.5 bg-red-500 text-white rounded">Oui</button><button onClick={() => setDeleteExpenseConfirm(null)} className="text-[10px] px-1.5 py-0.5 bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 rounded">Non</button></div>
-                    ) : (
-                      <button onClick={() => setDeleteExpenseConfirm(e.id)} className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-red-100 hover:text-red-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-red-900/30 dark:hover:text-red-400" title="Supprimer"><Trash2 className="w-4 h-4" /></button>
-                    )}
+                    <EditButton onClick={() => openEditExpense(e)} />
+                    <DeleteConfirmButton
+                      confirming={deleteExpenseConfirm === e.id}
+                      onConfirm={() => handleDeleteExpense(e)}
+                      onRequestConfirm={() => setDeleteExpenseConfirm(e.id)}
+                      onCancel={() => setDeleteExpenseConfirm(null)}
+                    />
                   </div></td>
                 </tr>
               ))}
