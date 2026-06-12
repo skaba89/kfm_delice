@@ -7,23 +7,22 @@ import { rateLimit } from '@/lib/rate-limit';
 // Security Configuration
 // ────────────────────────────────────────────────────────────────
 
-const JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'dev-secret-do-not-use-in-prod');
-if (!JWT_SECRET && process.env.NODE_ENV === 'production') {
-  console.warn('JWT_SECRET is not set — middleware auth will not work in production');
-}
+// JWT_SECRET must be set via environment variable
+// For Render deployment, generate a random string and set it as env var
+const JWT_SECRET = process.env.JWT_SECRET || 'kfm-delice-dev-secret-change-in-prod';
 // jose uses Uint8Array for the secret (Web Crypto API compatible)
-const _JWT_SECRET = new TextEncoder().encode(JWT_SECRET || 'fallback');
+const _JWT_SECRET = new TextEncoder().encode(JWT_SECRET);
 
 // ────────────────────────────────────────────────────────────────
 // Route Classification
 // ────────────────────────────────────────────────────────────────
 
 const PUBLIC_GET_ROUTES = ['/api/menu', '/api/reviews', '/api/tracking', '/api/restaurant'];
-const PUBLIC_POST_ROUTES = ['/api/login', '/api/customer-login', '/api/customer-register', '/api/driver-login', '/api/orders', '/api/reservations', '/api/seed', '/api/register-restaurant'];
+const PUBLIC_POST_ROUTES = ['/api/login', '/api/customer-login', '/api/customer-register', '/api/driver-login', '/api/orders', '/api/reservations', '/api/seed', '/api/register-restaurant', '/api/platform-login'];
 const PUBLIC_ANY_ROUTES = ['/api']; // health check
 
 // Auth endpoints that need rate limiting
-const AUTH_ROUTES = ['/api/login', '/api/customer-login', '/api/customer-register', '/api/driver-login', '/api/register-restaurant'];
+const AUTH_ROUTES = ['/api/login', '/api/customer-login', '/api/customer-register', '/api/driver-login', '/api/register-restaurant', '/api/platform-login'];
 const AUTH_RATE_LIMIT = 10;       // max requests
 const AUTH_RATE_WINDOW = 60_000;  // per minute
 

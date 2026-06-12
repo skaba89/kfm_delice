@@ -2,12 +2,8 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { db } from './db';
 
-const JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'dev-secret-do-not-use-in-prod');
-if (!JWT_SECRET && process.env.NODE_ENV === 'production') {
-  // Will fail at runtime if not set, but allow build to proceed
-  console.warn('JWT_SECRET is not set — authentication will not work in production');
-}
-const _JWT_SECRET: string = JWT_SECRET || 'fallback';
+const JWT_SECRET = process.env.JWT_SECRET || 'kfm-delice-dev-secret-change-in-prod';
+const _JWT_SECRET: string = JWT_SECRET;
 const JWT_EXPIRES_IN = '24h';
 
 // Hash a password
