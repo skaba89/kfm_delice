@@ -121,9 +121,37 @@ export async function POST(request: Request) {
       if (!hasRole(admin.role, ["admin"])) {
         return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
       }
+    } else {
+      // Bootstrap mode — no admin exists yet
+      if (process.env.NODE_ENV === "production") {
+        // In production, require seed token to prevent unauthorized bootstrap
+        let providedToken: string | undefined;
+        try {
+          const body = await request.clone().json();
+          providedToken = body.seedToken;
+        } catch {
+          // Body might not be JSON or empty
+        }
+        if (!providedToken) {
+          providedToken = new URL(request.url).searchParams.get("seedToken") || undefined;
+        }
+
+        if (!SEED_TOKEN) {
+          console.error("[SEED] SEED_TOKEN non configuré en production. Définissez la variable d'environnement SEED_TOKEN.");
+          return NextResponse.json(
+            { error: "SEED_TOKEN non configuré. Définissez la variable d'environnement SEED_TOKEN." },
+            { status: 500 }
+          );
+        }
+        if (providedToken !== SEED_TOKEN) {
+          return NextResponse.json(
+            { error: "Token d'initialisation invalide" },
+            { status: 401 }
+          );
+        }
+      }
+      // In development, allow unauthenticated bootstrap for convenience
     }
-    // Bootstrap mode (no admin exists) — allow seeding without auth
-    // This is safe because no data exists yet to protect
 
     // Check if reset is requested
     const url = new URL(request.url);
@@ -425,7 +453,7 @@ export async function POST(request: Request) {
     ]);
 
     // ─── 8. Bulk seed data (only if count is 0) ──────────────────
-    const [menuCount, orderCount, reservationCount, reviewCount, staffCount, invoiceCount, quoteCount, expenseCount] = await Promise.all([
+    const enuCount, orderCount, reservationCount, reviewCount, staffCount, invoiceCount, quoteCount, expenseCount] = await Promise.all([
       db.menuItem.count({ where: { restaurantId: restaurant.id } }),
       db.order.count({ where: { restaurantId: restaurant.id } }),
       db.reservation.count({ where: { restaurantId: restaurant.id } }),
