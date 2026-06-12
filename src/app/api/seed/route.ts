@@ -28,16 +28,74 @@ function checkSeedRateLimit(ip: string): { allowed: boolean; retryAfterMs: numbe
   return { allowed: true, retryAfterMs: 0 };
 }
 
+// ─── Helper: findFirst + create for composite-unique models ──────
+// Customer has @@unique([email, restaurantId]) — can't upsert by email alone.
+// Driver   has @@unique([email, restaurantId]) — same situation.
+// We use findFirst to check existence, then create if missing.
+
+async function findOrCreateCustomer(data: {
+  email: string;
+  password: string;
+  name: string;
+  phone?: string;
+  address?: string;
+  loyaltyPoints?: number;
+  totalOrders?: number;
+  totalSpent?: number;
+  status?: string;
+  restaurantId: string;
+}) {
+  const existing = await db.customer.findFirst({
+    where: { email: data.email, restaurantId: data.restaurantId },
+  });
+  if (existing) {
+    // Update password in case it changed between seeds
+    await db.customer.update({
+      where: { id: existing.id },
+      data: { password: data.password },
+    });
+    return existing;
+  }
+  return db.customer.create({ data });
+}
+
+async function findOrCreateDriver(data: {
+  email: string;
+  password: string;
+  name: string;
+  phone: string;
+  vehicle?: string;
+  status?: string;
+  rating?: number;
+  totalDeliveries?: number;
+  zone?: string;
+  restaurantId: string;
+}) {
+  const existing = await db.driver.findFirst({
+    where: { email: data.email, restaurantId: data.restaurantId },
+  });
+  if (existing) {
+    await db.driver.update({
+      where: { id: existing.id },
+      data: { password: data.password },
+    });
+    return existing;
+  }
+  return db.driver.create({ data });
+}
+
+// ─── GET: Check seed status ─────────────────────────────────────
 export async function GET() {
   try {
-    const adminCount = await db.admin.count();
-    const seeded = adminCount > 0;
+    const restaurantCount = await db.restaurant.count();
+    const seeded = restaurantCount > 0;
     return NextResponse.json({ seeded, needsSeed: !seeded });
   } catch {
     return NextResponse.json({ seeded: false, needsSeed: true });
   }
 }
 
+// ─── POST: Seed the database ────────────────────────────────────
 export async function POST(request: Request) {
   try {
     // ─── Rate Limiting ──────────────────────────────────────────
@@ -101,6 +159,7 @@ export async function POST(request: Request) {
 
     if (reset) {
       // Delete in reverse dependency order within a transaction
+      // RestaurantConfig is cascade-deleted with Restaurant, but we delete explicitly for clarity
       await db.$transaction([
         db.expense.deleteMany(),
         db.quote.deleteMany(),
@@ -113,46 +172,213 @@ export async function POST(request: Request) {
         db.driver.deleteMany(),
         db.customer.deleteMany(),
         db.admin.deleteMany(),
+        db.restaurantConfig.deleteMany(),
         db.restaurant.deleteMany(),
+        db.platformAdmin.deleteMany(),
       ]);
     }
 
-    // Use upsert for idempotency — safe to call multiple times
-    // Hash all passwords in parallel
-    const [admin1Pw, admin2Pw, admin3Pw, clientPw, driverPw] = await Promise.all([
+    // ─── 1. Hash all passwords in parallel ───────────────────────
+    const [admin1Pw, admin2Pw, admin3Pw, clientPw, driverPw, platformAdminPw] = await Promise.all([
       hashPassword("kfm2024"),
       hashPassword("manager2024"),
       hashPassword("staff2024"),
       hashPassword("client123"),
       hashPassword("driver123"),
+      hashPassword("platform2024"),
     ]);
 
-    // Upsert admins
+    // ─── 2. Create PlatformAdmin (if not exists) ─────────────────
+    await db.platformAdmin.upsert({
+      where: { email: "platform@kfm-delice.com" },
+      update: { password: platformAdminPw },
+      create: {
+        email: "platform@kfm-delice.com",
+        password: platformAdminPw,
+        name: "Platform Super Admin",
+        role: "super_admin",
+        status: "active",
+      },
+    });
+
+    // ─── 3. Create Restaurant FIRST (tenant root) ────────────────
+    // All child entities reference restaurantId, so this must come first.
+    const restaurant = await db.restaurant.upsert({
+      where: { slug: "kfm-delice" },
+      update: {},
+      create: {
+        name: "KFM Delice",
+        slug: "kfm-delice",
+        tagline: "L'Art du Goût Guinéen",
+        description: "Restaurant gastronomique au cœur de Conakry.",
+        phone: "+224 622 34 56 78",
+        whatsapp: "+224 622 34 56 78",
+        email: "reservation@kfm-delice.com",
+        address: "Almamya, Corniche Nord, Conakry, Guinée",
+        hours: "Lun-Dim : 11h00 - 23h00",
+        rating: 4.9,
+        tables: 25,
+        deliveryFee: 5000,
+        minDelivery: 15000,
+        deliveryZones: "Kaloum:Dixinn:Matam:Matoto",
+        plan: "pro",
+        status: "active",
+        currency: "GNF",
+        locale: "fr",
+        ownerEmail: "admin@kfm-delice.com",
+        ownerName: "Admin KFM Delice",
+        ownerPhone: "+224 622 34 56 78",
+      },
+    });
+
+    // ─── 4. Create RestaurantConfig for the restaurant ───────────
+    await db.restaurantConfig.upsert({
+      where: { restaurantId: restaurant.id },
+      update: {},
+      create: {
+        restaurantId: restaurant.id,
+        logo: "/images/logo.png",
+        heroImage: "/images/hero.jpg",
+        primaryColor: "#ea580c",
+        accentColor: "#f97316",
+        fontFamily: "Inter",
+        menuCategories: JSON.stringify([
+          { id: "entrees", name: "Entrées" },
+          { id: "plats", name: "Plats" },
+          { id: "mer", name: "Fruits de Mer" },
+          { id: "desserts", name: "Desserts" },
+          { id: "boissons", name: "Boissons" },
+        ]),
+        features: JSON.stringify({
+          delivery: true,
+          reservation: true,
+          loyalty: true,
+          reviews: true,
+          invoices: true,
+          quotes: true,
+          expenses: true,
+          staff: true,
+          drivers: true,
+        }),
+        openingHours: JSON.stringify({
+          open: 11,
+          close: 23,
+          timezone: "Africa/Conakry",
+        }),
+        socialLinks: JSON.stringify({
+          facebook: "https://facebook.com/kfmdelice",
+          instagram: "https://instagram.com/kfmdelice",
+          whatsapp: "+224622345678",
+        }),
+        metaTitle: "KFM Delice — L'Art du Goût Guinéen",
+        metaDescription: "Restaurant gastronomique au cœur de Conakry. Cuisine guinéenne raffinée, fruits de mer frais et ambiance exceptionnelle.",
+      },
+    });
+
+    // ─── 5. Create Admins with restaurantId ──────────────────────
+    // Admin model still has @unique on email, so upsert works.
     await Promise.all([
       db.admin.upsert({
         where: { email: "admin@kfm-delice.com" },
         update: { password: admin1Pw },
-        create: { email: "admin@kfm-delice.com", password: admin1Pw, name: "Admin KFM Delice", role: "admin", status: "active" },
+        create: {
+          email: "admin@kfm-delice.com",
+          password: admin1Pw,
+          name: "Admin KFM Delice",
+          role: "admin",
+          status: "active",
+          restaurantId: restaurant.id,
+        },
       }),
       db.admin.upsert({
         where: { email: "manager@kfm-delice.com" },
         update: { password: admin2Pw },
-        create: { email: "manager@kfm-delice.com", password: admin2Pw, name: "Aminata Diallo", role: "manager", status: "active" },
+        create: {
+          email: "manager@kfm-delice.com",
+          password: admin2Pw,
+          name: "Aminata Diallo",
+          role: "manager",
+          status: "active",
+          restaurantId: restaurant.id,
+        },
       }),
       db.admin.upsert({
         where: { email: "staff@kfm-delice.com" },
         update: { password: admin3Pw },
-        create: { email: "staff@kfm-delice.com", password: admin3Pw, name: "Ibrahima Touré", role: "staff", status: "active" },
+        create: {
+          email: "staff@kfm-delice.com",
+          password: admin3Pw,
+          name: "Ibrahima Touré",
+          role: "staff",
+          status: "active",
+          restaurantId: restaurant.id,
+        },
       }),
     ]);
 
-    // Upsert customers and capture their IDs for FK relations
+    // ─── 6. Create Customers with restaurantId ───────────────────
+    // Customer has @@unique([email, restaurantId]) — use findFirst + create pattern.
     const [c1, c2, c3, c4, c5] = await Promise.all([
-      db.customer.upsert({ where: { email: "aminata@gmail.com" }, update: { password: clientPw }, create: { email: "aminata@gmail.com", password: clientPw, name: "Aminata Camara", phone: "+224 620 11 22 33", address: "Kaloum, Conakry", loyaltyPoints: 250, totalOrders: 8, totalSpent: 680000, status: "active" } }),
-      db.customer.upsert({ where: { email: "mamadou@gmail.com" }, update: { password: clientPw }, create: { email: "mamadou@gmail.com", password: clientPw, name: "Mamadou Bah", phone: "+224 628 44 55 66", address: "Dixinn, Conakry", loyaltyPoints: 180, totalOrders: 5, totalSpent: 425000, status: "active" } }),
-      db.customer.upsert({ where: { email: "fatoumata@gmail.com" }, update: { password: clientPw }, create: { email: "fatoumata@gmail.com", password: clientPw, name: "Fatoumata Diallo", phone: "+224 622 77 88 99", address: "Matam, Conakry", loyaltyPoints: 350, totalOrders: 12, totalSpent: 1150000, status: "active" } }),
-      db.customer.upsert({ where: { email: "ibrahim@gmail.com" }, update: { password: clientPw }, create: { email: "ibrahim@gmail.com", password: clientPw, name: "Ibrahim Touré", phone: "+224 621 22 33 44", address: "Matoto, Conakry", loyaltyPoints: 100, totalOrders: 3, totalSpent: 195000, status: "active" } }),
-      db.customer.upsert({ where: { email: "kadiatou@gmail.com" }, update: { password: clientPw }, create: { email: "kadiatou@gmail.com", password: clientPw, name: "Kadiatou Sylla", phone: "+224 625 55 66 77", address: "Corniche Nord, Conakry", loyaltyPoints: 420, totalOrders: 15, totalSpent: 1890000, status: "active" } }),
+      findOrCreateCustomer({
+        email: "aminata@gmail.com",
+        password: clientPw,
+        name: "Aminata Camara",
+        phone: "+224 620 11 22 33",
+        address: "Kaloum, Conakry",
+        loyaltyPoints: 250,
+        totalOrders: 8,
+        totalSpent: 680000,
+        status: "active",
+        restaurantId: restaurant.id,
+      }),
+      findOrCreateCustomer({
+        email: "mamadou@gmail.com",
+        password: clientPw,
+        name: "Mamadou Bah",
+        phone: "+224 628 44 55 66",
+        address: "Dixinn, Conakry",
+        loyaltyPoints: 180,
+        totalOrders: 5,
+        totalSpent: 425000,
+        status: "active",
+        restaurantId: restaurant.id,
+      }),
+      findOrCreateCustomer({
+        email: "fatoumata@gmail.com",
+        password: clientPw,
+        name: "Fatoumata Diallo",
+        phone: "+224 622 77 88 99",
+        address: "Matam, Conakry",
+        loyaltyPoints: 350,
+        totalOrders: 12,
+        totalSpent: 1150000,
+        status: "active",
+        restaurantId: restaurant.id,
+      }),
+      findOrCreateCustomer({
+        email: "ibrahim@gmail.com",
+        password: clientPw,
+        name: "Ibrahim Touré",
+        phone: "+224 621 22 33 44",
+        address: "Matoto, Conakry",
+        loyaltyPoints: 100,
+        totalOrders: 3,
+        totalSpent: 195000,
+        status: "active",
+        restaurantId: restaurant.id,
+      }),
+      findOrCreateCustomer({
+        email: "kadiatou@gmail.com",
+        password: clientPw,
+        name: "Kadiatou Sylla",
+        phone: "+224 625 55 66 77",
+        address: "Corniche Nord, Conakry",
+        loyaltyPoints: 420,
+        totalOrders: 15,
+        totalSpent: 1890000,
+        status: "active",
+        restaurantId: restaurant.id,
+      }),
     ]);
 
     // Build customer name→id map for linking seed data via FK
@@ -161,32 +387,72 @@ export async function POST(request: Request) {
       customerMap.set(c.name, c.id);
     }
 
-    // Upsert restaurant
-    const restaurant = await db.restaurant.upsert({
-      where: { slug: "kfm-delice" },
-      update: {},
-      create: {
-        name: "KFM Delice", slug: "kfm-delice", tagline: "L'Art du Goût Guinéen",
-        description: "Restaurant gastronomique au cœur de Conakry.",
-        phone: "+224 622 34 56 78", whatsapp: "+224 622 34 56 78",
-        email: "reservation@kfm-delice.com",
-        address: "Almamya, Corniche Nord, Conakry, Guinée",
-        hours: "Lun-Dim : 11h00 - 23h00", rating: 4.9, tables: 25,
-        deliveryFee: 5000, minDelivery: 15000,
-        deliveryZones: "Kaloum:Dixinn:Matam:Matoto",
-      },
-    });
-
-    // Upsert drivers
+    // ─── 7. Create Drivers with restaurantId ─────────────────────
+    // Driver has @@unique([email, restaurantId]) — use findFirst + create pattern.
     const drivers = await Promise.all([
-      db.driver.upsert({ where: { email: "moussa@kfm-delice.com" }, update: { password: driverPw }, create: { email: "moussa@kfm-delice.com", password: driverPw, name: "Moussa Condé", phone: "+224 620 11 22 33", vehicle: "moto", status: "available", rating: 4.8, totalDeliveries: 156, zone: "Kaloum", restaurantId: restaurant.id } }),
-      db.driver.upsert({ where: { email: "ibrahima@kfm-delice.com" }, update: { password: driverPw }, create: { email: "ibrahima@kfm-delice.com", password: driverPw, name: "Ibrahima Sow", phone: "+224 628 44 55 66", vehicle: "moto", status: "busy", rating: 4.6, totalDeliveries: 98, zone: "Dixinn", restaurantId: restaurant.id } }),
-      db.driver.upsert({ where: { email: "abdoulaye@kfm-delice.com" }, update: { password: driverPw }, create: { email: "abdoulaye@kfm-delice.com", password: driverPw, name: "Abdoulaye Diallo", phone: "+224 622 77 88 99", vehicle: "velo", status: "available", rating: 4.9, totalDeliveries: 210, zone: "Matam", restaurantId: restaurant.id } }),
-      db.driver.upsert({ where: { email: "ousmane@kfm-delice.com" }, update: { password: driverPw }, create: { email: "ousmane@kfm-delice.com", password: driverPw, name: "Ousmane Camara", phone: "+224 625 55 66 77", vehicle: "moto", status: "offline", rating: 4.3, totalDeliveries: 45, zone: "Matoto", restaurantId: restaurant.id } }),
-      db.driver.upsert({ where: { email: "mamadou-driver@kfm-delice.com" }, update: { password: driverPw }, create: { email: "mamadou-driver@kfm-delice.com", password: driverPw, name: "Mamadou Bah", phone: "+224 621 22 33 44", vehicle: "voiture", status: "available", rating: 4.7, totalDeliveries: 67, zone: "Conakry", restaurantId: restaurant.id } }),
+      findOrCreateDriver({
+        email: "moussa@kfm-delice.com",
+        password: driverPw,
+        name: "Moussa Condé",
+        phone: "+224 620 11 22 33",
+        vehicle: "moto",
+        status: "available",
+        rating: 4.8,
+        totalDeliveries: 156,
+        zone: "Kaloum",
+        restaurantId: restaurant.id,
+      }),
+      findOrCreateDriver({
+        email: "ibrahima@kfm-delice.com",
+        password: driverPw,
+        name: "Ibrahima Sow",
+        phone: "+224 628 44 55 66",
+        vehicle: "moto",
+        status: "busy",
+        rating: 4.6,
+        totalDeliveries: 98,
+        zone: "Dixinn",
+        restaurantId: restaurant.id,
+      }),
+      findOrCreateDriver({
+        email: "abdoulaye@kfm-delice.com",
+        password: driverPw,
+        name: "Abdoulaye Diallo",
+        phone: "+224 622 77 88 99",
+        vehicle: "velo",
+        status: "available",
+        rating: 4.9,
+        totalDeliveries: 210,
+        zone: "Matam",
+        restaurantId: restaurant.id,
+      }),
+      findOrCreateDriver({
+        email: "ousmane@kfm-delice.com",
+        password: driverPw,
+        name: "Ousmane Camara",
+        phone: "+224 625 55 66 77",
+        vehicle: "moto",
+        status: "offline",
+        rating: 4.3,
+        totalDeliveries: 45,
+        zone: "Matoto",
+        restaurantId: restaurant.id,
+      }),
+      findOrCreateDriver({
+        email: "mamadou-driver@kfm-delice.com",
+        password: driverPw,
+        name: "Mamadou Bah",
+        phone: "+224 621 22 33 44",
+        vehicle: "voiture",
+        status: "available",
+        rating: 4.7,
+        totalDeliveries: 67,
+        zone: "Conakry",
+        restaurantId: restaurant.id,
+      }),
     ]);
 
-    // Bulk data: only create if count is 0 (idempotent — won't duplicate on re-seed)
+    // ─── 8. Bulk seed data (only if count is 0) ──────────────────
     const [menuCount, orderCount, reservationCount, reviewCount, staffCount, invoiceCount, quoteCount, expenseCount] = await Promise.all([
       db.menuItem.count({ where: { restaurantId: restaurant.id } }),
       db.order.count({ where: { restaurantId: restaurant.id } }),
@@ -323,8 +589,10 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      message: reset ? "Base réinitialisée et re-seedée avec succès" : "Base KFM Delice initialisée",
+      message: reset ? "Base réinitialisée et re-seedée avec succès" : "Base KFM Delice initialisée (multi-tenant)",
       reset,
+      restaurantId: restaurant.id,
+      restaurantSlug: restaurant.slug,
     });
   } catch (error) {
     console.error(error);
@@ -332,7 +600,7 @@ export async function POST(request: Request) {
   }
 }
 
-// DELETE: Reset the database (admin only)
+// ─── DELETE: Reset the database (admin only) ────────────────────
 export async function DELETE(request: Request) {
   try {
     const admin = await authenticateAdmin(request);
@@ -355,7 +623,9 @@ export async function DELETE(request: Request) {
       db.driver.deleteMany(),
       db.customer.deleteMany(),
       db.admin.deleteMany(),
+      db.restaurantConfig.deleteMany(),
       db.restaurant.deleteMany(),
+      db.platformAdmin.deleteMany(),
     ]);
 
     return NextResponse.json({ success: true, message: "Base de données vidée avec succès" });

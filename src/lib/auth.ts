@@ -17,8 +17,22 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
   return bcrypt.compare(password, hash);
 }
 
+// ────────────────────────────────────────────────────────────────
+// JWT Token Generation
+// ────────────────────────────────────────────────────────────────
+
+// Extended JWT payload with tenant context
+interface TokenPayload {
+  id: string;
+  email: string;
+  role: string;
+  type: 'admin' | 'customer' | 'driver' | 'platform_admin';
+  restaurantId?: string;
+  restaurantSlug?: string;
+}
+
 // Generate a JWT token
-export function generateToken(payload: { id: string; email: string; role: string; type: 'admin' | 'customer' | 'driver' }): string {
+export function generateToken(payload: TokenPayload): string {
   return jwt.sign(payload, _JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 }
 
@@ -26,7 +40,9 @@ interface JwtPayload {
   id: string;
   email: string;
   role: string;
-  type: 'admin' | 'customer' | 'driver';
+  type: 'admin' | 'customer' | 'driver' | 'platform_admin';
+  restaurantId?: string;
+  restaurantSlug?: string;
 }
 
 // Verify a JWT token
@@ -51,8 +67,20 @@ export function extractToken(request: Request): string | null {
   return null;
 }
 
-// Authenticate an admin request - returns admin payload or null
-export async function authenticateAdmin(request: Request): Promise<{ id: string; email: string; role: string } | null> {
+// ────────────────────────────────────────────────────────────────
+// Authentication Helpers — Tenant-aware
+// ────────────────────────────────────────────────────────────────
+
+interface AuthenticatedAdmin {
+  id: string;
+  email: string;
+  role: string;
+  restaurantId: string;
+  restaurantSlug: string;
+}
+
+// Authenticate an admin request - returns admin payload with tenant context
+export async function authenticateAdmin(request: Request): Promise<AuthenticatedAdmin | null> {
   const token = extractToken(request);
   if (!token) return null;
   const payload = verifyToken(token);
@@ -60,50 +88,123 @@ export async function authenticateAdmin(request: Request): Promise<{ id: string;
   // Verify admin still exists and is active
   const admin = await db.admin.findUnique({ where: { id: payload.id } });
   if (!admin || admin.status === 'inactive') return null;
-  return { id: admin.id, email: admin.email, role: admin.role };
+  return {
+    id: admin.id,
+    email: admin.email,
+    role: admin.role,
+    restaurantId: admin.restaurantId,
+    restaurantSlug: payload.restaurantSlug || '',
+  };
+}
+
+interface AuthenticatedCustomer {
+  id: string;
+  email: string;
+  name: string;
+  restaurantId: string;
+  restaurantSlug: string;
 }
 
 // Authenticate a customer request
-export async function authenticateCustomer(request: Request): Promise<{ id: string; email: string; name: string } | null> {
+export async function authenticateCustomer(request: Request): Promise<AuthenticatedCustomer | null> {
   const token = extractToken(request);
   if (!token) return null;
   const payload = verifyToken(token);
   if (!payload || payload.type !== 'customer') return null;
   const customer = await db.customer.findUnique({ where: { id: payload.id } });
   if (!customer || customer.status === 'inactive') return null;
-  return { id: customer.id, email: customer.email, name: customer.name };
+  return {
+    id: customer.id,
+    email: customer.email,
+    name: customer.name,
+    restaurantId: customer.restaurantId,
+    restaurantSlug: payload.restaurantSlug || '',
+  };
+}
+
+interface AuthenticatedDriver {
+  id: string;
+  email: string;
+  name: string;
+  phone: string;
+  vehicle: string;
+  status: string;
+  zone: string;
+  restaurantId: string;
+  restaurantSlug: string;
 }
 
 // Authenticate a driver request
-export async function authenticateDriver(request: Request): Promise<{ id: string; email: string; name: string; phone: string; vehicle: string; status: string; zone: string } | null> {
+export async function authenticateDriver(request: Request): Promise<AuthenticatedDriver | null> {
   const token = extractToken(request);
   if (!token) return null;
   const payload = verifyToken(token);
   if (!payload || payload.type !== 'driver') return null;
   const driver = await db.driver.findUnique({ where: { id: payload.id } });
   if (!driver) return null;
-  return { id: driver.id, email: driver.email, name: driver.name, phone: driver.phone, vehicle: driver.vehicle, status: driver.status, zone: driver.zone };
+  return {
+    id: driver.id,
+    email: driver.email,
+    name: driver.name,
+    phone: driver.phone,
+    vehicle: driver.vehicle,
+    status: driver.status,
+    zone: driver.zone,
+    restaurantId: driver.restaurantId,
+    restaurantSlug: payload.restaurantSlug || '',
+  };
 }
 
-// Authenticate either admin, customer or driver
-export async function authenticateAny(request: Request): Promise<{ id: string; email: string; role: string; type: 'admin' | 'customer' | 'driver' } | null> {
+// Authenticate either admin, customer, driver, or platform_admin
+export async function authenticateAny(request: Request): Promise<{ id: string; email: string; role: string; type: 'admin' | 'customer' | 'driver' | 'platform_admin'; restaurantId?: string; restaurantSlug?: string } | null> {
   const token = extractToken(request);
   if (!token) return null;
   const payload = verifyToken(token);
   if (!payload) return null;
+  if (payload.type === 'platform_admin') {
+    const platformAdmin = await db.platformAdmin.findUnique({ where: { id: payload.id } });
+    if (!platformAdmin || platformAdmin.status === 'inactive') return null;
+    return { ...payload };
+  }
   if (payload.type === 'admin') {
     const admin = await db.admin.findUnique({ where: { id: payload.id } });
     if (!admin || admin.status === 'inactive') return null;
-    return payload;
+    return { ...payload, restaurantId: admin.restaurantId };
   } else if (payload.type === 'driver') {
     const driver = await db.driver.findUnique({ where: { id: payload.id } });
     if (!driver) return null;
-    return payload;
+    return { ...payload, restaurantId: driver.restaurantId };
   } else {
     const customer = await db.customer.findUnique({ where: { id: payload.id } });
     if (!customer || customer.status === 'inactive') return null;
-    return payload;
+    return { ...payload, restaurantId: customer.restaurantId };
   }
+}
+
+// ────────────────────────────────────────────────────────────────
+// Platform Admin Authentication
+// ────────────────────────────────────────────────────────────────
+
+interface AuthenticatedPlatformAdmin {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+}
+
+export async function authenticatePlatformAdmin(request: Request): Promise<AuthenticatedPlatformAdmin | null> {
+  const token = extractToken(request);
+  if (!token) return null;
+  const payload = verifyToken(token);
+  if (!payload || payload.type !== 'platform_admin') return null;
+  const platformAdmin = await db.platformAdmin.findUnique({ where: { id: payload.id } });
+  if (!platformAdmin || platformAdmin.status === 'inactive') return null;
+  return {
+    id: platformAdmin.id,
+    email: platformAdmin.email,
+    name: platformAdmin.name,
+    role: platformAdmin.role,
+  };
 }
 
 // Check if admin has required role

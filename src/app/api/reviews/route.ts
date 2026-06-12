@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, authenticateCustomer, hasRole } from "@/lib/auth";
+import { getRestaurantId } from "@/lib/tenant";
 import { reviewSchema } from "@/lib/validations";
 import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, parseStatusFilter, buildSearchWhere } from "@/lib/pagination";
 
@@ -13,11 +14,11 @@ export async function GET(request: Request) {
     const search = parseSearch(sp);
     const ratingFilter = parseStatusFilter(sp, ['1', '2', '3', '4', '5'], 'rating');
 
-    const restaurant = await db.restaurant.findFirst();
-    if (!restaurant) return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
+    const restaurantId = await getRestaurantId(request);
+    if (!restaurantId) return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
 
     const where = {
-      restaurantId: restaurant.id,
+      restaurantId,
       ...(ratingFilter && { rating: parseInt(ratingFilter) }),
       ...(search && buildSearchWhere(search, ['customerName', 'comment'])),
     };
@@ -57,12 +58,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: firstError }, { status: 400 });
     }
 
-    const restaurant = await db.restaurant.findFirst();
-    if (!restaurant) return NextResponse.json({ error: "Aucun restaurant" }, { status: 400 });
+    // Use customer's restaurantId for tenant scoping
+    const restaurantId = customer.restaurantId;
+    if (!restaurantId) return NextResponse.json({ error: "Aucun restaurant" }, { status: 400 });
 
     // Use authenticated customer's name and set customerId FK
     const review = await db.review.create({
-      data: { ...validation.data, customerName: customer.name, customerId: customer.id, restaurantId: restaurant.id },
+      data: { ...validation.data, customerName: customer.name, customerId: customer.id, restaurantId },
     });
     return NextResponse.json(review, { status: 201 });
   } catch (error) {
@@ -83,7 +85,8 @@ export async function DELETE(request: Request) {
     }
 
     const { id } = await request.json();
-    await db.review.delete({ where: { id } });
+    // Scope delete to admin's restaurant
+    await db.review.deleteMany({ where: { id, restaurantId: admin.restaurantId } });
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error(error);

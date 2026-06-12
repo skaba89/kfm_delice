@@ -22,7 +22,10 @@ export async function GET(request: Request) {
     const roleFilter = parseStatusFilter(sp, ['admin', 'manager', 'staff'], 'role');
     const statusFilter = parseStatusFilter(sp, ['active', 'inactive']);
 
+    const restaurantId = admin.restaurantId;
+
     const where = {
+      restaurantId,
       ...(roleFilter && { role: roleFilter }),
       ...(statusFilter && { status: statusFilter }),
       ...(search && buildSearchWhere(search, ['name', 'email'])),
@@ -74,10 +77,11 @@ export async function POST(request: Request) {
     }
 
     const { password, ...rest } = validation.data;
-    const createData: { email: string; name: string; password: string; role?: string; status?: string } = {
+    const createData: { email: string; name: string; password: string; role?: string; status?: string; restaurantId: string } = {
       email: rest.email,
       name: rest.name,
       password: password ? await hashPassword(password) : await hashPassword('changeme123'),
+      restaurantId: admin.restaurantId,
     };
     if (rest.role) createData.role = rest.role;
     if (rest.status) createData.status = rest.status;
@@ -152,7 +156,8 @@ export async function DELETE(request: Request) {
     }
 
     const { id } = await request.json();
-    await db.admin.delete({ where: { id } });
+    // Scope delete to admin's restaurant
+    await db.admin.deleteMany({ where: { id, restaurantId: admin.restaurantId } });
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error(error);

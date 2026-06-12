@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
-import { authenticateAdmin, authenticateAny, hasRole } from "@/lib/auth";
+import { authenticateAdmin, hasRole } from "@/lib/auth";
 
 // GET: Admin/Manager auth required
 export async function GET(request: Request) {
@@ -13,7 +13,8 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 
-    const restaurant = await db.restaurant.findFirst();
+    const rid = admin.restaurantId;
+    const restaurant = await db.restaurant.findUnique({ where: { id: rid }, select: { deliveryFee: true, minDelivery: true } });
     if (!restaurant) {
       return NextResponse.json({
         todayReservations: 0, pendingReservations: 0, todayRevenue: 0,
@@ -27,7 +28,6 @@ export async function GET(request: Request) {
       });
     }
 
-    const rid = restaurant.id;
     const today = new Date().toISOString().split("T")[0];
 
     // ─── DB-level counts (no full table scan) ──────────────────
@@ -93,8 +93,8 @@ export async function GET(request: Request) {
       // Badge counts — efficient DB-level counts for sidebar
       db.menuItem.count({ where: { restaurantId: rid } }),
       db.staff.count({ where: { restaurantId: rid } }),
-      db.customer.count(),
-      db.admin.count(),
+      db.customer.count({ where: { restaurantId: rid } }),
+      db.admin.count({ where: { restaurantId: rid } }),
       db.invoice.count({ where: { restaurantId: rid, status: "pending" } }),
       db.quote.count({ where: { restaurantId: rid, status: "sent" } }),
       db.expense.count({ where: { restaurantId: rid } }),

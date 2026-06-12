@@ -18,18 +18,65 @@ const _JWT_SECRET = new TextEncoder().encode(JWT_SECRET);
 // Route Classification
 // ────────────────────────────────────────────────────────────────
 
-const PUBLIC_GET_ROUTES = ['/api/menu', '/api/reviews', '/api/tracking'];
-const PUBLIC_POST_ROUTES = ['/api/login', '/api/customer-login', '/api/customer-register', '/api/driver-login', '/api/orders', '/api/reservations', '/api/seed'];
+const PUBLIC_GET_ROUTES = ['/api/menu', '/api/reviews', '/api/tracking', '/api/restaurant'];
+const PUBLIC_POST_ROUTES = ['/api/login', '/api/customer-login', '/api/customer-register', '/api/driver-login', '/api/orders', '/api/reservations', '/api/seed', '/api/register-restaurant'];
 const PUBLIC_ANY_ROUTES = ['/api']; // health check
 
 // Auth endpoints that need rate limiting
-const AUTH_ROUTES = ['/api/login', '/api/customer-login', '/api/customer-register', '/api/driver-login'];
+const AUTH_ROUTES = ['/api/login', '/api/customer-login', '/api/customer-register', '/api/driver-login', '/api/register-restaurant'];
 const AUTH_RATE_LIMIT = 10;       // max requests
 const AUTH_RATE_WINDOW = 60_000;  // per minute
 
 // General API rate limiting
 const API_RATE_LIMIT = 60;        // max requests
 const API_RATE_WINDOW = 60_000;   // per minute
+
+// ────────────────────────────────────────────────────────────────
+// Tenant Slug Extraction (Edge-compatible, no DB access)
+// ────────────────────────────────────────────────────────────────
+
+function extractTenantSlug(request: NextRequest): string | null {
+  const strategy = process.env.TENANT_STRATEGY || 'slug-header';
+  const { pathname, searchParams } = request.nextUrl;
+
+  switch (strategy) {
+    case 'path': {
+      // Extract from URL path: /r/{slug}/...
+      const pathMatch = pathname.match(/^\/r\/([^/]+)/);
+      if (pathMatch) return pathMatch[1];
+      break;
+    }
+
+    case 'subdomain': {
+      // Extract from subdomain: {slug}.domain.com
+      const host = request.headers.get('host') || '';
+      const parts = host.split('.');
+      if (parts.length >= 3) {
+        const subdomain = parts[0];
+        if (subdomain && subdomain !== 'www' && subdomain !== 'app' && subdomain !== 'admin') {
+          return subdomain;
+        }
+      }
+      break;
+    }
+
+    case 'query': {
+      const querySlug = searchParams.get('restaurant');
+      if (querySlug) return querySlug;
+      break;
+    }
+
+    case 'slug-header':
+    default: {
+      // Check query param first (client-side can pass it)
+      const querySlug = searchParams.get('restaurant');
+      if (querySlug) return querySlug;
+      break;
+    }
+  }
+
+  return null;
+}
 
 // ────────────────────────────────────────────────────────────────
 // Security Headers
@@ -62,12 +109,17 @@ export async function middleware(request: NextRequest) {
     || request.headers.get('x-real-ip')
     || 'unknown';
 
+  // ── Step 0: Extract tenant slug and add to request headers ──
+  const tenantSlug = extractTenantSlug(request);
+
   // ── Step 1: Security headers on ALL responses ──
   // We'll apply them at the end, but we need a base response first.
 
   // ── Step 2: Health check ──
   if (PUBLIC_ANY_ROUTES.some(r => pathname === r)) {
-    return addSecurityHeaders(NextResponse.next());
+    const response = NextResponse.next();
+    if (tenantSlug) response.headers.set('x-restaurant-slug', tenantSlug);
+    return addSecurityHeaders(response);
   }
 
   // ── Step 3: Rate limiting for auth routes (stricter) ──
@@ -100,14 +152,17 @@ export async function middleware(request: NextRequest) {
 
   // ── Step 5: Public routes — no auth needed ──
   if (method === 'GET' && PUBLIC_GET_ROUTES.some(r => pathname.startsWith(r))) {
-    return addSecurityHeaders(NextResponse.next());
+    const response = NextResponse.next();
+    if (tenantSlug) response.headers.set('x-restaurant-slug', tenantSlug);
+    return addSecurityHeaders(response);
   }
   if (method === 'POST' && PUBLIC_POST_ROUTES.some(r => pathname.startsWith(r))) {
-    return addSecurityHeaders(NextResponse.next());
+    const response = NextResponse.next();
+    if (tenantSlug) response.headers.set('x-restaurant-slug', tenantSlug);
+    return addSecurityHeaders(response);
   }
 
-  // ── Step 6: DELETE on reviews — needs auth ──
-  // All other /api/ routes require authentication
+  // ── Step 6: Protected API routes — require auth ──
 
   const authHeader = request.headers.get('authorization');
   if (!authHeader?.startsWith('Bearer ')) {
@@ -129,11 +184,26 @@ export async function middleware(request: NextRequest) {
       );
     }
 
-    // Add user info to request headers for downstream use
+    // Add user info + tenant slug to request headers for downstream use
     const response = NextResponse.next();
     response.headers.set('x-user-id', String(decoded.id));
     response.headers.set('x-user-type', String(decoded.type));
     response.headers.set('x-user-role', String(decoded.role || ''));
+
+    // Add restaurant slug from JWT if present, otherwise from tenant resolution
+    const jwtSlug = decoded.restaurantSlug as string | undefined;
+    if (jwtSlug) {
+      response.headers.set('x-restaurant-slug', jwtSlug);
+    } else if (tenantSlug) {
+      response.headers.set('x-restaurant-slug', tenantSlug);
+    }
+
+    // Add restaurant ID from JWT if present
+    const jwtRestoId = decoded.restaurantId as string | undefined;
+    if (jwtRestoId) {
+      response.headers.set('x-restaurant-id', jwtRestoId);
+    }
+
     return addSecurityHeaders(response);
   } catch {
     return addSecurityHeaders(

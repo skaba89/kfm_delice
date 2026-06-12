@@ -22,11 +22,13 @@ interface AuthContextType extends AuthState {
   apiFetch: (url: string, options?: RequestInit) => Promise<Response>;
 }
 
-const AUTH_TOKEN_KEY = "kfm_delice_token";
-const AUTH_USER_TYPE_KEY = "kfm_delice_user_type";
-const AUTH_ADMIN_KEY = "kfm_delice_admin";
-const AUTH_CUSTOMER_KEY = "kfm_delice_customer";
-const AUTH_DRIVER_KEY = "kfm_delice_driver";
+// Tenant-aware storage keys — include restaurant slug for multi-tenant support
+const RESTAURANT_SLUG_KEY = "restaurantpro_slug";
+const AUTH_TOKEN_KEY = "restaurantpro_token";
+const AUTH_USER_TYPE_KEY = "restaurantpro_user_type";
+const AUTH_ADMIN_KEY = "restaurantpro_admin";
+const AUTH_CUSTOMER_KEY = "restaurantpro_customer";
+const AUTH_DRIVER_KEY = "restaurantpro_driver";
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
@@ -69,6 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(AUTH_ADMIN_KEY);
     localStorage.removeItem(AUTH_CUSTOMER_KEY);
     localStorage.removeItem(AUTH_DRIVER_KEY);
+    localStorage.removeItem(RESTAURANT_SLUG_KEY);
   }, []);
 
   const logout = useCallback(() => {
@@ -80,21 +83,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearAuthStorage();
   }, [clearAuthStorage]);
 
-  const loginAdmin = useCallback((data: { token: string; id: string; email: string; name: string; role: string }) => {
-    const adminUser: AdminUser = { id: data.id, email: data.email, name: data.name, role: data.role };
+  const loginAdmin = useCallback((data: { token: string; id: string; email: string; name: string; role: string; restaurantId?: string; restaurantSlug?: string }) => {
+    const adminUser: AdminUser = { id: data.id, email: data.email, name: data.name, role: data.role, restaurantId: data.restaurantId, restaurantSlug: data.restaurantSlug };
     setToken(data.token);
     setAdmin(adminUser);
     setUserType("admin");
     localStorage.setItem(AUTH_TOKEN_KEY, data.token);
     localStorage.setItem(AUTH_USER_TYPE_KEY, "admin");
     localStorage.setItem(AUTH_ADMIN_KEY, JSON.stringify(adminUser));
+    if (data.restaurantSlug) localStorage.setItem(RESTAURANT_SLUG_KEY, data.restaurantSlug);
   }, []);
 
-  const loginCustomer = useCallback((data: { token: string; id: string; email: string; name: string; phone: string; address: string; loyaltyPoints: number; totalOrders: number; totalSpent: number; status: string }) => {
+  const loginCustomer = useCallback((data: { token: string; id: string; email: string; name: string; phone: string; address: string; loyaltyPoints: number; totalOrders: number; totalSpent: number; status: string; restaurantId?: string; restaurantSlug?: string }) => {
     const customerUser: CustomerUser = {
       id: data.id, email: data.email, name: data.name, phone: data.phone,
       address: data.address, loyaltyPoints: data.loyaltyPoints, totalOrders: data.totalOrders,
-      totalSpent: data.totalSpent, status: data.status,
+      totalSpent: data.totalSpent, status: data.status, restaurantId: data.restaurantId, restaurantSlug: data.restaurantSlug,
     };
     setToken(data.token);
     setCustomer(customerUser);
@@ -102,14 +106,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(AUTH_TOKEN_KEY, data.token);
     localStorage.setItem(AUTH_USER_TYPE_KEY, "customer");
     localStorage.setItem(AUTH_CUSTOMER_KEY, JSON.stringify(customerUser));
+    if (data.restaurantSlug) localStorage.setItem(RESTAURANT_SLUG_KEY, data.restaurantSlug);
   }, []);
 
-  const loginDriver = useCallback((data: { token: string; id: string; email: string; name: string; phone: string; vehicle: string; status: string; rating: number; totalDeliveries: number; zone: string; currentOrderId: string; lat: number; lng: number }) => {
+  const loginDriver = useCallback((data: { token: string; id: string; email: string; name: string; phone: string; vehicle: string; status: string; rating: number; totalDeliveries: number; zone: string; currentOrderId: string; lat: number; lng: number; restaurantId?: string; restaurantSlug?: string }) => {
     const driverUser: DriverUser = {
       id: data.id, email: data.email, name: data.name, phone: data.phone,
       vehicle: data.vehicle, status: data.status, rating: data.rating,
       totalDeliveries: data.totalDeliveries, zone: data.zone, currentOrderId: data.currentOrderId,
-      lat: data.lat || 0, lng: data.lng || 0,
+      lat: data.lat || 0, lng: data.lng || 0, restaurantId: data.restaurantId, restaurantSlug: data.restaurantSlug,
     };
     setToken(data.token);
     setDriver(driverUser);
@@ -117,6 +122,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(AUTH_TOKEN_KEY, data.token);
     localStorage.setItem(AUTH_USER_TYPE_KEY, "driver");
     localStorage.setItem(AUTH_DRIVER_KEY, JSON.stringify(driverUser));
+    if (data.restaurantSlug) localStorage.setItem(RESTAURANT_SLUG_KEY, data.restaurantSlug);
   }, []);
 
   const updateCustomer = useCallback((data: Partial<CustomerUser>) => {
@@ -137,6 +143,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (token) {
       headers["Authorization"] = `Bearer ${token}`;
     }
+
+    // Add restaurant slug header for multi-tenant API routing
+    try {
+      const slug = localStorage.getItem(RESTAURANT_SLUG_KEY);
+      if (slug && !headers["x-restaurant-slug"]) {
+        headers["x-restaurant-slug"] = slug;
+      }
+    } catch { /* localStorage not available */ }
 
     // Add Content-Type for requests with body (but not for FormData)
     if (options?.body && !headers["Content-Type"]) {

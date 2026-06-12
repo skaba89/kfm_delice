@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, authenticateAny, hasRole } from "@/lib/auth";
+import { getRestaurantId } from "@/lib/tenant";
 import { reservationSchema, reservationPatchSchema } from "@/lib/validations";
 import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, parseStatusFilter } from "@/lib/pagination";
 
@@ -18,11 +19,12 @@ export async function GET(request: Request) {
     const search = parseSearch(sp);
     const statusFilter = parseStatusFilter(sp, ['pending', 'confirmed', 'cancelled', 'completed']);
 
-    const restaurant = await db.restaurant.findFirst();
-    if (!restaurant) return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
+    // Resolve tenant: prefer authenticated user's restaurantId, fallback to request-based resolution
+    const restaurantId = auth.restaurantId || await getRestaurantId(request);
+    if (!restaurantId) return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
 
     const buildWhere = (extraFilter: Record<string, unknown> = {}) => ({
-      restaurantId: restaurant.id,
+      restaurantId,
       ...(statusFilter && { status: statusFilter }),
       ...(search && {
         OR: [
@@ -90,8 +92,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: firstError }, { status: 400 });
     }
 
-    const restaurant = await db.restaurant.findFirst();
-    if (!restaurant) return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
+    // Resolve tenant from request (public endpoint)
+    const restaurantId = await getRestaurantId(request);
+    if (!restaurantId) return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
 
     // Try to attach customerId if authenticated as customer
     let customerId: string | undefined = validation.data.customerId;
@@ -112,7 +115,7 @@ export async function POST(request: Request) {
         zone: validation.data.zone ?? "interieur",
         notes: validation.data.notes ?? "",
         status: validation.data.status ?? "pending",
-        restaurantId: restaurant.id,
+        restaurantId,
         ...(customerId && { customerId }),
       },
     });

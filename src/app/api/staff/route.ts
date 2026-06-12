@@ -22,11 +22,10 @@ export async function GET(request: Request) {
     const roleFilter = parseStatusFilter(sp, ['cuisinier', 'serveur', 'barman', 'gerant', 'plongeur', 'securite', 'caissier'], 'role');
     const statusFilter = parseStatusFilter(sp, ['active', 'inactive', 'on_leave']);
 
-    const restaurant = await db.restaurant.findFirst();
-    if (!restaurant) return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
+    const restaurantId = admin.restaurantId;
 
     const where = {
-      restaurantId: restaurant.id,
+      restaurantId,
       ...(roleFilter && { role: roleFilter }),
       ...(statusFilter && { status: statusFilter }),
       ...(search && buildSearchWhere(search, ['name', 'phone', 'role'])),
@@ -68,10 +67,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: firstError }, { status: 400 });
     }
 
-    const restaurant = await db.restaurant.findFirst();
-    if (!restaurant) return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
+    const restaurantId = admin.restaurantId;
     const staff = await db.staff.create({
-      data: { ...validation.data, restaurantId: restaurant.id },
+      data: { ...validation.data, restaurantId },
     });
     return NextResponse.json(staff, { status: 201 });
   } catch (error) {
@@ -102,6 +100,10 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "ID requis" }, { status: 400 });
     }
 
+    // Scope update to admin's restaurant
+    const existing = await db.staff.findFirst({ where: { id, restaurantId: admin.restaurantId } });
+    if (!existing) return NextResponse.json({ error: "Personnel introuvable" }, { status: 404 });
+
     const staff = await db.staff.update({ where: { id }, data });
     return NextResponse.json(staff);
   } catch (error) {
@@ -121,7 +123,8 @@ export async function DELETE(request: Request) {
     }
 
     const { id } = await request.json();
-    await db.staff.delete({ where: { id } });
+    // Scope delete to admin's restaurant
+    await db.staff.deleteMany({ where: { id, restaurantId: admin.restaurantId } });
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error(error);

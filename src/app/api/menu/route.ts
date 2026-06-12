@@ -4,6 +4,7 @@ import { authenticateAdmin, hasRole } from "@/lib/auth";
 import { menuItemSchema, menuItemPatchSchema } from "@/lib/validations";
 import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch } from "@/lib/pagination";
 import { Prisma } from "@prisma/client";
+import { getRestaurantId } from "@/lib/tenant";
 
 // GET: Public (no auth needed)
 export async function GET(request: Request) {
@@ -14,11 +15,11 @@ export async function GET(request: Request) {
     const { sortBy, sortOrder } = parseSorting(sp, ['order', 'price', 'name', 'createdAt'] as const, 'order', 'asc');
     const search = parseSearch(sp);
 
-    const restaurant = await db.restaurant.findFirst();
-    if (!restaurant) return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
+    const restaurantId = await getRestaurantId(request);
+    if (!restaurantId) return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
 
     const where: Prisma.MenuItemWhereInput = {
-      restaurantId: restaurant.id,
+      restaurantId,
       ...(category && { category }),
       ...(search && {
         OR: [
@@ -66,11 +67,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: firstError }, { status: 400 });
     }
 
-    const restaurant = await db.restaurant.findFirst();
-    if (!restaurant) return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
+    // Use admin.restaurantId from authenticated admin — prefer over getRestaurantId for admin routes
+    const restaurantId = admin.restaurantId;
+    if (!restaurantId) return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
 
     const item = await db.menuItem.create({
-      data: { ...validation.data, restaurantId: restaurant.id },
+      data: { ...validation.data, restaurantId },
     });
     return NextResponse.json(item, { status: 201 });
   } catch (error) {

@@ -7,53 +7,55 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Admin {
+// ────────────────────────────────────────────────────────────────
+// SaaS Platform Owner — super-admin who manages all restaurants
+// ────────────────────────────────────────────────────────────────
+model PlatformAdmin {
   id        String   @id @default(cuid())
   email     String   @unique
   password  String
   name      String
-  role      String   @default("admin") // admin, manager, staff
+  role      String   @default("super_admin") // super_admin, support
   status    String   @default("active") // active, inactive
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
-model Customer {
-  id              String   @id @default(cuid())
-  email           String   @unique
-  password        String
-  name            String
-  phone           String   @default("")
-  address         String   @default("")
-  loyaltyPoints   Int      @default(0)
-  totalOrders     Int      @default(0)
-  totalSpent      Int      @default(0)
-  status          String   @default("active") // active, inactive
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  orders          Order[]
-  reservations    Reservation[]
-  reviews         Review[]
-}
-
+// ────────────────────────────────────────────────────────────────
+// Restaurant — central tenant entity
+// ────────────────────────────────────────────────────────────────
 model Restaurant {
-  id          String   @id @default(cuid())
-  name        String
-  slug        String   @unique
-  tagline     String   @default("")
-  description String   @default("")
-  phone       String   @default("")
-  whatsapp    String   @default("")
-  email       String   @default("")
-  address     String   @default("")
-  hours       String   @default("")
-  rating      Float    @default(4.5)
-  tables      Int      @default(20)
-  deliveryFee Int      @default(5000)
-  minDelivery Int      @default(15000)
-  deliveryZones String @default("Conakry:Kaloum:Dixinn:Matam:Matoto")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String   @id @default(cuid())
+  name          String
+  slug          String   @unique
+  tagline       String   @default("")
+  description   String   @default("")
+  phone         String   @default("")
+  whatsapp      String   @default("")
+  email         String   @default("")
+  address       String   @default("")
+  hours         String   @default("")
+  rating        Float    @default(4.5)
+  tables        Int      @default(20)
+  deliveryFee   Int      @default(5000)
+  minDelivery   Int      @default(15000)
+  deliveryZones String   @default("Conakry:Kaloum:Dixinn:Matam:Matoto")
+  // SaaS subscription fields
+  plan          String   @default("free") // free, starter, pro, enterprise
+  status        String   @default("active") // active, suspended, trial, cancelled
+  trialEndsAt   String   @default("") // ISO date string
+  currency      String   @default("GNF") // GNF, EUR, USD, XOF, etc.
+  locale        String   @default("fr") // fr, en, etc.
+  ownerEmail    String   @default("") // email of restaurant owner
+  ownerName     String   @default("") // name of restaurant owner
+  ownerPhone    String   @default("") // phone of restaurant owner
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  config      RestaurantConfig?
+  admins      Admin[]
+  customers   Customer[]
   menuItems     MenuItem[]
   reservations  Reservation[]
   orders        Order[]
@@ -64,6 +66,80 @@ model Restaurant {
   quotes        Quote[]
   expenses      Expense[]
   payments      Payment[]
+}
+
+// ────────────────────────────────────────────────────────────────
+// RestaurantConfig — per-restaurant branding & UI customization
+// ────────────────────────────────────────────────────────────────
+model RestaurantConfig {
+  id            String   @id @default(cuid())
+  restaurantId  String   @unique
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  // Branding
+  logo          String   @default("") // URL or path to logo
+  heroImage     String   @default("") // URL or path to hero image
+  primaryColor  String   @default("#ea580c") // Tailwind orange-600 default
+  accentColor   String   @default("#f97316") // Tailwind orange-500 default
+  fontFamily    String   @default("Inter") // CSS font family
+  // Menu categories (JSON array: [{id, name}])
+  menuCategories String  @default("[]")
+  // Features toggle (JSON object)
+  features      String   @default("{}")
+  // Opening hours (JSON: {open: 11, close: 23, timezone: "Africa/Conakry"})
+  openingHours  String   @default("{}")
+  // Social links (JSON)
+  socialLinks   String   @default("{}")
+  // Custom domain (for white-label)
+  customDomain  String   @default("")
+  // SEO
+  metaTitle     String   @default("")
+  metaDescription String @default("")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ────────────────────────────────────────────────────────────────
+// Admin — scoped to a restaurant
+// ────────────────────────────────────────────────────────────────
+model Admin {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  password     String
+  name         String
+  role         String   @default("admin") // admin, manager, staff
+  status       String   @default("active") // active, inactive
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([restaurantId])
+}
+
+// ────────────────────────────────────────────────────────────────
+// Customer — scoped to a restaurant
+// ────────────────────────────────────────────────────────────────
+model Customer {
+  id              String   @id @default(cuid())
+  email           String
+  password        String
+  name            String
+  phone           String   @default("")
+  address         String   @default("")
+  loyaltyPoints   Int      @default(0)
+  totalOrders     Int      @default(0)
+  totalSpent      Int      @default(0)
+  status          String   @default("active") // active, inactive
+  restaurantId    String
+  restaurant      Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  orders          Order[]
+  reservations    Reservation[]
+  reviews         Review[]
+
+  @@unique([email, restaurantId])
+  @@index([restaurantId])
 }
 
 model MenuItem {
@@ -147,7 +223,7 @@ model Order {
 
 model Driver {
   id           String   @id @default(cuid())
-  email        String   @default("") @unique
+  email        String   @default("")
   password     String   @default("")
   name         String
   phone        String
@@ -166,6 +242,7 @@ model Driver {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
+  @@unique([email, restaurantId])
   @@index([restaurantId, status])
 }
 

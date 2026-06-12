@@ -30,7 +30,7 @@ export async function POST(request: Request) {
 
     const { email, password } = validation.data;
 
-    const admin = await db.admin.findFirst({ where: { email } });
+    const admin = await db.admin.findFirst({ where: { email }, include: { restaurant: { select: { slug: true } } } });
     if (!admin) {
       return NextResponse.json({ error: "Identifiants incorrects" }, { status: 401 });
     }
@@ -45,8 +45,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Compte désactivé. Contactez l'administrateur." }, { status: 403 });
     }
 
-    // Generate JWT token
-    const token = generateToken({ id: admin.id, email: admin.email, role: admin.role, type: "admin" });
+    // Generate JWT token with tenant context
+    const token = generateToken({ id: admin.id, email: admin.email, role: admin.role, type: "admin", restaurantId: admin.restaurantId, restaurantSlug: admin.restaurant?.slug || "" });
 
     return NextResponse.json({
       id: admin.id,
@@ -54,6 +54,8 @@ export async function POST(request: Request) {
       name: admin.name,
       role: admin.role,
       status: admin.status,
+      restaurantId: admin.restaurantId,
+      restaurantSlug: admin.restaurant?.slug || "",
       token,
     });
   } catch (error) {

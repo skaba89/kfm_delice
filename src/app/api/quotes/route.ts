@@ -21,11 +21,10 @@ export async function GET(request: Request) {
     const search = parseSearch(sp);
     const statusFilter = parseStatusFilter(sp, ['draft', 'sent', 'accepted', 'refused', 'expired']);
 
-    const restaurant = await db.restaurant.findFirst();
-    if (!restaurant) return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
+    const restaurantId = admin.restaurantId;
 
     const where = {
-      restaurantId: restaurant.id,
+      restaurantId,
       ...(statusFilter && { status: statusFilter }),
       ...(search && {
         OR: [
@@ -71,10 +70,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: firstError }, { status: 400 });
     }
 
-    const restaurant = await db.restaurant.findFirst();
-    if (!restaurant) return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
+    const restaurantId = admin.restaurantId;
     const quote = await db.quote.create({
-      data: { ...validation.data, restaurantId: restaurant.id },
+      data: { ...validation.data, restaurantId },
     });
     return NextResponse.json(quote, { status: 201 });
   } catch (error) {
@@ -105,6 +103,10 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "ID requis" }, { status: 400 });
     }
 
+    // Scope update to admin's restaurant
+    const existing = await db.quote.findFirst({ where: { id, restaurantId: admin.restaurantId } });
+    if (!existing) return NextResponse.json({ error: "Devis introuvable" }, { status: 404 });
+
     const quote = await db.quote.update({ where: { id }, data });
     return NextResponse.json(quote);
   } catch (error) {
@@ -124,7 +126,8 @@ export async function DELETE(request: Request) {
     }
 
     const { id } = await request.json();
-    await db.quote.delete({ where: { id } });
+    // Scope delete to admin's restaurant
+    await db.quote.deleteMany({ where: { id, restaurantId: admin.restaurantId } });
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error(error);

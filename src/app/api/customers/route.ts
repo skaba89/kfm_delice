@@ -21,7 +21,10 @@ export async function GET(request: Request) {
     const search = parseSearch(sp);
     const statusFilter = parseStatusFilter(sp, ['active', 'inactive', 'suspended']);
 
+    const restaurantId = admin.restaurantId;
+
     const where = {
+      restaurantId,
       ...(statusFilter && { status: statusFilter }),
       ...(search && {
         OR: [
@@ -70,7 +73,7 @@ export async function POST(request: Request) {
     }
 
     const data = validation.data;
-    const existing = await db.customer.findFirst({ where: { email: data.email } });
+    const existing = await db.customer.findFirst({ where: { email: data.email, restaurantId: admin.restaurantId } });
     if (existing) {
       return NextResponse.json({ error: "Cet email est déjà utilisé" }, { status: 400 });
     }
@@ -86,6 +89,7 @@ export async function POST(request: Request) {
         password: hashedPassword,
         phone: data.phone,
         address: data.address,
+        restaurantId: admin.restaurantId,
       },
     });
     return NextResponse.json(customer, { status: 201 });
@@ -163,7 +167,8 @@ export async function DELETE(request: Request) {
     }
 
     const { id } = await request.json();
-    await db.customer.delete({ where: { id } });
+    // Scope delete to admin's restaurant
+    await db.customer.deleteMany({ where: { id, restaurantId: admin.restaurantId } });
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error(error);

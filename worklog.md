@@ -194,3 +194,116 @@ Stage Summary:
 - 6 new shared components (DataTable, StatusBadgeBar, SummaryCards, CrudHeader, EmptyState)
 - Test count: 230 → 331 (+44% increase, from <5% to >78% coverage on tested modules)
 - Estimated total duplication eliminated: ~700+ lines across admin components
+
+---
+Task ID: 4
+Agent: Super Z (Main)
+Task: Multi-tenant SaaS Transformation
+
+Work Log:
+
+### Task 4.1: Prisma Schema Update
+- Added `restaurantId` (required FK) to `Admin` model with `@@index([restaurantId])`
+- Added `restaurantId` (required FK) to `Customer` model with `@@unique([email, restaurantId])` replacing `@unique` on email
+- Changed `Driver.email` from `@unique` to `@@unique([email, restaurantId])`
+- Added `RestaurantConfig` model with branding, features, opening hours, social links, custom domain, SEO fields
+- Added `PlatformAdmin` model for SaaS super-admin
+- Added SaaS fields to `Restaurant`: `plan`, `status`, `trialEndsAt`, `currency`, `locale`, `ownerEmail`, `ownerName`, `ownerPhone`
+
+### Task 4.2: Tenant Resolution Utility
+Created `src/lib/tenant.ts` with:
+- `extractSlug(request)` — resolves slug from header, path, subdomain, or query param
+- `resolveTenant(slug)` — DB lookup with in-memory cache (5-min TTL)
+- `resolveTenantFromRequest(request)` — main API route helper
+- `getRestaurantId(request)` — convenience wrapper
+- `isTenantActive()`, `isFeatureEnabled()` — plan-based feature gating
+- `generateSlug()`, `ensureUniqueSlug()` — slug generation helpers
+- `invalidateTenantCache()` — cache invalidation
+
+### Task 4.3: Middleware Update
+Updated `src/middleware.ts`:
+- Added tenant slug extraction (Edge-compatible, no DB)
+- Injects `x-restaurant-slug` and `x-restaurant-id` headers from JWT or request
+- Added new public routes: `/api/restaurant`, `/api/register-restaurant`, `/api/platform-login`
+- Auth routes rate limiting includes `/api/register-restaurant`
+
+### Task 4.4: Dynamic Constants
+Updated `src/lib/constants.ts`:
+- Added `RestaurantConfigResolved` interface
+- Added `getRestaurantConfig(slug)` — loads full config from DB with caching
+- Added `getRestaurantConfigById(id)` — lookup by restaurant ID
+- `formatPrice()` now accepts `currency` parameter (GNF, XOF, EUR, USD)
+- Added `enrichCategoriesWithIcons()` — maps DB categories to Lucide icons
+- Added SaaS UI constants: `planLabels`, `planColors`, `restaurantStatusLabels`, `restaurantStatusColors`
+
+### Task 4.5: Auth System Update
+Updated `src/lib/auth.ts`:
+- JWT payload now includes `restaurantId` and `restaurantSlug`
+- `authenticateAdmin()` returns `{ id, email, role, restaurantId, restaurantSlug }`
+- `authenticateCustomer()` returns `{ id, email, name, restaurantId, restaurantSlug }`
+- `authenticateDriver()` returns `{ id, email, name, phone, vehicle, status, zone, restaurantId, restaurantSlug }`
+- Added `authenticatePlatformAdmin()` for SaaS super-admin
+- `authenticateAny()` now handles `platform_admin` type
+
+### Task 4.6: API Routes Multi-tenant Update (20+ routes)
+All API routes updated to be tenant-scoped:
+- Admin-only routes use `admin.restaurantId` directly
+- Public routes use `getRestaurantId(request)` for tenant resolution
+- Login routes include `restaurantId` and `restaurantSlug` in JWT + response
+- Customer registration creates customer with `restaurantId`
+- DELETE operations use scoped `deleteMany({ where: { id, restaurantId } })`
+- PATCH operations verify ownership before update
+
+### Task 4.7: Restaurant Onboarding
+Created `/api/register-restaurant`:
+- Creates Restaurant + Admin + RestaurantConfig in a transaction
+- Generates unique slug from restaurant name
+- 14-day trial period
+- Rate limited (3 registrations/min)
+- Returns JWT token for immediate login
+
+Created `/onboard` page:
+- 3-step wizard: Restaurant info → Owner account → Plan selection
+- 4 plan tiers: Gratuit, Starter, Pro, Entreprise
+- Auto-login after registration
+- Responsive design with Tailwind
+
+### Task 4.8: Platform Admin Dashboard
+Created `/platform` page:
+- Super-admin login form
+- Stats cards: total restaurants, active, trial, estimated revenue
+- Restaurant table with search, plan filter, status filter
+- Actions: view restaurant, suspend/reactivate
+- Platform login API at `/api/platform-login`
+- Platform restaurants API at `/api/platform/restaurants`
+
+### Task 4.9: Auth Context Update
+Updated `src/lib/auth-context.tsx`:
+- Storage keys renamed from `kfm_delice_*` to `restaurantpro_*`
+- Added `RESTAURANT_SLUG_KEY` for tenant persistence
+- `loginAdmin/Customer/Driver` now accept `restaurantId` and `restaurantSlug`
+- `apiFetch()` automatically adds `x-restaurant-slug` header from localStorage
+- Logout clears tenant slug
+
+### Task 4.10: Types & Seed Update
+Updated `src/lib/types.ts`:
+- Added `restaurantId?` and `restaurantSlug?` to AdminUser, CustomerUser, DriverUser
+
+Updated `prisma/seed.ts`:
+- Creates PlatformAdmin first
+- Creates Restaurant before Admins/Customers (dependency order)
+- Creates RestaurantConfig with default branding
+- Uses findFirst+create pattern for composite unique keys
+
+Build: `next build` ✅ (0 TypeScript errors)
+Database: `prisma db push --force-reset` + `prisma db seed` ✅
+
+Stage Summary:
+- Full multi-tenant SaaS transformation complete
+- Every API route is now tenant-scoped
+- New restaurant onboarding flow with 4 pricing plans
+- Platform admin dashboard for managing all restaurants
+- JWT includes restaurantId/restaurantSlug for tenant context
+- Dynamic restaurant config loaded from DB with caching
+- Feature gating based on subscription plan
+- Build passes with 0 errors

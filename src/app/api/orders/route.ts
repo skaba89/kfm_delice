@@ -4,6 +4,7 @@ import { authenticateAdmin, authenticateAny, hasRole } from "@/lib/auth";
 import { orderSchema, orderPatchSchema } from "@/lib/validations";
 import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, parseStatusFilter } from "@/lib/pagination";
 import { isRestaurantOpen } from "@/lib/constants";
+import { getRestaurantId } from "@/lib/tenant";
 
 // GET: Admin auth required OR customer auth (customers only see their own orders)
 export async function GET(request: Request) {
@@ -20,12 +21,13 @@ export async function GET(request: Request) {
     const statusFilter = parseStatusFilter(sp, ['pending', 'preparing', 'ready', 'delivering', 'delivered', 'cancelled']);
     const orderTypeFilter = parseStatusFilter(sp, ['dine_in', 'takeaway', 'delivery'], 'orderType');
 
-    const restaurant = await db.restaurant.findFirst();
-    if (!restaurant) return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
+    // Use restaurantId from authenticated user (all auth types include it)
+    const restaurantId = auth.restaurantId || await getRestaurantId(request);
+    if (!restaurantId) return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
 
     // Build base where clause with filters
     const buildWhere = (extraFilter: Record<string, unknown> = {}) => ({
-      restaurantId: restaurant.id,
+      restaurantId,
       ...(statusFilter && { status: statusFilter }),
       ...(orderTypeFilter && { orderType: orderTypeFilter }),
       ...(search && {
@@ -99,12 +101,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Le restaurant est actuellement fermé. Nos heures d\'ouverture sont de 11h à 23h.' }, { status: 400 });
     }
 
-    const restaurant = await db.restaurant.findFirst();
-    if (!restaurant) return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
+    const restaurantId = await getRestaurantId(request);
+    if (!restaurantId) return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
 
     // Server-side price verification
     const orderedItems = JSON.parse(body.items || "[]") as { name: string; price: number; qty: number; note?: string }[];
-    const menuItemsFromDB = await db.menuItem.findMany({ where: { available: true } });
+    const menuItemsFromDB = await db.menuItem.findMany({ where: { available: true, restaurantId } });
 
     let recalculatedTotal = 0;
     const verifiedItems = orderedItems.map(item => {
@@ -121,6 +123,7 @@ export async function POST(request: Request) {
 
     // Add delivery fee if applicable
     if (body.orderType === 'delivery') {
+      const restaurant = await db.restaurant.findUnique({ where: { id: restaurantId } });
       recalculatedTotal += body.deliveryFee || restaurant?.deliveryFee || 0;
     }
 
@@ -144,7 +147,7 @@ export async function POST(request: Request) {
         ...validation.data,
         items: JSON.stringify(verifiedItems),
         total: verifiedTotal,
-        restaurantId: restaurant.id,
+        restaurantId,
         ...(customerId && { customerId }),
       },
     });

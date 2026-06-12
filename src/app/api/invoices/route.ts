@@ -21,11 +21,10 @@ export async function GET(request: Request) {
     const search = parseSearch(sp);
     const statusFilter = parseStatusFilter(sp, ['paid', 'pending', 'overdue', 'cancelled']);
 
-    const restaurant = await db.restaurant.findFirst();
-    if (!restaurant) return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
+    const restaurantId = admin.restaurantId;
 
     const where = {
-      restaurantId: restaurant.id,
+      restaurantId,
       ...(statusFilter && { status: statusFilter }),
       ...(search && {
         OR: [
@@ -71,10 +70,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: firstError }, { status: 400 });
     }
 
-    const restaurant = await db.restaurant.findFirst();
-    if (!restaurant) return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
+    const restaurantId = admin.restaurantId;
     const invoice = await db.invoice.create({
-      data: { ...validation.data, restaurantId: restaurant.id },
+      data: { ...validation.data, restaurantId },
     });
     return NextResponse.json(invoice, { status: 201 });
   } catch (error) {
@@ -105,6 +103,10 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "ID requis" }, { status: 400 });
     }
 
+    // Scope update to admin's restaurant
+    const existing = await db.invoice.findFirst({ where: { id, restaurantId: admin.restaurantId } });
+    if (!existing) return NextResponse.json({ error: "Facture introuvable" }, { status: 404 });
+
     const invoice = await db.invoice.update({ where: { id }, data });
     return NextResponse.json(invoice);
   } catch (error) {
@@ -124,7 +126,8 @@ export async function DELETE(request: Request) {
     }
 
     const { id } = await request.json();
-    await db.invoice.delete({ where: { id } });
+    // Scope delete to admin's restaurant
+    await db.invoice.deleteMany({ where: { id, restaurantId: admin.restaurantId } });
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error(error);

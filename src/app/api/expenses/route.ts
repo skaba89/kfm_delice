@@ -21,11 +21,10 @@ export async function GET(request: Request) {
     const search = parseSearch(sp);
     const categoryFilter = parseStatusFilter(sp, ['ingredients', 'utilities', 'rent', 'salary', 'equipment', 'transport', 'other'], 'category');
 
-    const restaurant = await db.restaurant.findFirst();
-    if (!restaurant) return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
+    const restaurantId = admin.restaurantId;
 
     const where = {
-      restaurantId: restaurant.id,
+      restaurantId,
       ...(categoryFilter && { category: categoryFilter }),
       ...(search && {
         OR: [
@@ -71,10 +70,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: firstError }, { status: 400 });
     }
 
-    const restaurant = await db.restaurant.findFirst();
-    if (!restaurant) return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
+    const restaurantId = admin.restaurantId;
     const expense = await db.expense.create({
-      data: { ...validation.data, restaurantId: restaurant.id },
+      data: { ...validation.data, restaurantId },
     });
     return NextResponse.json(expense, { status: 201 });
   } catch (error) {
@@ -105,6 +103,10 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "ID requis" }, { status: 400 });
     }
 
+    // Scope update to admin's restaurant
+    const existing = await db.expense.findFirst({ where: { id, restaurantId: admin.restaurantId } });
+    if (!existing) return NextResponse.json({ error: "Dépense introuvable" }, { status: 404 });
+
     const expense = await db.expense.update({ where: { id }, data });
     return NextResponse.json(expense);
   } catch (error) {
@@ -124,7 +126,8 @@ export async function DELETE(request: Request) {
     }
 
     const { id } = await request.json();
-    await db.expense.delete({ where: { id } });
+    // Scope delete to admin's restaurant
+    await db.expense.deleteMany({ where: { id, restaurantId: admin.restaurantId } });
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error(error);

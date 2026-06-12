@@ -8,10 +8,7 @@ export async function GET(request: Request) {
     if (!admin) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
     if (!hasRole(admin.role, ['admin', 'manager'])) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
 
-    const restaurant = await db.restaurant.findFirst();
-    if (!restaurant) return NextResponse.json({ error: 'Restaurant non trouvé' }, { status: 404 });
-
-    const rid = restaurant.id;
+    const rid = admin.restaurantId;
 
     // ─── Time boundaries ──────────────────────────────────────
     const now = new Date();

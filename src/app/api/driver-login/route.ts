@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { verifyPassword, generateToken } from "@/lib/auth";
 import { rateLimit } from "@/lib/rate-limit";
 import { driverLoginSchema } from "@/lib/validations";
+import { getRestaurantId } from "@/lib/tenant";
 
 export async function POST(request: Request) {
   // Rate limiting — check before any other logic
@@ -28,7 +29,13 @@ export async function POST(request: Request) {
 
     const { email, password } = validation.data;
 
-    const driver = await db.driver.findFirst({ where: { email } });
+    // Resolve tenant from request to scope driver lookup
+    const restaurantId = await getRestaurantId(request);
+    if (!restaurantId) {
+      return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
+    }
+
+    const driver = await db.driver.findFirst({ where: { email, restaurantId }, include: { restaurant: { select: { slug: true } } } });
     if (!driver || !driver.password) {
       return NextResponse.json({ error: "Identifiants incorrects" }, { status: 401 });
     }
@@ -38,8 +45,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Identifiants incorrects" }, { status: 401 });
     }
 
-    // Generate JWT token with driver type
-    const token = generateToken({ id: driver.id, email: driver.email, role: "driver", type: "driver" });
+    // Generate JWT token with tenant context
+    const token = generateToken({ id: driver.id, email: driver.email, role: "driver", type: "driver", restaurantId: driver.restaurantId, restaurantSlug: driver.restaurant?.slug || "" });
 
     return NextResponse.json({
       id: driver.id,
@@ -54,6 +61,8 @@ export async function POST(request: Request) {
       currentOrderId: driver.currentOrderId,
       lat: driver.lat,
       lng: driver.lng,
+      restaurantId: driver.restaurantId,
+      restaurantSlug: driver.restaurant?.slug || "",
       token,
     });
   } catch (error) {

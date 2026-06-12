@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { verifyPassword, generateToken } from "@/lib/auth";
 import { loginSchema } from "@/lib/validations";
 import { rateLimit } from "@/lib/rate-limit";
+import { getRestaurantId } from "@/lib/tenant";
 
 export async function POST(request: Request) {
   // Rate limiting — check before any other logic
@@ -30,7 +31,13 @@ export async function POST(request: Request) {
 
     const { email, password } = validation.data;
 
-    const customer = await db.customer.findFirst({ where: { email } });
+    // Resolve tenant from request to scope customer lookup
+    const restaurantId = await getRestaurantId(request);
+    if (!restaurantId) {
+      return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
+    }
+
+    const customer = await db.customer.findFirst({ where: { email, restaurantId }, include: { restaurant: { select: { slug: true } } } });
     if (!customer) {
       return NextResponse.json({ error: "Identifiants incorrects" }, { status: 401 });
     }
@@ -45,8 +52,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Compte désactivé. Contactez le restaurant." }, { status: 403 });
     }
 
-    // Generate JWT token
-    const token = generateToken({ id: customer.id, email: customer.email, role: "customer", type: "customer" });
+    // Generate JWT token with tenant context
+    const token = generateToken({ id: customer.id, email: customer.email, role: "customer", type: "customer", restaurantId: customer.restaurantId, restaurantSlug: customer.restaurant?.slug || "" });
 
     return NextResponse.json({
       id: customer.id,
@@ -58,6 +65,8 @@ export async function POST(request: Request) {
       totalOrders: customer.totalOrders,
       totalSpent: customer.totalSpent,
       status: customer.status,
+      restaurantId: customer.restaurantId,
+      restaurantSlug: customer.restaurant?.slug || "",
       token,
     });
   } catch (error) {

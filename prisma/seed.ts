@@ -9,9 +9,11 @@ async function main() {
   if (reset) {
     console.log("[seed] Resetting database...");
     // Delete in reverse dependency order
+    await prisma.restaurantConfig.deleteMany();
     await prisma.expense.deleteMany();
     await prisma.quote.deleteMany();
     await prisma.invoice.deleteMany();
+    await prisma.payment.deleteMany();
     await prisma.review.deleteMany();
     await prisma.order.deleteMany();
     await prisma.reservation.deleteMany();
@@ -21,55 +23,24 @@ async function main() {
     await prisma.customer.deleteMany();
     await prisma.admin.deleteMany();
     await prisma.restaurant.deleteMany();
+    await prisma.platformAdmin.deleteMany();
     console.log("[seed] Database cleared.");
   }
 
-  // --- Admins (upsert for idempotency) ---
-  const adminPasswords = await Promise.all([
-    hash("kfm2024", 10),
-    hash("manager2024", 10),
-    hash("staff2024", 10),
-  ]);
-
-  const admins = await Promise.all([
-    prisma.admin.upsert({
-      where: { email: "admin@kfm-delice.com" },
-      update: { password: adminPasswords[0] },
-      create: { email: "admin@kfm-delice.com", password: adminPasswords[0], name: "Admin KFM Delice", role: "admin", status: "active" },
-    }),
-    prisma.admin.upsert({
-      where: { email: "manager@kfm-delice.com" },
-      update: { password: adminPasswords[1] },
-      create: { email: "manager@kfm-delice.com", password: adminPasswords[1], name: "Aminata Diallo", role: "manager", status: "active" },
-    }),
-    prisma.admin.upsert({
-      where: { email: "staff@kfm-delice.com" },
-      update: { password: adminPasswords[2] },
-      create: { email: "staff@kfm-delice.com", password: adminPasswords[2], name: "Ibrahima Touré", role: "staff", status: "active" },
-    }),
-  ]);
-  console.log(`[seed] ${admins.length} admins ready.`);
-
-  // --- Customers (upsert) ---
-  const clientPw = await hash("client123", 10);
-  const customerData = [
-    { email: "aminata@gmail.com", name: "Aminata Camara", phone: "+224 620 11 22 33", address: "Kaloum, Conakry", loyaltyPoints: 250, totalOrders: 8, totalSpent: 680000, status: "active" as const },
-    { email: "mamadou@gmail.com", name: "Mamadou Bah", phone: "+224 628 44 55 66", address: "Dixinn, Conakry", loyaltyPoints: 180, totalOrders: 5, totalSpent: 425000, status: "active" as const },
-    { email: "fatoumata@gmail.com", name: "Fatoumata Diallo", phone: "+224 622 77 88 99", address: "Matam, Conakry", loyaltyPoints: 350, totalOrders: 12, totalSpent: 1150000, status: "active" as const },
-    { email: "ibrahim@gmail.com", name: "Ibrahim Touré", phone: "+224 621 22 33 44", address: "Matoto, Conakry", loyaltyPoints: 100, totalOrders: 3, totalSpent: 195000, status: "active" as const },
-    { email: "kadiatou@gmail.com", name: "Kadiatou Sylla", phone: "+224 625 55 66 77", address: "Corniche Nord, Conakry", loyaltyPoints: 420, totalOrders: 15, totalSpent: 1890000, status: "active" as const },
-  ];
-
-  const customers = await Promise.all(
-    customerData.map((c) =>
-      prisma.customer.upsert({
-        where: { email: c.email },
-        update: { password: clientPw },
-        create: { ...c, password: clientPw },
-      })
-    )
-  );
-  console.log(`[seed] ${customers.length} customers ready.`);
+  // --- Platform Admin (upsert) ---
+  const platformPw = await hash("platform2024", 10);
+  const platformAdmin = await prisma.platformAdmin.upsert({
+    where: { email: "admin@restaurantpro.com" },
+    update: { password: platformPw },
+    create: {
+      email: "admin@restaurantpro.com",
+      password: platformPw,
+      name: "Super Admin",
+      role: "super_admin",
+      status: "active",
+    },
+  });
+  console.log(`[seed] Platform admin ready (${platformAdmin.email}).`);
 
   // --- Restaurant (upsert by slug) ---
   const restaurant = await prisma.restaurant.upsert({
@@ -84,9 +55,91 @@ async function main() {
       hours: "Lun-Dim : 11h00 - 23h00", rating: 4.9, tables: 25,
       deliveryFee: 5000, minDelivery: 15000,
       deliveryZones: "Kaloum:Dixinn:Matam:Matoto",
+      plan: "pro", status: "active", currency: "GNF", locale: "fr",
+      ownerEmail: "admin@kfm-delice.com", ownerName: "Admin KFM Delice", ownerPhone: "+224 622 34 56 78",
     },
   });
   console.log(`[seed] Restaurant ready (id: ${restaurant.id}).`);
+
+  // --- Restaurant Config (upsert) ---
+  await prisma.restaurantConfig.upsert({
+    where: { restaurantId: restaurant.id },
+    update: {},
+    create: {
+      restaurantId: restaurant.id,
+      heroImage: "/images/kfm-hero.png",
+      primaryColor: "#ea580c",
+      accentColor: "#f97316",
+      menuCategories: JSON.stringify([
+        { id: "entrees", name: "Entrées" },
+        { id: "plats", name: "Plats Principaux" },
+        { id: "mer", name: "Fruits de Mer" },
+        { id: "desserts", name: "Desserts" },
+        { id: "boissons", name: "Boissons" },
+      ]),
+      features: JSON.stringify({
+        delivery: true, reservations: true, reviews: true, loyalty: true,
+        pos: true, invoices: true, quotes: true, expenses: true, staff: true, drivers: true,
+      }),
+      openingHours: JSON.stringify({ open: 11, close: 23, timezone: "Africa/Conakry" }),
+      socialLinks: JSON.stringify({ facebook: "", instagram: "", twitter: "" }),
+    },
+  });
+  console.log("[seed] Restaurant config ready.");
+
+  // --- Admins (upsert for idempotency) ---
+  const adminPasswords = await Promise.all([
+    hash("kfm2024", 10),
+    hash("manager2024", 10),
+    hash("staff2024", 10),
+  ]);
+
+  const admins = await Promise.all([
+    prisma.admin.upsert({
+      where: { email: "admin@kfm-delice.com" },
+      update: { password: adminPasswords[0] },
+      create: { email: "admin@kfm-delice.com", password: adminPasswords[0], name: "Admin KFM Delice", role: "admin", status: "active", restaurantId: restaurant.id },
+    }),
+    prisma.admin.upsert({
+      where: { email: "manager@kfm-delice.com" },
+      update: { password: adminPasswords[1] },
+      create: { email: "manager@kfm-delice.com", password: adminPasswords[1], name: "Aminata Diallo", role: "manager", status: "active", restaurantId: restaurant.id },
+    }),
+    prisma.admin.upsert({
+      where: { email: "staff@kfm-delice.com" },
+      update: { password: adminPasswords[2] },
+      create: { email: "staff@kfm-delice.com", password: adminPasswords[2], name: "Ibrahima Touré", role: "staff", status: "active", restaurantId: restaurant.id },
+    }),
+  ]);
+  console.log(`[seed] ${admins.length} admins ready.`);
+
+  // --- Customers (upsert with composite key) ---
+  const clientPw = await hash("client123", 10);
+  const customerData = [
+    { email: "aminata@gmail.com", name: "Aminata Camara", phone: "+224 620 11 22 33", address: "Kaloum, Conakry", loyaltyPoints: 250, totalOrders: 8, totalSpent: 680000, status: "active" as const },
+    { email: "mamadou@gmail.com", name: "Mamadou Bah", phone: "+224 628 44 55 66", address: "Dixinn, Conakry", loyaltyPoints: 180, totalOrders: 5, totalSpent: 425000, status: "active" as const },
+    { email: "fatoumata@gmail.com", name: "Fatoumata Diallo", phone: "+224 622 77 88 99", address: "Matam, Conakry", loyaltyPoints: 350, totalOrders: 12, totalSpent: 1150000, status: "active" as const },
+    { email: "ibrahim@gmail.com", name: "Ibrahim Touré", phone: "+224 621 22 33 44", address: "Matoto, Conakry", loyaltyPoints: 100, totalOrders: 3, totalSpent: 195000, status: "active" as const },
+    { email: "kadiatou@gmail.com", name: "Kadiatou Sylla", phone: "+224 625 55 66 77", address: "Corniche Nord, Conakry", loyaltyPoints: 420, totalOrders: 15, totalSpent: 1890000, status: "active" as const },
+  ];
+
+  // For customers with composite unique key (email + restaurantId), we need upsert workaround
+  for (const c of customerData) {
+    const existing = await prisma.customer.findFirst({
+      where: { email: c.email, restaurantId: restaurant.id },
+    });
+    if (existing) {
+      await prisma.customer.update({
+        where: { id: existing.id },
+        data: { password: clientPw },
+      });
+    } else {
+      await prisma.customer.create({
+        data: { ...c, password: clientPw, restaurantId: restaurant.id },
+      });
+    }
+  }
+  console.log(`[seed] ${customerData.length} customers ready.`);
 
   // --- Menu Items (createMany only if none exist) ---
   const menuCount = await prisma.menuItem.count({ where: { restaurantId: restaurant.id } });
@@ -120,7 +173,7 @@ async function main() {
     console.log(`[seed] Menu items already exist (${menuCount}), skipping.`);
   }
 
-  // --- Drivers (upsert by email) ---
+  // --- Drivers ---
   const driverPw = await hash("driver123", 10);
   const driverData = [
     { email: "moussa@kfm-delice.com", name: "Moussa Condé", phone: "+224 620 11 22 33", vehicle: "moto" as const, status: "available" as const, rating: 4.8, totalDeliveries: 156, zone: "Kaloum", restaurantId: restaurant.id },
@@ -130,38 +183,36 @@ async function main() {
     { email: "mamadou-driver@kfm-delice.com", name: "Mamadou Bah", phone: "+224 621 22 33 44", vehicle: "voiture" as const, status: "available" as const, rating: 4.7, totalDeliveries: 67, zone: "Conakry", restaurantId: restaurant.id },
   ];
 
-  const drivers = await Promise.all(
-    driverData.map((d) =>
-      prisma.driver.upsert({
-        where: { email: d.email },
-        update: { password: driverPw },
-        create: { ...d, password: driverPw },
-      })
-    )
-  );
-  console.log(`[seed] ${drivers.length} drivers ready.`);
+  for (const d of driverData) {
+    const existing = await prisma.driver.findFirst({
+      where: { email: d.email, restaurantId: restaurant.id },
+    });
+    if (existing) {
+      await prisma.driver.update({ where: { id: existing.id }, data: { password: driverPw } });
+    } else {
+      await prisma.driver.create({ data: { ...d, password: driverPw } });
+    }
+  }
+  console.log(`[seed] ${driverData.length} drivers ready.`);
 
-  // --- Orders (only if none exist) ---
+  // --- Orders ---
   const orderCount = await prisma.order.count({ where: { restaurantId: restaurant.id } });
   if (orderCount === 0) {
-    const today = new Date().toISOString().split("T")[0];
     await prisma.order.createMany({
       data: [
         { customerName: "Aminata Camara", phone: "+224 620 11 22 33", items: JSON.stringify([{ name: "Riz Jollof KFM Spécial", price: 35000, qty: 2 }, { name: "Salade KFM", price: 15000, qty: 1 }]), total: 85000, status: "preparing", orderType: "dine_in", paymentMethod: "orange_money", deliveryFee: 0, restaurantId: restaurant.id },
         { customerName: "Walk-in Client", items: JSON.stringify([{ name: "Agneau Braisé aux Épices", price: 40000, qty: 1 }, { name: "Plateau Fruits de Mer KFM", price: 55000, qty: 1 }]), total: 95000, status: "ready", orderType: "dine_in", paymentMethod: "cash", deliveryFee: 0, restaurantId: restaurant.id },
-        { customerName: "Aissatou Touré", phone: "+224 623 88 99 00", items: JSON.stringify([{ name: "Riz Jollof KFM Spécial", price: 35000, qty: 2 }, { name: "Assiette de Fruits Tropicaux", price: 12000, qty: 1 }]), total: 82000, status: "delivering", orderType: "delivery", paymentMethod: "orange_money", deliveryAddress: "Cité Chemin de Fer, Dixinn", deliveryFee: 5000, driverId: drivers[1]?.id || null, restaurantId: restaurant.id },
+        { customerName: "Aissatou Touré", phone: "+224 623 88 99 00", items: JSON.stringify([{ name: "Riz Jollof KFM Spécial", price: 35000, qty: 2 }, { name: "Assiette de Fruits Tropicaux", price: 12000, qty: 1 }]), total: 82000, status: "delivering", orderType: "delivery", paymentMethod: "orange_money", deliveryAddress: "Cité Chemin de Fer, Dixinn", deliveryFee: 5000, restaurantId: restaurant.id },
         { customerName: "Sekou Bangoura", phone: "+224 627 11 22 33", items: JSON.stringify([{ name: "Agneau Braisé aux Épices", price: 40000, qty: 1 }, { name: "Salade KFM", price: 15000, qty: 2 }]), total: 75000, status: "ready", orderType: "delivery", paymentMethod: "mtn_money", deliveryAddress: "Belle Vue, Kaloum", deliveryFee: 5000, restaurantId: restaurant.id },
-        { customerName: "Djenabou Sylla", phone: "+224 624 33 44 55", items: JSON.stringify([{ name: "Poisson Grillé Entier", price: 30000, qty: 1 }]), total: 35000, status: "delivered", orderType: "delivery", paymentMethod: "cash", deliveryAddress: "Hamdallaye, Matam", deliveryFee: 5000, driverId: drivers[0]?.id || null, restaurantId: restaurant.id },
+        { customerName: "Djenabou Sylla", phone: "+224 624 33 44 55", items: JSON.stringify([{ name: "Poisson Grillé Entier", price: 30000, qty: 1 }]), total: 35000, status: "delivered", orderType: "delivery", paymentMethod: "cash", deliveryAddress: "Hamdallaye, Matam", deliveryFee: 5000, restaurantId: restaurant.id },
         { customerName: "Mamadou Bah", phone: "+224 628 44 55 66", items: JSON.stringify([{ name: "Plasas Traditionnel", price: 25000, qty: 2 }, { name: "Brochettes de Crevettes", price: 25000, qty: 1 }]), total: 75000, status: "pending", orderType: "takeaway", paymentMethod: "cash", deliveryFee: 0, restaurantId: restaurant.id },
         { customerName: "Thierno Bah", phone: "+224 626 66 77 88", items: JSON.stringify([{ name: "Brochettes de Crevettes", price: 25000, qty: 1 }, { name: "Gâteau Chocolat-Coco", price: 15000, qty: 1 }]), total: 45000, status: "pending", orderType: "delivery", paymentMethod: "orange_money", deliveryAddress: "Nongo, Matoto", deliveryFee: 5000, restaurantId: restaurant.id },
       ],
     });
     console.log("[seed] 7 orders created.");
-  } else {
-    console.log(`[seed] Orders already exist (${orderCount}), skipping.`);
   }
 
-  // --- Reservations (only if none exist) ---
+  // --- Reservations ---
   const reservationCount = await prisma.reservation.count({ where: { restaurantId: restaurant.id } });
   if (reservationCount === 0) {
     const today = new Date().toISOString().split("T")[0];
@@ -176,11 +227,9 @@ async function main() {
       ],
     });
     console.log("[seed] 5 reservations created.");
-  } else {
-    console.log(`[seed] Reservations already exist (${reservationCount}), skipping.`);
   }
 
-  // --- Reviews (only if none exist) ---
+  // --- Reviews ---
   const reviewCount = await prisma.review.count({ where: { restaurantId: restaurant.id } });
   if (reviewCount === 0) {
     await prisma.review.createMany({
@@ -193,11 +242,9 @@ async function main() {
       ],
     });
     console.log("[seed] 5 reviews created.");
-  } else {
-    console.log(`[seed] Reviews already exist (${reviewCount}), skipping.`);
   }
 
-  // --- Staff (only if none exist) ---
+  // --- Staff ---
   const staffCount = await prisma.staff.count({ where: { restaurantId: restaurant.id } });
   if (staffCount === 0) {
     await prisma.staff.createMany({
@@ -213,11 +260,9 @@ async function main() {
       ],
     });
     console.log("[seed] 8 staff created.");
-  } else {
-    console.log(`[seed] Staff already exist (${staffCount}), skipping.`);
   }
 
-  // --- Invoices (only if none exist) ---
+  // --- Invoices ---
   const invoiceCount = await prisma.invoice.count({ where: { restaurantId: restaurant.id } });
   if (invoiceCount === 0) {
     const today = new Date().toISOString().split("T")[0];
@@ -231,11 +276,9 @@ async function main() {
       ],
     });
     console.log("[seed] 4 invoices created.");
-  } else {
-    console.log(`[seed] Invoices already exist (${invoiceCount}), skipping.`);
   }
 
-  // --- Quotes (only if none exist) ---
+  // --- Quotes ---
   const quoteCount = await prisma.quote.count({ where: { restaurantId: restaurant.id } });
   if (quoteCount === 0) {
     await prisma.quote.createMany({
@@ -246,11 +289,9 @@ async function main() {
       ],
     });
     console.log("[seed] 3 quotes created.");
-  } else {
-    console.log(`[seed] Quotes already exist (${quoteCount}), skipping.`);
   }
 
-  // --- Expenses (only if none exist) ---
+  // --- Expenses ---
   const expenseCount = await prisma.expense.count({ where: { restaurantId: restaurant.id } });
   if (expenseCount === 0) {
     const today = new Date().toISOString().split("T")[0];
@@ -267,16 +308,14 @@ async function main() {
       ],
     });
     console.log("[seed] 8 expenses created.");
-  } else {
-    console.log(`[seed] Expenses already exist (${expenseCount}), skipping.`);
   }
 
-  console.log("[seed] ✅ Seeding complete!");
+  console.log("[seed] Seeding complete!");
 }
 
 main()
   .catch((e) => {
-    console.error("[seed] ❌ Error:", e);
+    console.error("[seed] Error:", e);
     process.exit(1);
   })
   .finally(async () => {
