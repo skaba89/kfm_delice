@@ -5,7 +5,7 @@ services:
     plan: free
     branch: main
     buildCommand: bun install && bun run build
-    startCommand: bash render-start.sh
+    startCommand: bun run start
     envVars:
       - key: NODE_ENV
         value: production
