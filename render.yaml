@@ -5,13 +5,11 @@ services:
     plan: free
     branch: main
     buildCommand: bun install && bun run build
-    startCommand: NODE_ENV=production bun .next/standalone/server.js
+    startCommand: bash render-start.sh
     envVars:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
-        sync: false
-      - key: NEXTAUTH_SECRET
-        generateValue: true
+        value: "file:./data/kfm-delice.db"
       - key: JWT_SECRET
         generateValue: true
