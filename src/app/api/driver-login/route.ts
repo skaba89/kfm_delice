@@ -59,6 +59,7 @@ export async function POST(request: Request) {
       totalDeliveries: driver.totalDeliveries,
       zone: driver.zone,
       currentOrderId: driver.currentOrderId,
+      mustChangePassword: driver.mustChangePassword,
       lat: driver.lat,
       lng: driver.lng,
       restaurantId: driver.restaurantId,

@@ -102,16 +102,17 @@ model RestaurantConfig {
 // Admin — scoped to a restaurant
 // ────────────────────────────────────────────────────────────────
 model Admin {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  password     String
-  name         String
-  role         String   @default("admin") // admin, manager, staff
-  status       String   @default("active") // active, inactive
-  restaurantId String
-  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  id                String   @id @default(cuid())
+  email             String   @unique
+  password          String
+  name              String
+  role              String   @default("admin") // admin, manager, staff
+  status            String   @default("active") // active, inactive
+  mustChangePassword Boolean @default(false) // force password change on first login
+  restaurantId      String
+  restaurant        Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
 
   @@index([restaurantId])
 }
@@ -120,23 +121,24 @@ model Admin {
 // Customer — scoped to a restaurant
 // ────────────────────────────────────────────────────────────────
 model Customer {
-  id              String   @id @default(cuid())
-  email           String
-  password        String
-  name            String
-  phone           String   @default("")
-  address         String   @default("")
-  loyaltyPoints   Int      @default(0)
-  totalOrders     Int      @default(0)
-  totalSpent      Int      @default(0)
-  status          String   @default("active") // active, inactive
-  restaurantId    String
-  restaurant      Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
-  orders          Order[]
-  reservations    Reservation[]
-  reviews         Review[]
+  id                String   @id @default(cuid())
+  email             String
+  password          String
+  name              String
+  phone             String   @default("")
+  address           String   @default("")
+  loyaltyPoints     Int      @default(0)
+  totalOrders       Int      @default(0)
+  totalSpent        Int      @default(0)
+  status            String   @default("active") // active, inactive
+  mustChangePassword Boolean @default(false) // force password change on first login
+  restaurantId      String
+  restaurant        Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+  orders            Order[]
+  reservations      Reservation[]
+  reviews           Review[]
 
   @@unique([email, restaurantId])
   @@index([restaurantId])
@@ -222,25 +224,26 @@ model Order {
 }
 
 model Driver {
-  id           String   @id @default(cuid())
-  email        String   @default("")
-  password     String   @default("")
-  name         String
-  phone        String
-  vehicle      String   @default("moto") // moto, velo, voiture
-  status       String   @default("available") // available, busy, offline
-  rating       Float    @default(5.0)
-  totalDeliveries Int   @default(0)
-  zone         String   @default("Conakry")
-  lat          Float    @default(0) // current latitude
-  lng          Float    @default(0) // current longitude
+  id                String   @id @default(cuid())
+  email             String   @default("")
+  password          String   @default("")
+  name              String
+  phone             String
+  vehicle           String   @default("moto") // moto, velo, voiture
+  status            String   @default("available") // available, busy, offline
+  rating            Float    @default(5.0)
+  totalDeliveries   Int      @default(0)
+  zone              String   @default("Conakry")
+  lat               Float    @default(0) // current latitude
+  lng               Float    @default(0) // current longitude
   lastLocationUpdate DateTime @default(now()) // last GPS update
-  currentOrderId String @default("") // current active order
-  restaurantId String
-  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  orders       Order[]
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  currentOrderId    String   @default("") // current active order
+  mustChangePassword Boolean @default(false) // force password change on first login
+  restaurantId      String
+  restaurant        Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  orders            Order[]
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
 
   @@unique([email, restaurantId])
   @@index([restaurantId, status])

@@ -83,8 +83,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearAuthStorage();
   }, [clearAuthStorage]);
 
-  const loginAdmin = useCallback((data: { token: string; id: string; email: string; name: string; role: string; restaurantId?: string; restaurantSlug?: string }) => {
-    const adminUser: AdminUser = { id: data.id, email: data.email, name: data.name, role: data.role, restaurantId: data.restaurantId, restaurantSlug: data.restaurantSlug };
+  const loginAdmin = useCallback((data: { token: string; id: string; email: string; name: string; role: string; restaurantId?: string; restaurantSlug?: string; mustChangePassword?: boolean }) => {
+    const adminUser: AdminUser = { id: data.id, email: data.email, name: data.name, role: data.role, restaurantId: data.restaurantId, restaurantSlug: data.restaurantSlug, mustChangePassword: data.mustChangePassword };
     setToken(data.token);
     setAdmin(adminUser);
     setUserType("admin");
@@ -94,11 +94,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (data.restaurantSlug) localStorage.setItem(RESTAURANT_SLUG_KEY, data.restaurantSlug);
   }, []);
 
-  const loginCustomer = useCallback((data: { token: string; id: string; email: string; name: string; phone: string; address: string; loyaltyPoints: number; totalOrders: number; totalSpent: number; status: string; restaurantId?: string; restaurantSlug?: string }) => {
+  const loginCustomer = useCallback((data: { token: string; id: string; email: string; name: string; phone: string; address: string; loyaltyPoints: number; totalOrders: number; totalSpent: number; status: string; restaurantId?: string; restaurantSlug?: string; mustChangePassword?: boolean }) => {
     const customerUser: CustomerUser = {
       id: data.id, email: data.email, name: data.name, phone: data.phone,
       address: data.address, loyaltyPoints: data.loyaltyPoints, totalOrders: data.totalOrders,
-      totalSpent: data.totalSpent, status: data.status, restaurantId: data.restaurantId, restaurantSlug: data.restaurantSlug,
+      totalSpent: data.totalSpent, status: data.status, restaurantId: data.restaurantId, restaurantSlug: data.restaurantSlug, mustChangePassword: data.mustChangePassword,
     };
     setToken(data.token);
     setCustomer(customerUser);
@@ -109,12 +109,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (data.restaurantSlug) localStorage.setItem(RESTAURANT_SLUG_KEY, data.restaurantSlug);
   }, []);
 
-  const loginDriver = useCallback((data: { token: string; id: string; email: string; name: string; phone: string; vehicle: string; status: string; rating: number; totalDeliveries: number; zone: string; currentOrderId: string; lat: number; lng: number; restaurantId?: string; restaurantSlug?: string }) => {
+  const loginDriver = useCallback((data: { token: string; id: string; email: string; name: string; phone: string; vehicle: string; status: string; rating: number; totalDeliveries: number; zone: string; currentOrderId: string; lat: number; lng: number; restaurantId?: string; restaurantSlug?: string; mustChangePassword?: boolean }) => {
     const driverUser: DriverUser = {
       id: data.id, email: data.email, name: data.name, phone: data.phone,
       vehicle: data.vehicle, status: data.status, rating: data.rating,
       totalDeliveries: data.totalDeliveries, zone: data.zone, currentOrderId: data.currentOrderId,
-      lat: data.lat || 0, lng: data.lng || 0, restaurantId: data.restaurantId, restaurantSlug: data.restaurantSlug,
+      lat: data.lat || 0, lng: data.lng || 0, restaurantId: data.restaurantId, restaurantSlug: data.restaurantSlug, mustChangePassword: data.mustChangePassword,
     };
     setToken(data.token);
     setDriver(driverUser);

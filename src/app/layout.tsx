@@ -5,6 +5,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { Providers } from "@/components/Providers";
 import { PwaInstallPrompt } from "@/components/PwaInstallPrompt";
+import { MustChangePasswordDialog } from "@/components/auth/MustChangePasswordDialog";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -59,6 +60,7 @@ export default function RootLayout({
             disableTransitionOnChange
           >
             {children}
+            <MustChangePasswordDialog />
             <Toaster position="top-right" richColors closeButton />
             <PwaInstallPrompt />
           </ThemeProvider>

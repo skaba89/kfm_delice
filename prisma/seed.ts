@@ -97,18 +97,18 @@ async function main() {
   const admins = await Promise.all([
     prisma.admin.upsert({
       where: { email: "admin@kfm-delice.com" },
-      update: { password: adminPasswords[0] },
-      create: { email: "admin@kfm-delice.com", password: adminPasswords[0], name: "Admin KFM Delice", role: "admin", status: "active", restaurantId: restaurant.id },
+      update: { password: adminPasswords[0], mustChangePassword: true },
+      create: { email: "admin@kfm-delice.com", password: adminPasswords[0], name: "Admin KFM Delice", role: "admin", status: "active", mustChangePassword: true, restaurantId: restaurant.id },
     }),
     prisma.admin.upsert({
       where: { email: "manager@kfm-delice.com" },
-      update: { password: adminPasswords[1] },
-      create: { email: "manager@kfm-delice.com", password: adminPasswords[1], name: "Aminata Diallo", role: "manager", status: "active", restaurantId: restaurant.id },
+      update: { password: adminPasswords[1], mustChangePassword: true },
+      create: { email: "manager@kfm-delice.com", password: adminPasswords[1], name: "Aminata Diallo", role: "manager", status: "active", mustChangePassword: true, restaurantId: restaurant.id },
     }),
     prisma.admin.upsert({
       where: { email: "staff@kfm-delice.com" },
-      update: { password: adminPasswords[2] },
-      create: { email: "staff@kfm-delice.com", password: adminPasswords[2], name: "Ibrahima Touré", role: "staff", status: "active", restaurantId: restaurant.id },
+      update: { password: adminPasswords[2], mustChangePassword: true },
+      create: { email: "staff@kfm-delice.com", password: adminPasswords[2], name: "Ibrahima Touré", role: "staff", status: "active", mustChangePassword: true, restaurantId: restaurant.id },
     }),
   ]);
   console.log(`[seed] ${admins.length} admins ready.`);
@@ -131,11 +131,11 @@ async function main() {
     if (existing) {
       await prisma.customer.update({
         where: { id: existing.id },
-        data: { password: clientPw },
+        data: { password: clientPw, mustChangePassword: true },
       });
     } else {
       await prisma.customer.create({
-        data: { ...c, password: clientPw, restaurantId: restaurant.id },
+        data: { ...c, password: clientPw, mustChangePassword: true, restaurantId: restaurant.id },
       });
     }
   }
@@ -188,9 +188,9 @@ async function main() {
       where: { email: d.email, restaurantId: restaurant.id },
     });
     if (existing) {
-      await prisma.driver.update({ where: { id: existing.id }, data: { password: driverPw } });
+      await prisma.driver.update({ where: { id: existing.id }, data: { password: driverPw, mustChangePassword: true } });
     } else {
-      await prisma.driver.create({ data: { ...d, password: driverPw } });
+      await prisma.driver.create({ data: { ...d, password: driverPw, mustChangePassword: true } });
     }
   }
   console.log(`[seed] ${driverData.length} drivers ready.`);

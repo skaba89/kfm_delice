@@ -65,6 +65,7 @@ export async function POST(request: Request) {
       totalOrders: customer.totalOrders,
       totalSpent: customer.totalSpent,
       status: customer.status,
+      mustChangePassword: customer.mustChangePassword,
       restaurantId: customer.restaurantId,
       restaurantSlug: customer.restaurant?.slug || "",
       token,

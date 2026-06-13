@@ -54,6 +54,7 @@ export async function POST(request: Request) {
       name: admin.name,
       role: admin.role,
       status: admin.status,
+      mustChangePassword: admin.mustChangePassword,
       restaurantId: admin.restaurantId,
       restaurantSlug: admin.restaurant?.slug || "",
       token,
