@@ -51,7 +51,15 @@ export async function GET() {
     checks.adminColumns = `ERROR: ${e instanceof Error ? e.message : String(e)}`;
   }
 
-  // 7. Check NODE_ENV
+  // 7. Check Driver table columns
+  try {
+    const columns = await db.$queryRawUnsafe<Array<{name: string}>>('PRAGMA table_info(Driver)');
+    checks.driverColumns = columns.map(c => c.name);
+  } catch (e: unknown) {
+    checks.driverColumns = `ERROR: ${e instanceof Error ? e.message : String(e)}`;
+  }
+
+  // 8. Check NODE_ENV
   checks.nodeEnv = process.env.NODE_ENV;
 
   const overall = Object.values(checks).every(
