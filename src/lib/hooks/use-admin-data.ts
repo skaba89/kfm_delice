@@ -361,14 +361,14 @@ export function useAdminData(activeTab: string, adminId: string) {
     };
   }, [on, off, activeTab, loadStats, loadTabData]);
 
-  // ─── Full refresh (manual) ─────────────────────────────────────
+  // ─── Full refresh (manual) — use tabLoading, NOT loading ──────
   const loadData = useCallback(async () => {
-    setLoading(true);
+    setTabLoading(true);
     await loadStats();
     // Invalidate all caches and reload active tab
     loadedTabs.current.clear();
     await loadTabData(activeTab, true);
-    setLoading(false);
+    setTabLoading(false);
   }, [loadStats, loadTabData, activeTab]);
 
   // ─── Refresh after CRUD: refresh stats + active tab ────────────
@@ -378,20 +378,32 @@ export function useAdminData(activeTab: string, adminId: string) {
     await loadTabData(activeTab, true);
   }, [loadStats, loadTabData, activeTab]);
 
-  // ─── Generic CRUD helpers ──────────────────────────────────────
+  // ─── Generic CRUD helpers (with error checking) ─────────────────
   const apiPatch = useCallback(async (url: string, body: object) => {
-    await apiFetch(url, { method: "PATCH", body: JSON.stringify(body) });
+    const res = await apiFetch(url, { method: "PATCH", body: JSON.stringify(body) });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `Erreur serveur (${res.status})` }));
+      throw new Error(err.error || `Erreur serveur (${res.status})`);
+    }
     await refreshAfterMutation();
   }, [apiFetch, refreshAfterMutation]);
 
   const apiPost = useCallback(async (url: string, body: object) => {
     const res = await apiFetch(url, { method: "POST", body: JSON.stringify(body) });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `Erreur serveur (${res.status})` }));
+      throw new Error(err.error || `Erreur serveur (${res.status})`);
+    }
     await refreshAfterMutation();
     return res;
   }, [apiFetch, refreshAfterMutation]);
 
   const apiDelete = useCallback(async (url: string, body: object) => {
-    await apiFetch(url, { method: "DELETE", body: JSON.stringify(body) });
+    const res = await apiFetch(url, { method: "DELETE", body: JSON.stringify(body) });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `Erreur serveur (${res.status})` }));
+      throw new Error(err.error || `Erreur serveur (${res.status})`);
+    }
     await refreshAfterMutation();
   }, [apiFetch, refreshAfterMutation]);
 

@@ -132,6 +132,9 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
   // ─── Reviews: delete confirmation ────────────────────────────
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
+  // ─── Deliveries: driver assignment ───────────────────────────
+  const [assigningOrderId, setAssigningOrderId] = useState<string | null>(null);
+
   // If stats failed to load, use a default empty stats object so the dashboard still renders
   const safeStats = stats || {
     todayReservations: 0, pendingReservations: 0, todayRevenue: 0,
@@ -217,7 +220,7 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
         apiPatch={apiPatch} apiDelete={apiDelete}
         apiFetch={apiFetch}
       />}
-      {activeTab === "deliveries" && <DeliveriesTab orders={orders} drivers={drivers} apiPatch={apiPatch} apiFetch={apiFetch} assigningOrderId={null} setAssigningOrderId={() => {}} loadData={loadData} />}
+      {activeTab === "deliveries" && <DeliveriesTab orders={orders} drivers={drivers} apiPatch={apiPatch} apiFetch={apiFetch} assigningOrderId={assigningOrderId} setAssigningOrderId={setAssigningOrderId} loadData={loadData} />}
       {activeTab === "drivers" && <DriversTab
         drivers={drivers}
         crud={driverCrud}

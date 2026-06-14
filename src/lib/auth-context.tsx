@@ -18,6 +18,7 @@ interface AuthContextType extends AuthState {
   loginCustomer: (data: { token: string; id: string; email: string; name: string; phone: string; address: string; loyaltyPoints: number; totalOrders: number; totalSpent: number; status: string }) => void;
   loginDriver: (data: { token: string; id: string; email: string; name: string; phone: string; vehicle: string; status: string; rating: number; totalDeliveries: number; zone: string; currentOrderId: string; lat: number; lng: number }) => void;
   updateCustomer: (data: Partial<CustomerUser>) => void;
+  updateUserData: (data: Record<string, unknown>) => void;
   logout: () => void;
   apiFetch: (url: string, options?: RequestInit) => Promise<Response>;
 }
@@ -137,6 +138,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // Update current user data (e.g. mustChangePassword after password change)
+  const updateUserData = useCallback((data: Record<string, unknown>) => {
+    if (userType === "admin" && admin) {
+      const updated = { ...admin, ...data } as AdminUser;
+      setAdmin(updated);
+      localStorage.setItem(AUTH_ADMIN_KEY, JSON.stringify(updated));
+    } else if (userType === "customer" && customer) {
+      const updated = { ...customer, ...data } as CustomerUser;
+      setCustomer(updated);
+      localStorage.setItem(AUTH_CUSTOMER_KEY, JSON.stringify(updated));
+    } else if (userType === "driver" && driver) {
+      const updated = { ...driver, ...data } as DriverUser;
+      setDriver(updated);
+      localStorage.setItem(AUTH_DRIVER_KEY, JSON.stringify(updated));
+    }
+  }, [userType, admin, customer, driver]);
+
   const apiFetch = useCallback(async (url: string, options?: RequestInit): Promise<Response> => {
     const headers: Record<string, string> = {
       ...(options?.headers as Record<string, string> || {}),
@@ -177,7 +195,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const clonedRes = res.clone();
         const body = await clonedRes.json();
         // Only logout for actual token issues (expired/invalid token)
-        if (body.error?.includes("expiré") || body.error?.includes("invalide") || body.error?.includes("Token")) {
+        if (body.error?.includes("expiré") || body.error?.includes("invalide") || body.error?.includes("Token") || body.error?.includes("expired") || body.error?.includes("invalid") || body.error?.includes("Unauthorized") || body.error?.includes("Token")) {
           logout();
         }
       } catch {
@@ -195,7 +213,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={{
       token, admin, customer, driver, userType, isAuthenticated, hydrated,
-      loginAdmin, loginCustomer, loginDriver, updateCustomer, logout, apiFetch,
+      loginAdmin, loginCustomer, loginDriver, updateCustomer, updateUserData, logout, apiFetch,
     }}>
       {children}
     </AuthContext.Provider>
