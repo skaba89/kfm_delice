@@ -59,8 +59,12 @@ export async function POST(request: Request) {
       restaurantSlug: admin.restaurant?.slug || "",
       token,
     });
-  } catch (error) {
-    console.error(error);
-    return NextResponse.json({ error: "Erreur de connexion" }, { status: 500 });
+  } catch (error: unknown) {
+    console.error("[login] Error:", error);
+    const message = error instanceof Error ? error.message : "Erreur inconnue";
+    return NextResponse.json(
+      { error: "Erreur de connexion", debug: process.env.NODE_ENV !== "production" ? message : undefined },
+      { status: 500 }
+    );
   }
 }

@@ -5,7 +5,7 @@ services:
     plan: free
     branch: main
     buildCommand: bash render-build.sh
-    startCommand: npm run start
+    startCommand: bash render-start.sh
     envVars:
       - key: NODE_ENV
         value: production
@@ -14,7 +14,7 @@ services:
       - key: HOSTNAME
         value: "0.0.0.0"
       - key: DATABASE_URL
-        sync: false
+        value: "file:./data/kfm-delice.db"
       - key: JWT_SECRET
         generateValue: true
       - key: NEXT_PUBLIC_SHOW_DEMO_CREDS
