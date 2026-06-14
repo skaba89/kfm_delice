@@ -26,23 +26,31 @@ export async function GET() {
     checks.restaurants = `ERROR: ${e instanceof Error ? e.message : String(e)}`;
   }
 
-  // 4. Check admins count
+  // 4. Check admins count (use raw query to avoid schema mismatch)
   try {
-    const count = await db.admin.count();
-    checks.admins = count;
+    const result = await db.$queryRaw<Array<{count: bigint}>>`SELECT COUNT(*) as count FROM Admin`;
+    checks.admins = Number(result[0]?.count ?? 0);
   } catch (e: unknown) {
     checks.admins = `ERROR: ${e instanceof Error ? e.message : String(e)}`;
   }
 
-  // 5. List admin emails
+  // 5. List admin emails (use raw query)
   try {
-    const admins = await db.admin.findMany({ select: { email: true, role: true, status: true } });
+    const admins = await db.$queryRaw<Array<{email: string; role: string; status: string}>>`SELECT email, role, status FROM Admin`;
     checks.adminList = admins;
   } catch (e: unknown) {
     checks.adminList = `ERROR: ${e instanceof Error ? e.message : String(e)}`;
   }
 
-  // 6. Check NODE_ENV
+  // 6. Check Admin table columns
+  try {
+    const columns = await db.$queryRaw<Array<{name: string}>>`PRAGMA table_info(Admin)`;
+    checks.adminColumns = columns.map(c => c.name);
+  } catch (e: unknown) {
+    checks.adminColumns = `ERROR: ${e instanceof Error ? e.message : String(e)}`;
+  }
+
+  // 7. Check NODE_ENV
   checks.nodeEnv = process.env.NODE_ENV;
 
   const overall = Object.values(checks).every(
