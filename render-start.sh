@@ -4,9 +4,14 @@ set -e
 echo "[render-start] Current directory: $(pwd)"
 echo "[render-start] PORT=$PORT HOSTNAME=$HOSTNAME"
 
-# Set DATABASE_URL if not already set
-export DATABASE_URL="${DATABASE_URL:-file:./data/kfm-delice.db}"
-echo "[render-start] DATABASE_URL=$DATABASE_URL"
+# Fix DATABASE_URL if it doesn't start with 'file:' (SQLite requirement)
+# Render dashboard might have set it incorrectly
+if [ -z "$DATABASE_URL" ] || [[ ! "$DATABASE_URL" == file:* ]]; then
+  export DATABASE_URL="file:./data/kfm-delice.db"
+  echo "[render-start] DATABASE_URL was missing or invalid, fixed to: $DATABASE_URL"
+else
+  echo "[render-start] DATABASE_URL=$DATABASE_URL"
+fi
 
 # Create data directory for SQLite
 mkdir -p data

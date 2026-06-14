@@ -17,7 +17,7 @@ const _JWT_SECRET = new TextEncoder().encode(JWT_SECRET);
 // Route Classification
 // ────────────────────────────────────────────────────────────────
 
-const PUBLIC_GET_ROUTES = ['/api/menu', '/api/reviews', '/api/tracking', '/api/restaurant'];
+const PUBLIC_GET_ROUTES = ['/api/menu', '/api/reviews', '/api/tracking', '/api/restaurant', '/api/diagnose'];
 const PUBLIC_POST_ROUTES = ['/api/login', '/api/customer-login', '/api/customer-register', '/api/driver-login', '/api/orders', '/api/reservations', '/api/seed', '/api/register-restaurant', '/api/platform-login'];
 const PUBLIC_ANY_ROUTES = ['/api']; // health check
 
