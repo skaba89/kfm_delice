@@ -4,12 +4,12 @@ set -e
 echo "[render-start] Current directory: $(pwd)"
 echo "[render-start] PORT=$PORT HOSTNAME=$HOSTNAME"
 
-# Create data directory for SQLite
-mkdir -p data
-
 # Set DATABASE_URL if not already set
 export DATABASE_URL="${DATABASE_URL:-file:./data/kfm-delice.db}"
 echo "[render-start] DATABASE_URL=$DATABASE_URL"
+
+# Create data directory for SQLite
+mkdir -p data
 
 # Push database schema (creates tables if missing)
 echo "[render-start] Pushing database schema..."
