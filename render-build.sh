@@ -33,10 +33,11 @@ cp -r node_modules/.prisma .next/standalone/node_modules/ 2>/dev/null || true
 echo "[render-build] Copying public assets..."
 cp -r public .next/standalone/public 2>/dev/null || true
 
-# Copy auto-seed script to standalone output
-echo "[render-build] Copying seed script..."
+# Copy seed & schema scripts to standalone output
+echo "[render-build] Copying scripts..."
 mkdir -p .next/standalone/scripts
 cp scripts/auto-seed.cjs .next/standalone/scripts/
+cp scripts/ensure-schema.cjs .next/standalone/scripts/
 
 # Also copy render-start.sh to standalone output
 cp render-start.sh .next/standalone/render-start.sh 2>/dev/null || true
