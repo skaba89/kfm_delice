@@ -20,8 +20,8 @@ export async function GET() {
 
   // 3. Check restaurants count
   try {
-    const count = await db.restaurant.count();
-    checks.restaurants = count;
+    const countResult = await db.$queryRawUnsafe<Array<{ count: bigint }>>("SELECT COUNT(*) as count FROM Restaurant");
+    checks.restaurants = Number(countResult[0]?.count ?? 0);
   } catch (e: unknown) {
     checks.restaurants = `ERROR: ${e instanceof Error ? e.message : String(e)}`;
   }

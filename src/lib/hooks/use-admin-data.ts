@@ -83,9 +83,38 @@ export function useAdminData(activeTab: string, adminId: string) {
         const newStats = await res.json();
         setStats(newStats);
         return newStats;
+      } else {
+        // Stats endpoint returned an error — set empty stats so dashboard can render
+        console.warn("[admin-data] Stats endpoint returned", res.status);
+        const emptyStats = {
+          todayReservations: 0, pendingReservations: 0, todayRevenue: 0,
+          totalOrders: 0, activeOrders: 0, avgRating: 0, totalReviews: 0,
+          popularDishes: [], recentReservations: [],
+          deliveryOrders: 0, activeDeliveries: 0, availableDrivers: 0, totalDrivers: 0,
+          deliveryRevenue: 0, dineInOrders: 0, takeawayOrders: 0,
+          ordersByHour: [], deliveryFee: 0, minDelivery: 0,
+          menuCount: 0, staffCount: 0, customerCount: 0, adminCount: 0,
+          pendingInvoices: 0, sentQuotes: 0, expenseCount: 0, pendingPayments: 0,
+        };
+        setStats(emptyStats as Stats);
+        return emptyStats as Stats;
       }
-    } catch (e) { console.error("[admin-data] Stats load error:", e); }
-    return null;
+    } catch (e) {
+      console.error("[admin-data] Stats load error:", e);
+      // Set empty stats so dashboard renders instead of infinite spinner
+      const emptyStats = {
+        todayReservations: 0, pendingReservations: 0, todayRevenue: 0,
+        totalOrders: 0, activeOrders: 0, avgRating: 0, totalReviews: 0,
+        popularDishes: [], recentReservations: [],
+        deliveryOrders: 0, activeDeliveries: 0, availableDrivers: 0, totalDrivers: 0,
+        deliveryRevenue: 0, dineInOrders: 0, takeawayOrders: 0,
+        ordersByHour: [], deliveryFee: 0, minDelivery: 0,
+        menuCount: 0, staffCount: 0, customerCount: 0, adminCount: 0,
+        pendingInvoices: 0, sentQuotes: 0, expenseCount: 0, pendingPayments: 0,
+      };
+      setStats(emptyStats as Stats);
+      return emptyStats as Stats;
+    }
   }, [apiFetch]);
 
   // ─── Load data for a specific tab ──────────────────────────────

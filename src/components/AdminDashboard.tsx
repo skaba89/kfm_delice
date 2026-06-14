@@ -132,22 +132,36 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
   // ─── Reviews: delete confirmation ────────────────────────────
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
+  // If stats failed to load, use a default empty stats object so the dashboard still renders
+  const safeStats = stats || {
+    todayReservations: 0, pendingReservations: 0, todayRevenue: 0,
+    totalOrders: 0, activeOrders: 0, avgRating: 0, totalReviews: 0,
+    popularDishes: [] as { name: string; count: number; price: number; category: string }[],
+    recentReservations: [] as { id: string; customerName: string; date: string; time: string; guests: number; zone: string; status: string }[],
+    deliveryOrders: 0, activeDeliveries: 0, availableDrivers: 0, totalDrivers: 0,
+    deliveryRevenue: 0, dineInOrders: 0, takeawayOrders: 0,
+    ordersByHour: [] as { hour: string; count: number }[],
+    deliveryFee: 0, minDelivery: 0,
+    menuCount: 0, staffCount: 0, customerCount: 0, adminCount: 0,
+    pendingInvoices: 0, sentQuotes: 0, expenseCount: 0, pendingPayments: 0,
+  };
+
   // ─── Sidebar config (badges from stats — no full arrays needed) ─
   const allSidebarItems: SidebarItem[] = [
     { id: "overview", label: "Vue d'ensemble", icon: LayoutDashboard },
-    { id: "reservations", label: "Réservations", icon: CalendarCheck, badge: stats?.pendingReservations },
-    { id: "orders", label: "Commandes", icon: ShoppingBag, badge: stats?.activeOrders },
-    { id: "menu", label: "Menu", icon: UtensilsCrossed, badge: stats?.menuCount },
-    { id: "deliveries", label: "Livraisons", icon: Bike, badge: stats?.activeDeliveries },
-    { id: "drivers", label: "Livreurs", icon: Car, badge: stats?.availableDrivers },
-    { id: "reviews", label: "Avis", icon: MessageSquare, badge: stats?.totalReviews },
-    { id: "staff", label: "Personnel", icon: Users, badge: stats?.staffCount },
-    { id: "customers", label: "Clients", icon: Users, badge: stats?.customerCount },
-    { id: "admins", label: "Utilisateurs", icon: UserCog, badge: stats?.adminCount },
-    { id: "invoices", label: "Factures", icon: FileText, badge: stats?.pendingInvoices || undefined },
-    { id: "quotes", label: "Devis", icon: ClipboardList, badge: stats?.sentQuotes || undefined },
-    { id: "expenses", label: "Dépenses", icon: Wallet, badge: stats?.expenseCount },
-    { id: "payments", label: "Paiements", icon: CreditCard, badge: stats?.pendingPayments || undefined },
+    { id: "reservations", label: "Réservations", icon: CalendarCheck, badge: safeStats.pendingReservations },
+    { id: "orders", label: "Commandes", icon: ShoppingBag, badge: safeStats.activeOrders },
+    { id: "menu", label: "Menu", icon: UtensilsCrossed, badge: safeStats.menuCount },
+    { id: "deliveries", label: "Livraisons", icon: Bike, badge: safeStats.activeDeliveries },
+    { id: "drivers", label: "Livreurs", icon: Car, badge: safeStats.availableDrivers },
+    { id: "reviews", label: "Avis", icon: MessageSquare, badge: safeStats.totalReviews },
+    { id: "staff", label: "Personnel", icon: Users, badge: safeStats.staffCount },
+    { id: "customers", label: "Clients", icon: Users, badge: safeStats.customerCount },
+    { id: "admins", label: "Utilisateurs", icon: UserCog, badge: safeStats.adminCount },
+    { id: "invoices", label: "Factures", icon: FileText, badge: safeStats.pendingInvoices || undefined },
+    { id: "quotes", label: "Devis", icon: ClipboardList, badge: safeStats.sentQuotes || undefined },
+    { id: "expenses", label: "Dépenses", icon: Wallet, badge: safeStats.expenseCount },
+    { id: "payments", label: "Paiements", icon: CreditCard, badge: safeStats.pendingPayments || undefined },
     { id: "pos", label: "Caisse POS", icon: Receipt },
   ];
   const sidebarItems = allSidebarItems.filter(item => {
@@ -171,7 +185,7 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
     return rolesMap[item.id]?.includes(admin.role) ?? false;
   });
 
-  if (loading || !stats) {
+  if (loading) {
     return <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center"><RefreshCw className="w-8 h-8 text-orange-500 animate-spin" /></div>;
   }
 
@@ -187,13 +201,13 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
       userName={admin.name}
       userInitial={admin.name[0]}
       avatarGradient="bg-gradient-to-br from-orange-400 to-red-500"
-      notificationCount={stats.pendingReservations}
+      notificationCount={safeStats.pendingReservations}
       onRefresh={loadData}
       onLogout={onLogout}
       wsIndicator={wsConnected ? <Wifi className="w-3.5 h-3.5 text-green-500" /> : <WifiOff className="w-3.5 h-3.5 text-amber-500" />}
       loading={tabLoading}
     >
-      {activeTab === "overview" && <OverviewTab stats={stats} orders={orders} apiFetch={apiFetch} />}
+      {activeTab === "overview" && <OverviewTab stats={safeStats} orders={orders} apiFetch={apiFetch} />}
       {activeTab === "reservations" && <ReservationsTab reservations={reservations} apiPatch={apiPatch} />}
       {activeTab === "orders" && <OrdersTab orders={orders} apiPatch={apiPatch} />}
       {activeTab === "menu" && <MenuTab
@@ -209,7 +223,7 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
         crud={driverCrud}
         apiPatch={apiPatch} apiDelete={apiDelete}
       />}
-      {activeTab === "reviews" && <ReviewsTab reviews={reviews} stats={stats} apiDelete={apiDelete} deleteConfirm={deleteConfirm} setDeleteConfirm={setDeleteConfirm} />}
+      {activeTab === "reviews" && <ReviewsTab reviews={reviews} stats={safeStats} apiDelete={apiDelete} deleteConfirm={deleteConfirm} setDeleteConfirm={setDeleteConfirm} />}
       {activeTab === "staff" && <StaffTab
         staffList={staffList}
         crud={staffCrud}

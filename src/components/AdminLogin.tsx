@@ -69,7 +69,13 @@ export function AdminLogin({ onLogin }: { onLogin: () => void }) {
         return;
       }
       const data = await res.json();
-      loginAdmin({ token: data.token, id: data.id, email: data.email, name: data.name, role: data.role });
+      loginAdmin({
+        token: data.token, id: data.id, email: data.email,
+        name: data.name, role: data.role,
+        restaurantId: data.restaurantId,
+        restaurantSlug: data.restaurantSlug,
+        mustChangePassword: data.mustChangePassword,
+      });
       notify.loginSuccess(data.name);
       // Use a small delay to ensure React state is updated before navigation
       // This prevents the ProtectedRoute from showing a spinner

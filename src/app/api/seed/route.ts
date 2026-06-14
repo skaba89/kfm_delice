@@ -87,10 +87,13 @@ async function findOrCreateDriver(data: {
 // ─── GET: Check seed status ─────────────────────────────────────
 export async function GET() {
   try {
-    const restaurantCount = await db.restaurant.count();
+    // Use raw SQL to avoid schema mismatch issues
+    const result = await db.$queryRawUnsafe<Array<{ count: bigint }>>("SELECT COUNT(*) as count FROM Restaurant");
+    const restaurantCount = Number(result[0]?.count ?? 0);
     const seeded = restaurantCount > 0;
     return NextResponse.json({ seeded, needsSeed: !seeded });
   } catch {
+    // Table might not exist yet — needs seed
     return NextResponse.json({ seeded: false, needsSeed: true });
   }
 }
@@ -111,7 +114,14 @@ export async function POST(request: Request) {
     }
 
     // ─── Authentication / Authorization ──────────────────────────
-    const existingAdminCount = await db.admin.count();
+    // Use raw SQL to avoid schema mismatch issues
+    let existingAdminCount = 0;
+    try {
+      const countResult = await db.$queryRawUnsafe<Array<{ count: bigint }>>("SELECT COUNT(*) as count FROM Admin");
+      existingAdminCount = Number(countResult[0]?.count ?? 0);
+    } catch {
+      existingAdminCount = 0;
+    }
     if (existingAdminCount > 0) {
       // Existing admin — require admin auth
       const admin = await authenticateAdmin(request);

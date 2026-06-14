@@ -14,7 +14,7 @@ interface AuthState {
 
 interface AuthContextType extends AuthState {
   hydrated: boolean;
-  loginAdmin: (data: { token: string; id: string; email: string; name: string; role: string }) => void;
+  loginAdmin: (data: { token: string; id: string; email: string; name: string; role: string; restaurantId?: string; restaurantSlug?: string; mustChangePassword?: boolean }) => void;
   loginCustomer: (data: { token: string; id: string; email: string; name: string; phone: string; address: string; loyaltyPoints: number; totalOrders: number; totalSpent: number; status: string }) => void;
   loginDriver: (data: { token: string; id: string; email: string; name: string; phone: string; vehicle: string; status: string; rating: number; totalDeliveries: number; zone: string; currentOrderId: string; lat: number; lng: number }) => void;
   updateCustomer: (data: Partial<CustomerUser>) => void;
@@ -172,18 +172,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Handle token expiration — only logout if we had a token and got 401
     // This means our token is truly invalid/expired, not just a missing auth header
     if (res.status === 401 && token) {
-      // Only logout if it's not a public route that might not need auth
-      // or if the response body indicates an expired/invalid token
+      // Only logout for actual token issues, not for "auth required" on endpoints
       try {
         const clonedRes = res.clone();
         const body = await clonedRes.json();
-        // Only logout for actual token issues, not for "auth required" on public endpoints
+        // Only logout for actual token issues (expired/invalid token)
         if (body.error?.includes("expiré") || body.error?.includes("invalide") || body.error?.includes("Token")) {
           logout();
         }
       } catch {
-        // If we can't parse the response, logout to be safe
-        logout();
+        // If we can't parse the response, DON'T auto-logout — it might just be
+        // a non-JSON 401 response (e.g. from a proxy or middleware).
+        // Only auto-logout if we're confident the token is invalid.
       }
     }
 

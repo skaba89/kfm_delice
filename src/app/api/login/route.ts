@@ -11,7 +11,9 @@ async function ensureDbSeeded() {
   if (_seedPromise) return _seedPromise;
   _seedPromise = (async () => {
     try {
-      const count = await db.restaurant.count();
+      // Use raw SQL to check if DB is empty (avoid schema mismatch)
+      const countResult = await db.$queryRawUnsafe<Array<{ count: bigint }>>("SELECT COUNT(*) as count FROM Restaurant");
+      const count = Number(countResult[0]?.count ?? 0);
       if (count === 0) {
         console.log("[auto-seed] Empty DB detected, seeding on first login...");
         const { hashSync } = await import("bcryptjs");
@@ -138,17 +140,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Compte désactivé. Contactez l'administrateur." }, { status: 403 });
     }
 
-    // Get restaurant slug
-    const restaurant = await db.restaurant.findUnique({
-      where: { id: admin.restaurantId },
-      select: { slug: true },
-    });
+    // Get restaurant slug — use raw SQL to avoid schema mismatch
+    const restaurantRows = await db.$queryRawUnsafe<Array<{ slug: string }>>(
+      'SELECT slug FROM Restaurant WHERE id = ?', admin.restaurantId
+    );
+    const restaurantSlug = restaurantRows[0]?.slug || "";
 
     // Generate JWT token with tenant context
     const token = generateToken({
       id: admin.id, email: admin.email, role: admin.role,
       type: "admin", restaurantId: admin.restaurantId,
-      restaurantSlug: restaurant?.slug || "",
+      restaurantSlug,
     });
 
     return NextResponse.json({
@@ -159,7 +161,7 @@ export async function POST(request: Request) {
       status: admin.status,
       mustChangePassword: false,
       restaurantId: admin.restaurantId,
-      restaurantSlug: restaurant?.slug || "",
+      restaurantSlug,
       token,
     });
   } catch (error: unknown) {
