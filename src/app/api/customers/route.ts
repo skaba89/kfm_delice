@@ -1,10 +1,10 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
-import { authenticateAdmin, authenticateAny, authenticateCustomer, hasRole, hashPassword, verifyPassword } from "@/lib/auth";
+import { authenticateAdmin, authenticateAny, hasRole, hashPassword, verifyPassword } from "@/lib/auth";
 import { customerUpdateSchema, customerCreateSchema } from "@/lib/validations";
-import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, parseStatusFilter } from "@/lib/pagination";
+import { parsePagination, parseSorting, parseSearch, parseStatusFilter } from "@/lib/pagination";
 
-// GET: Admin auth required (list all customers)
+// GET: Admin auth required (list all customers) — uses raw SQL to avoid schema mismatch
 export async function GET(request: Request) {
   try {
     const admin = await authenticateAdmin(request);
@@ -23,33 +23,54 @@ export async function GET(request: Request) {
 
     const restaurantId = admin.restaurantId;
 
-    const where = {
-      restaurantId,
-      ...(statusFilter && { status: statusFilter }),
-      ...(search && {
-        OR: [
-          { name: { contains: search } },
-          { email: { contains: search } },
-          { phone: { contains: search } },
-        ],
-      }),
-    };
-    const [customers, total] = await Promise.all([
-      db.customer.findMany({
-        where,
-        orderBy: { [sortBy]: sortOrder },
-        skip: prismaSkip(page, limit),
-        take: prismaTake(limit),
-      }),
-      db.customer.count({ where }),
-    ]);
+    // Build WHERE clause for raw SQL
+    const conditions: string[] = ['c.restaurantId = ?'];
+    const params: unknown[] = [restaurantId];
+    if (statusFilter) { conditions.push('c.status = ?'); params.push(statusFilter); }
+    if (search) {
+      conditions.push('(c.name LIKE ? OR c.email LIKE ? OR c.phone LIKE ?)');
+      const likeSearch = `%${search}%`;
+      params.push(likeSearch, likeSearch, likeSearch);
+    }
+    const whereClause = conditions.join(' AND ');
+
+    // Validate sort column
+    const validSortCols = ['createdAt', 'name', 'email', 'totalSpent', 'loyaltyPoints'];
+    const safeSortBy = validSortCols.includes(sortBy) ? sortBy : 'createdAt';
+    const safeSortOrder = sortOrder === 'asc' ? 'ASC' : 'DESC';
+
+    // Count
+    const countResult = await db.$queryRawUnsafe<Array<{ count: bigint }>>(
+      `SELECT COUNT(*) as count FROM Customer c WHERE ${whereClause}`,
+      ...params
+    );
+    const total = Number(countResult[0]?.count ?? 0);
+
+    // Fetch data — explicit column list to avoid missing column errors
+    const offset = (page - 1) * limit;
+    const customers = await db.$queryRawUnsafe<Array<{
+      id: string; email: string; name: string; phone: string; address: string;
+      loyaltyPoints: number; totalOrders: number; totalSpent: number;
+      status: string; mustChangePassword: number; restaurantId: string;
+      createdAt: string; updatedAt: string;
+    }>>(
+      `SELECT c.id, c.email, c.name, c.phone, c.address,
+        c.loyaltyPoints, c.totalOrders, c.totalSpent, c.status,
+        COALESCE(c.mustChangePassword, 0) as mustChangePassword,
+        c.restaurantId, c.createdAt, c.updatedAt
+      FROM Customer c WHERE ${whereClause}
+      ORDER BY c.${safeSortBy} ${safeSortOrder}
+      LIMIT ? OFFSET ?`,
+      ...params, limit, offset
+    );
+
     const totalPages = Math.ceil(total / limit);
     return NextResponse.json({
       data: customers,
       pagination: { page, limit, total, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
     });
   } catch (error) {
-    console.error(error);
+    console.error("[customers] GET error:", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
@@ -73,8 +94,12 @@ export async function POST(request: Request) {
     }
 
     const data = validation.data;
-    const existing = await db.customer.findFirst({ where: { email: data.email, restaurantId: admin.restaurantId } });
-    if (existing) {
+    // Check existing via raw SQL
+    const existing = await db.$queryRawUnsafe<Array<{ id: string }>>(
+      'SELECT id FROM Customer WHERE email = ? AND restaurantId = ?',
+      data.email, admin.restaurantId
+    );
+    if (existing.length > 0) {
       return NextResponse.json({ error: "Cet email est déjà utilisé" }, { status: 400 });
     }
 
@@ -94,7 +119,7 @@ export async function POST(request: Request) {
     });
     return NextResponse.json(customer, { status: 201 });
   } catch (error) {
-    console.error(error);
+    console.error("[customers] POST error:", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
@@ -131,15 +156,17 @@ export async function PATCH(request: Request) {
     // If password field is provided, verify current password first (for customers)
     if (password) {
       if (auth.type === "customer") {
-        // Customers must provide their current password to change it
         if (!currentPassword) {
           return NextResponse.json({ error: "Mot de passe actuel requis" }, { status: 400 });
         }
-        const customer = await db.customer.findUnique({ where: { id } });
-        if (!customer) {
+        // Use raw SQL to get password (avoid schema mismatch)
+        const rows = await db.$queryRawUnsafe<Array<{ password: string }>>(
+          'SELECT password FROM Customer WHERE id = ?', id
+        );
+        if (!rows[0]) {
           return NextResponse.json({ error: "Client introuvable" }, { status: 404 });
         }
-        const isValid = await verifyPassword(currentPassword, customer.password);
+        const isValid = await verifyPassword(currentPassword, rows[0].password);
         if (!isValid) {
           return NextResponse.json({ error: "Mot de passe actuel incorrect" }, { status: 400 });
         }
@@ -147,10 +174,35 @@ export async function PATCH(request: Request) {
       updateData.password = await hashPassword(password);
     }
 
-    const customer = await db.customer.update({ where: { id }, data: updateData });
-    return NextResponse.json(customer);
+    // Use raw SQL for update to avoid schema mismatch
+    const setClauses: string[] = [];
+    const values: unknown[] = [];
+    for (const [key, value] of Object.entries(updateData)) {
+      setClauses.push(`${key} = ?`);
+      values.push(value);
+    }
+    if (setClauses.length === 0) {
+      return NextResponse.json({ error: "Aucune donnée à mettre à jour" }, { status: 400 });
+    }
+    values.push(id);
+    await db.$executeRawUnsafe(
+      `UPDATE Customer SET ${setClauses.join(', ')}, updatedAt = CURRENT_TIMESTAMP WHERE id = ?`,
+      ...values
+    );
+
+    // Fetch updated customer via raw SQL
+    const updated = await db.$queryRawUnsafe<Array<{
+      id: string; email: string; name: string; phone: string; address: string;
+      loyaltyPoints: number; totalOrders: number; totalSpent: number;
+      status: string; restaurantId: string;
+    }>>(
+      `SELECT id, email, name, phone, address, loyaltyPoints, totalOrders, totalSpent,
+        status, restaurantId FROM Customer WHERE id = ?`, id
+    );
+
+    return NextResponse.json(updated[0] || { id });
   } catch (error) {
-    console.error(error);
+    console.error("[customers] PATCH error:", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
@@ -167,11 +219,13 @@ export async function DELETE(request: Request) {
     }
 
     const { id } = await request.json();
-    // Scope delete to admin's restaurant
-    await db.customer.deleteMany({ where: { id, restaurantId: admin.restaurantId } });
+    await db.$executeRawUnsafe(
+      'DELETE FROM Customer WHERE id = ? AND restaurantId = ?',
+      id, admin.restaurantId
+    );
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error(error);
+    console.error("[customers] DELETE error:", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }

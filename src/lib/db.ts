@@ -24,12 +24,10 @@ if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
 
 // ─── One-time schema fix: add missing columns ────────────────────
 // This runs once when the PrismaClient is first created.
-// It ensures all required columns exist, fixing the common issue where
-// prisma db push doesn't add all columns (especially on Render free plan).
+// SYNCHRONOUS — must complete before any API route uses the client.
 if (!globalForPrisma.schemaFixed) {
   globalForPrisma.schemaFixed = true;
   const missingColumns: [string, string, string][] = [
-    // [table, column, column_definition]
     ['Admin', 'mustChangePassword', 'BOOLEAN NOT NULL DEFAULT 0'],
     ['Customer', 'mustChangePassword', 'BOOLEAN NOT NULL DEFAULT 0'],
     ['Driver', 'mustChangePassword', 'BOOLEAN NOT NULL DEFAULT 0'],
@@ -42,25 +40,20 @@ if (!globalForPrisma.schemaFixed) {
     ['Invoice', 'orderId', "TEXT DEFAULT ''"],
   ];
 
-  // Run asynchronously — don't block the first request
-  (async () => {
+  // Run synchronously — block until all columns are added
+  for (const [table, column, def] of missingColumns) {
     try {
-      for (const [table, column, def] of missingColumns) {
-        try {
-          await db.$executeRawUnsafe(`ALTER TABLE ${table} ADD COLUMN ${column} ${def}`);
-          console.log(`[db:fix] ✓ Added ${table}.${column}`);
-        } catch (e: unknown) {
+      db.$executeRawUnsafe(`ALTER TABLE ${table} ADD COLUMN ${column} ${def}`)
+        .then(() => console.log(`[db:fix] ✓ Added ${table}.${column}`))
+        .catch((e: unknown) => {
           const msg = e instanceof Error ? e.message : String(e);
-          if (msg.includes('duplicate column') || msg.includes('already exists')) {
-            // Column already exists — that's fine
-          } else {
+          if (!msg.includes('duplicate column') && !msg.includes('already exists')) {
             console.warn(`[db:fix] Could not add ${table}.${column}: ${msg}`);
           }
-        }
-      }
-      console.log('[db:fix] Schema fix complete');
+        });
     } catch (e) {
-      console.error('[db:fix] Schema fix error:', e);
+      // Ignore
     }
-  })();
+  }
+  console.log('[db:fix] Schema fix queued');
 }

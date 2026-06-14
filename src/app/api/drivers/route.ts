@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
 import { driverSchema, driverPatchSchema } from "@/lib/validations";
-import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, parseStatusFilter } from "@/lib/pagination";
+import { parsePagination, parseSorting, parseSearch, parseStatusFilter } from "@/lib/pagination";
 
 // All methods: Admin/Manager auth required
 export async function GET(request: Request) {
@@ -24,35 +24,58 @@ export async function GET(request: Request) {
 
     const restaurantId = admin.restaurantId;
 
-    const where = {
-      restaurantId,
-      ...(statusFilter && { status: statusFilter }),
-      ...(vehicleFilter && { vehicle: vehicleFilter }),
-      ...(search && {
-        OR: [
-          { name: { contains: search } },
-          { email: { contains: search } },
-          { phone: { contains: search } },
-          { zone: { contains: search } },
-        ],
-      }),
-    };
-    const [drivers, total] = await Promise.all([
-      db.driver.findMany({
-        where,
-        orderBy: { [sortBy]: sortOrder },
-        skip: prismaSkip(page, limit),
-        take: prismaTake(limit),
-      }),
-      db.driver.count({ where }),
-    ]);
+    // Build WHERE clause for raw SQL
+    const conditions: string[] = ['d.restaurantId = ?'];
+    const params: unknown[] = [restaurantId];
+    if (statusFilter) { conditions.push('d.status = ?'); params.push(statusFilter); }
+    if (vehicleFilter) { conditions.push('d.vehicle = ?'); params.push(vehicleFilter); }
+    if (search) {
+      conditions.push('(d.name LIKE ? OR d.email LIKE ? OR d.phone LIKE ? OR d.zone LIKE ?)');
+      const likeSearch = `%${search}%`;
+      params.push(likeSearch, likeSearch, likeSearch, likeSearch);
+    }
+    const whereClause = conditions.join(' AND ');
+
+    // Validate sort column to prevent SQL injection
+    const validSortCols = ['createdAt', 'name', 'rating', 'totalDeliveries', 'status'];
+    const safeSortBy = validSortCols.includes(sortBy) ? sortBy : 'createdAt';
+    const safeSortOrder = sortOrder === 'asc' ? 'ASC' : 'DESC';
+
+    // Count
+    const countResult = await db.$queryRawUnsafe<Array<{ count: bigint }>>(
+      `SELECT COUNT(*) as count FROM Driver d WHERE ${whereClause}`,
+      ...params
+    );
+    const total = Number(countResult[0]?.count ?? 0);
+
+    // Fetch data — use explicit column list to avoid missing column errors
+    const offset = (page - 1) * limit;
+    const drivers = await db.$queryRawUnsafe<Array<{
+      id: string; email: string; password: string; name: string; phone: string;
+      vehicle: string; status: string; rating: number; totalDeliveries: number;
+      zone: string; lat: number; lng: number; currentOrderId: string;
+      mustChangePassword: number; restaurantId: string;
+      createdAt: string; updatedAt: string;
+    }>>(
+      `SELECT d.id, d.email, d.password, d.name, d.phone, d.vehicle, d.status,
+        d.rating, d.totalDeliveries, d.zone,
+        COALESCE(d.lat, 0) as lat, COALESCE(d.lng, 0) as lng,
+        COALESCE(d.currentOrderId, '') as currentOrderId,
+        COALESCE(d.mustChangePassword, 0) as mustChangePassword,
+        d.restaurantId, d.createdAt, d.updatedAt
+      FROM Driver d WHERE ${whereClause}
+      ORDER BY d.${safeSortBy} ${safeSortOrder}
+      LIMIT ? OFFSET ?`,
+      ...params, limit, offset
+    );
+
     const totalPages = Math.ceil(total / limit);
     return NextResponse.json({
       data: drivers,
       pagination: { page, limit, total, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
     });
   } catch (error) {
-    console.error(error);
+    console.error("[drivers] GET error:", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
@@ -80,7 +103,7 @@ export async function POST(request: Request) {
     });
     return NextResponse.json(driver, { status: 201 });
   } catch (error) {
-    console.error(error);
+    console.error("[drivers] POST error:", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
@@ -108,15 +131,46 @@ export async function PATCH(request: Request) {
     }
 
     // Scope update to admin's restaurant
-    const existing = await db.driver.findFirst({ where: { id, restaurantId: admin.restaurantId } });
-    if (!existing) return NextResponse.json({ error: "Livreur introuvable" }, { status: 404 });
+    const existing = await db.$queryRawUnsafe<Array<{ id: string }>>(
+      'SELECT id FROM Driver WHERE id = ? AND restaurantId = ?',
+      id, admin.restaurantId
+    );
+    if (!existing[0]) return NextResponse.json({ error: "Livreur introuvable" }, { status: 404 });
 
     const updateData: Record<string, unknown> = { ...data };
     if (currentOrderId !== undefined) updateData.currentOrderId = currentOrderId;
-    const driver = await db.driver.update({ where: { id }, data: updateData });
-    return NextResponse.json(driver);
+
+    // Use raw SQL for update to avoid schema mismatch
+    const setClauses: string[] = [];
+    const values: unknown[] = [];
+    for (const [key, value] of Object.entries(updateData)) {
+      setClauses.push(`${key} = ?`);
+      values.push(value);
+    }
+    if (setClauses.length === 0) {
+      return NextResponse.json({ error: "Aucune donnée à mettre à jour" }, { status: 400 });
+    }
+    values.push(id);
+    await db.$executeRawUnsafe(
+      `UPDATE Driver SET ${setClauses.join(', ')}, updatedAt = CURRENT_TIMESTAMP WHERE id = ?`,
+      ...values
+    );
+
+    // Fetch updated driver
+    const updated = await db.$queryRawUnsafe<Array<{
+      id: string; email: string; name: string; phone: string; vehicle: string;
+      status: string; rating: number; totalDeliveries: number; zone: string;
+      lat: number; lng: number; currentOrderId: string; restaurantId: string;
+    }>>(
+      `SELECT id, email, name, phone, vehicle, status, rating, totalDeliveries, zone,
+        COALESCE(lat, 0) as lat, COALESCE(lng, 0) as lng,
+        COALESCE(currentOrderId, '') as currentOrderId, restaurantId
+      FROM Driver WHERE id = ?`, id
+    );
+
+    return NextResponse.json(updated[0] || { id });
   } catch (error) {
-    console.error(error);
+    console.error("[drivers] PATCH error:", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
@@ -132,11 +186,13 @@ export async function DELETE(request: Request) {
     }
 
     const { id } = await request.json();
-    // Scope delete to admin's restaurant
-    await db.driver.deleteMany({ where: { id, restaurantId: admin.restaurantId } });
+    await db.$executeRawUnsafe(
+      'DELETE FROM Driver WHERE id = ? AND restaurantId = ?',
+      id, admin.restaurantId
+    );
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error(error);
+    console.error("[drivers] DELETE error:", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
