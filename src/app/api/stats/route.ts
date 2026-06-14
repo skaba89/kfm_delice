@@ -1,4 +1,4 @@
-import { db, dbReady } from "@/lib/db";
+import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
 
@@ -20,16 +20,18 @@ const EMPTY_STATS = {
 async function safeCount(query: string, params: unknown[] = []): Promise<number> {
   try {
     const result = await db.$queryRawUnsafe<Array<{ count: bigint }>>(query, ...params);
-    return Number(result[0]?.count ?? 0);
+    return result[0] ? Number(result[0].count) : 0;
   } catch {
     return 0;
   }
 }
 
 // Safe raw SQL query — returns empty array if table doesn't exist or query fails
+// Also converts BigInt to Number for JSON serialization
 async function safeQuery<T>(query: string, params: unknown[] = []): Promise<T[]> {
   try {
-    return await db.$queryRawUnsafe<T[]>(query, ...params);
+    const results = await db.$queryRawUnsafe<Array<Record<string, unknown>>>(query, ...params);
+    return results.map(r => bigIntToNumber(r) as T);
   } catch {
     return [] as T[];
   }

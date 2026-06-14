@@ -1,4 +1,4 @@
-import { db, dbReady } from "@/lib/db";
+import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
 import { driverSchema, driverPatchSchema } from "@/lib/validations";
@@ -42,22 +42,16 @@ export async function GET(request: Request) {
     const safeSortBy = validSortCols.includes(sortBy) ? sortBy : 'createdAt';
     const safeSortOrder = sortOrder === 'asc' ? 'ASC' : 'DESC';
 
-    // Count
+    // Count — explicitly convert BigInt to Number for JSON serialization
     const countResult = await db.$queryRawUnsafe<Array<{ count: bigint }>>(
       `SELECT COUNT(*) as count FROM Driver d WHERE ${whereClause}`,
       ...params
     );
-    const total = Number(countResult[0]?.count ?? 0);
+    const total = countResult[0] ? Number(countResult[0].count) : 0;
 
     // Fetch data — use explicit column list to avoid missing column errors
     const offset = (page - 1) * limit;
-    const drivers = await db.$queryRawUnsafe<Array<{
-      id: string; email: string; password: string; name: string; phone: string;
-      vehicle: string; status: string; rating: number; totalDeliveries: number;
-      zone: string; lat: number; lng: number; currentOrderId: string;
-      mustChangePassword: number; restaurantId: string;
-      createdAt: string; updatedAt: string;
-    }>>(
+    const rawDrivers = await db.$queryRawUnsafe<Array<Record<string, unknown>>>(
       `SELECT d.id, d.email, d.password, d.name, d.phone, d.vehicle, d.status,
         d.rating, d.totalDeliveries, d.zone,
         COALESCE(d.lat, 0) as lat, COALESCE(d.lng, 0) as lng,
@@ -69,6 +63,8 @@ export async function GET(request: Request) {
       LIMIT ? OFFSET ?`,
       ...params, limit, offset
     );
+    // Convert BigInt fields to Number for JSON serialization
+    const drivers = rawDrivers.map(d => bigIntToNumber(d));
 
     const totalPages = Math.ceil(total / limit);
     return NextResponse.json({

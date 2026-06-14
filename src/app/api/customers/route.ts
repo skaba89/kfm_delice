@@ -1,4 +1,4 @@
-import { db, dbReady } from "@/lib/db";
+import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, authenticateAny, hasRole, hashPassword, verifyPassword } from "@/lib/auth";
 import { customerUpdateSchema, customerCreateSchema } from "@/lib/validations";
@@ -45,7 +45,7 @@ export async function GET(request: Request) {
       `SELECT COUNT(*) as count FROM Customer c WHERE ${whereClause}`,
       ...params
     );
-    const total = Number(countResult[0]?.count ?? 0);
+    const total = countResult[0] ? Number(countResult[0].count) : 0;
 
     // Fetch data — explicit column list to avoid missing column errors
     const offset = (page - 1) * limit;
