@@ -3,9 +3,14 @@ set -e
 
 echo "[render-build] Starting build..."
 
-# Set default DATABASE_URL for build time (SQLite)
-export DATABASE_URL="${DATABASE_URL:-file:./data/kfm-delice.db}"
-echo "[render-build] DATABASE_URL=$DATABASE_URL"
+# Fix DATABASE_URL if it doesn't start with 'file:' (SQLite requirement)
+# Render dashboard might have set it incorrectly (e.g. a PostgreSQL URL)
+if [ -z "$DATABASE_URL" ] || [[ ! "$DATABASE_URL" == file:* ]]; then
+  export DATABASE_URL="file:./data/kfm-delice.db"
+  echo "[render-build] DATABASE_URL was missing or invalid, fixed to: $DATABASE_URL"
+else
+  echo "[render-build] DATABASE_URL=$DATABASE_URL"
+fi
 
 # Create data directory
 mkdir -p data
@@ -32,5 +37,8 @@ cp -r public .next/standalone/public 2>/dev/null || true
 echo "[render-build] Copying seed script..."
 mkdir -p .next/standalone/scripts
 cp scripts/auto-seed.cjs .next/standalone/scripts/
+
+# Also copy render-start.sh to standalone output
+cp render-start.sh .next/standalone/render-start.sh 2>/dev/null || true
 
 echo "[render-build] Build complete!"

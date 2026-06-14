@@ -6,6 +6,9 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: false,
   },
   reactStrictMode: false,
+  experimental: {
+    instrumentationHook: true,
+  },
 };
 
 export default nextConfig;
