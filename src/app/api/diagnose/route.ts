@@ -4,8 +4,10 @@ import { NextResponse } from "next/server";
 export async function GET() {
   const checks: Record<string, unknown> = {};
 
-  // 1. Check DATABASE_URL
-  checks.databaseUrl = process.env.DATABASE_URL || "NOT SET";
+  // 1. Check DATABASE_URL (hide full path for security)
+  const url = process.env.DATABASE_URL || "NOT SET";
+  checks.databaseUrl = url.startsWith('file:') ? `${url.substring(0, 15)}...` : `INVALID: ${url}`;
+  checks.databaseUrlValid = url.startsWith('file:');
 
   // 2. Check DB connection
   try {
