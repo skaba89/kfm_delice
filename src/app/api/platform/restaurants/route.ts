@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticatePlatformAdmin } from "@/lib/auth";
 import { z } from "zod";
@@ -9,6 +9,7 @@ import { z } from "zod";
 
 export async function GET(request: Request) {
   try {
+    await dbReady;
     const admin = await authenticatePlatformAdmin(request);
     if (!admin) {
       return NextResponse.json({ error: "Accès plateforme requis" }, { status: 403 });
@@ -67,6 +68,7 @@ const platformPatchSchema = z.object({
 
 export async function PATCH(request: Request) {
   try {
+    await dbReady;
     const admin = await authenticatePlatformAdmin(request);
     if (!admin) {
       return NextResponse.json({ error: "Accès plateforme requis" }, { status: 403 });

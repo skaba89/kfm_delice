@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, authenticateCustomer, hasRole } from "@/lib/auth";
 import { getRestaurantId } from "@/lib/tenant";
@@ -8,6 +8,7 @@ import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, par
 // GET: Public
 export async function GET(request: Request) {
   try {
+    await dbReady;
     const sp = new URL(request.url).searchParams;
     const { page, limit } = parsePagination(sp);
     const { sortBy, sortOrder } = parseSorting(sp, ['createdAt', 'rating', 'customerName'] as const, 'createdAt');
@@ -46,6 +47,7 @@ export async function GET(request: Request) {
 // POST: Customer auth required (link review to customer ID)
 export async function POST(request: Request) {
   try {
+    await dbReady;
     const customer = await authenticateCustomer(request);
     if (!customer) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -76,6 +78,7 @@ export async function POST(request: Request) {
 // DELETE: Admin/Manager auth required
 export async function DELETE(request: Request) {
   try {
+    await dbReady;
     const admin = await authenticateAdmin(request);
     if (!admin) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });

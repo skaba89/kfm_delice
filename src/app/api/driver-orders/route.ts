@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateDriver } from "@/lib/auth";
 import { parsePagination, prismaSkip, prismaTake } from "@/lib/pagination";
@@ -7,6 +7,7 @@ import { driverOrderPatchSchema } from "@/lib/validations";
 // GET /api/driver-orders — Get orders assigned to the logged-in driver
 export async function GET(request: Request) {
   try {
+    await dbReady;
     const driverAuth = await authenticateDriver(request);
     if (!driverAuth) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -14,12 +15,12 @@ export async function GET(request: Request) {
 
     const { page, limit } = parsePagination(new URL(request.url).searchParams);
 
-    const restaurant = await db.restaurant.findFirst();
-    if (!restaurant) return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
+    const restaurantId = driverAuth.restaurantId;
+    if (!restaurantId) return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
 
     // Get all orders assigned to this driver, or delivery orders that are unassigned
     const where = {
-      restaurantId: restaurant.id,
+      restaurantId,
       orderType: "delivery" as const,
       OR: [
         { driverId: driverAuth.id },
@@ -50,6 +51,7 @@ export async function GET(request: Request) {
 // PATCH /api/driver-orders — Driver updates an order status or accepts an order
 export async function PATCH(request: Request) {
   try {
+    await dbReady;
     const driverAuth = await authenticateDriver(request);
     if (!driverAuth) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });

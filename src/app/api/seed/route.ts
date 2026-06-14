@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { hashPassword, authenticateAdmin, hasRole } from "@/lib/auth";
 
@@ -87,6 +87,7 @@ async function findOrCreateDriver(data: {
 // ─── GET: Check seed status ─────────────────────────────────────
 export async function GET() {
   try {
+    await dbReady;
     // Use raw SQL to avoid schema mismatch issues
     const result = await db.$queryRawUnsafe<Array<{ count: bigint }>>("SELECT COUNT(*) as count FROM Restaurant");
     const restaurantCount = Number(result[0]?.count ?? 0);
@@ -101,6 +102,7 @@ export async function GET() {
 // ─── POST: Seed the database ────────────────────────────────────
 export async function POST(request: Request) {
   try {
+    await dbReady;
     // ─── Rate Limiting ──────────────────────────────────────────
     const clientIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
       || request.headers.get("x-real-ip")
@@ -585,6 +587,7 @@ export async function POST(request: Request) {
 // ─── DELETE: Reset the database (admin only) ────────────────────
 export async function DELETE(request: Request) {
   try {
+    await dbReady;
     const admin = await authenticateAdmin(request);
     if (!admin) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });

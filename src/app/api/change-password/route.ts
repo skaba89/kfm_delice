@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAny, hashPassword, verifyPassword } from "@/lib/auth";
 import { z } from "zod";
@@ -15,6 +15,8 @@ const changePasswordSchema = z.object({
 // POST /api/change-password — Change password for any authenticated user
 export async function POST(request: Request) {
   try {
+    await dbReady;
+
     const auth = await authenticateAny(request);
     if (!auth) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -29,16 +31,21 @@ export async function POST(request: Request) {
 
     const { currentPassword, newPassword } = validation.data;
 
-    // Find the user and verify current password
-    let user: { id: string; password: string; mustChangePassword?: boolean } | null = null;
-    let userModel: 'admin' | 'customer' | 'driver' = auth.type as 'admin' | 'customer' | 'driver';
+    // Find the user and verify current password using raw SQL
+    let user: { id: string; password: string; mustChangePassword: number } | null = null;
+    const tableName = auth.type.charAt(0).toUpperCase() + auth.type.slice(1); // Admin, Customer, Driver
 
-    if (auth.type === 'admin') {
-      user = await db.admin.findUnique({ where: { id: auth.id }, select: { id: true, password: true, mustChangePassword: true } });
-    } else if (auth.type === 'customer') {
-      user = await db.customer.findUnique({ where: { id: auth.id }, select: { id: true, password: true, mustChangePassword: true } });
-    } else if (auth.type === 'driver') {
-      user = await db.driver.findUnique({ where: { id: auth.id }, select: { id: true, password: true, mustChangePassword: true } });
+    const rows: any[] = await db.$queryRawUnsafe(
+      `SELECT id, password, COALESCE(mustChangePassword, 0) as mustChangePassword FROM ${tableName} WHERE id = ?`,
+      auth.id
+    );
+
+    if (rows && rows.length > 0) {
+      user = {
+        id: String(rows[0].id),
+        password: String(rows[0].password),
+        mustChangePassword: Number(rows[0].mustChangePassword),
+      };
     }
 
     if (!user) {
@@ -53,16 +60,14 @@ export async function POST(request: Request) {
       }
     }
 
-    // Hash and update
+    // Hash and update using raw SQL
     const hashedNewPassword = await hashPassword(newPassword);
 
-    if (auth.type === 'admin') {
-      await db.admin.update({ where: { id: auth.id }, data: { password: hashedNewPassword, mustChangePassword: false } });
-    } else if (auth.type === 'customer') {
-      await db.customer.update({ where: { id: auth.id }, data: { password: hashedNewPassword, mustChangePassword: false } });
-    } else if (auth.type === 'driver') {
-      await db.driver.update({ where: { id: auth.id }, data: { password: hashedNewPassword, mustChangePassword: false } });
-    }
+    await db.$executeRawUnsafe(
+      `UPDATE ${tableName} SET password = ?, mustChangePassword = 0, updatedAt = CURRENT_TIMESTAMP WHERE id = ?`,
+      hashedNewPassword,
+      auth.id
+    );
 
     return NextResponse.json({ success: true, message: "Mot de passe modifié avec succès" });
   } catch (error) {

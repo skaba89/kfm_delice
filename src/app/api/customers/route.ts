@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, authenticateAny, hasRole, hashPassword, verifyPassword } from "@/lib/auth";
 import { customerUpdateSchema, customerCreateSchema } from "@/lib/validations";
@@ -7,6 +7,7 @@ import { parsePagination, parseSorting, parseSearch, parseStatusFilter } from "@
 // GET: Admin auth required (list all customers) — uses raw SQL to avoid schema mismatch
 export async function GET(request: Request) {
   try {
+    await dbReady;
     const admin = await authenticateAdmin(request);
     if (!admin) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -78,6 +79,7 @@ export async function GET(request: Request) {
 // POST: Admin auth required (create customer)
 export async function POST(request: Request) {
   try {
+    await dbReady;
     const admin = await authenticateAdmin(request);
     if (!admin) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -127,6 +129,7 @@ export async function POST(request: Request) {
 // PATCH: Customer can update own profile OR admin can update any
 export async function PATCH(request: Request) {
   try {
+    await dbReady;
     const auth = await authenticateAny(request);
     if (!auth) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -210,6 +213,7 @@ export async function PATCH(request: Request) {
 // DELETE: Admin only
 export async function DELETE(request: Request) {
   try {
+    await dbReady;
     const admin = await authenticateAdmin(request);
     if (!admin) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });

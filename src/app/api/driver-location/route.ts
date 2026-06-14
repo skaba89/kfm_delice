@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, authenticateDriver, hasRole } from "@/lib/auth";
 import { driverLocationPatchSchema } from "@/lib/validations";
@@ -6,6 +6,7 @@ import { driverLocationPatchSchema } from "@/lib/validations";
 // PATCH /api/driver-location — Update driver GPS position (Admin or Driver auth)
 export async function PATCH(request: Request) {
   try {
+    await dbReady;
     // Support both admin and driver authentication
     const admin = await authenticateAdmin(request);
     const driverAuth = !admin ? await authenticateDriver(request) : null;
@@ -87,10 +88,9 @@ export async function GET(request: Request) {
     }
 
     // All drivers with locations (admin only)
-    const restaurant = await db.restaurant.findFirst();
-    if (!restaurant) return NextResponse.json([]);
+    const restaurantId = admin?.restaurantId || driverAuth?.restaurantId;
     const drivers = await db.driver.findMany({
-      where: { restaurantId: restaurant.id },
+      where: { restaurantId },
       select: { id: true, name: true, phone: true, lat: true, lng: true, status: true, vehicle: true, currentOrderId: true, lastLocationUpdate: true },
     });
     return NextResponse.json(drivers);

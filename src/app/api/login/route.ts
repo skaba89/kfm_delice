@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { verifyPassword, generateToken, hashPassword } from "@/lib/auth";
 import { loginSchema } from "@/lib/validations";
@@ -105,6 +105,7 @@ export async function POST(request: Request) {
   }
 
   try {
+    await dbReady;
     // Ensure DB is seeded before attempting login
     await ensureDbSeeded();
 

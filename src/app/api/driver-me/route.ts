@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateDriver } from "@/lib/auth";
 import { driverMePatchSchema } from "@/lib/validations";
@@ -6,6 +6,7 @@ import { driverMePatchSchema } from "@/lib/validations";
 // GET /api/driver-me — Get current driver profile
 export async function GET(request: Request) {
   try {
+    await dbReady;
     const driverAuth = await authenticateDriver(request);
     if (!driverAuth) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -41,6 +42,7 @@ export async function GET(request: Request) {
 // PATCH /api/driver-me — Update driver profile (status, GPS position)
 export async function PATCH(request: Request) {
   try {
+    await dbReady;
     const driverAuth = await authenticateDriver(request);
     if (!driverAuth) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });

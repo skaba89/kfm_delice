@@ -1,7 +1,8 @@
-import { db } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 
 export async function GET() {
+  await dbReady;
   const checks: Record<string, unknown> = {};
 
   // 1. Check DATABASE_URL (hide full path for security)

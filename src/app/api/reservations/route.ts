@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, authenticateAny, hasRole } from "@/lib/auth";
 import { getRestaurantId } from "@/lib/tenant";
@@ -8,6 +8,7 @@ import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, par
 // GET: Admin auth OR customer auth (customers only see their own)
 export async function GET(request: Request) {
   try {
+    await dbReady;
     const auth = await authenticateAny(request);
     if (!auth) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -85,6 +86,7 @@ export async function GET(request: Request) {
 // POST: Public (reservation form)
 export async function POST(request: Request) {
   try {
+    await dbReady;
     const body = await request.json();
     const validation = reservationSchema.safeParse(body);
     if (!validation.success) {
@@ -137,6 +139,7 @@ export async function POST(request: Request) {
 // PATCH: Admin/Manager/Staff auth required
 export async function PATCH(request: Request) {
   try {
+    await dbReady;
     const admin = await authenticateAdmin(request);
     if (!admin) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });

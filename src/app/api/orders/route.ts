@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, authenticateAny, hasRole } from "@/lib/auth";
 import { orderSchema, orderPatchSchema } from "@/lib/validations";
@@ -9,6 +9,7 @@ import { getRestaurantId } from "@/lib/tenant";
 // GET: Admin auth required OR customer auth (customers only see their own orders)
 export async function GET(request: Request) {
   try {
+    await dbReady;
     const auth = await authenticateAny(request);
     if (!auth) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -89,6 +90,7 @@ export async function GET(request: Request) {
 // POST: Public (for new orders from public site) or authenticated
 export async function POST(request: Request) {
   try {
+    await dbReady;
     const body = await request.json();
     const validation = orderSchema.safeParse(body);
     if (!validation.success) {
@@ -169,6 +171,7 @@ export async function POST(request: Request) {
 // PATCH: Admin/Manager/Staff auth required
 export async function PATCH(request: Request) {
   try {
+    await dbReady;
     const admin = await authenticateAdmin(request);
     if (!admin) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
