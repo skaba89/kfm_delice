@@ -20,7 +20,7 @@ import {
  * if mustChangePassword is true. Shown on top of any protected page.
  */
 export function MustChangePasswordDialog() {
-  const { admin, customer, driver, apiFetch, logout } = useAuth();
+  const { admin, customer, driver, apiFetch, logout, updateUserData } = useAuth();
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -58,8 +58,8 @@ export function MustChangePasswordDialog() {
 
       if (res.ok && data.success) {
         notify.success("Mot de passe modifié avec succès !");
-        // Reload to refresh the user data (mustChangePassword will be false now)
-        window.location.reload();
+        // Update the user data in React state (clears mustChangePassword) — avoids infinite loop
+        updateUserData({ mustChangePassword: false });
       } else {
         notify.error(data.error || "Erreur lors du changement de mot de passe");
       }

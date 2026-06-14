@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { verifyPassword, generateToken } from "@/lib/auth";
 import { loginSchema } from "@/lib/validations";
@@ -20,6 +20,8 @@ export async function POST(request: Request) {
   }
 
   try {
+    await dbReady;
+
     const body = await request.json();
 
     // Validate input
@@ -37,7 +39,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
     }
 
-    const customer = await db.customer.findFirst({ where: { email, restaurantId }, include: { restaurant: { select: { slug: true } } } });
+    const rows: any[] = await db.$queryRawUnsafe(
+      'SELECT c.id, c.email, c.password, c.name, c.phone, c.address, c.loyaltyPoints, c.totalOrders, c.totalSpent, c.status, COALESCE(c.mustChangePassword, 0) as mustChangePassword, c.restaurantId, r.slug as restaurantSlug FROM Customer c LEFT JOIN Restaurant r ON c.restaurantId = r.id WHERE c.email = ? AND c.restaurantId = ?',
+      email,
+      restaurantId
+    );
+    const customer = rows[0];
     if (!customer) {
       return NextResponse.json({ error: "Identifiants incorrects" }, { status: 401 });
     }
@@ -53,7 +60,7 @@ export async function POST(request: Request) {
     }
 
     // Generate JWT token with tenant context
-    const token = generateToken({ id: customer.id, email: customer.email, role: "customer", type: "customer", restaurantId: customer.restaurantId, restaurantSlug: customer.restaurant?.slug || "" });
+    const token = generateToken({ id: customer.id, email: customer.email, role: "customer", type: "customer", restaurantId: customer.restaurantId, restaurantSlug: customer.restaurantSlug || "" });
 
     return NextResponse.json({
       id: customer.id,
@@ -67,7 +74,7 @@ export async function POST(request: Request) {
       status: customer.status,
       mustChangePassword: customer.mustChangePassword,
       restaurantId: customer.restaurantId,
-      restaurantSlug: customer.restaurant?.slug || "",
+      restaurantSlug: customer.restaurantSlug || "",
       token,
     });
   } catch (error) {

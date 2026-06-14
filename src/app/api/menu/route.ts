@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
 import { menuItemSchema, menuItemPatchSchema } from "@/lib/validations";
@@ -9,6 +9,7 @@ import { getRestaurantId } from "@/lib/tenant";
 // GET: Public (no auth needed)
 export async function GET(request: Request) {
   try {
+    await dbReady;
     const sp = new URL(request.url).searchParams;
     const { page, limit } = parsePagination(sp);
     const category = sp.get("category");
@@ -52,6 +53,7 @@ export async function GET(request: Request) {
 // POST: Admin/Manager only
 export async function POST(request: Request) {
   try {
+    await dbReady;
     const admin = await authenticateAdmin(request);
     if (!admin) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -84,6 +86,7 @@ export async function POST(request: Request) {
 // PATCH: Admin/Manager only
 export async function PATCH(request: Request) {
   try {
+    await dbReady;
     const admin = await authenticateAdmin(request);
     if (!admin) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -115,6 +118,7 @@ export async function PATCH(request: Request) {
 // DELETE: Admin/Manager only
 export async function DELETE(request: Request) {
   try {
+    await dbReady;
     const admin = await authenticateAdmin(request);
     if (!admin) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });

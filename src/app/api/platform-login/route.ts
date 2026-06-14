@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { verifyPassword, generateToken } from "@/lib/auth";
 import { rateLimit } from "@/lib/rate-limit";
@@ -18,6 +18,8 @@ export async function POST(request: Request) {
   }
 
   try {
+    await dbReady;
+
     const body = await request.json();
     const { email, password } = body;
 
@@ -25,7 +27,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Email et mot de passe requis" }, { status: 400 });
     }
 
-    const platformAdmin = await db.platformAdmin.findFirst({ where: { email } });
+    const rows: any[] = await db.$queryRawUnsafe(
+      'SELECT id, email, password, name, role, status FROM PlatformAdmin WHERE email = ?',
+      email
+    );
+    const platformAdmin = rows[0];
     if (!platformAdmin) {
       return NextResponse.json({ error: "Identifiants incorrects" }, { status: 401 });
     }

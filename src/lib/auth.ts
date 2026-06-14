@@ -84,16 +84,23 @@ export async function authenticateAdmin(request: Request): Promise<Authenticated
   if (!token) return null;
   const payload = verifyToken(token);
   if (!payload || payload.type !== 'admin') return null;
-  // Verify admin still exists and is active
-  const admin = await db.admin.findUnique({ where: { id: payload.id } });
-  if (!admin || admin.status === 'inactive') return null;
-  return {
-    id: admin.id,
-    email: admin.email,
-    role: admin.role,
-    restaurantId: admin.restaurantId,
-    restaurantSlug: payload.restaurantSlug || '',
-  };
+  // Verify admin still exists and is active — use raw SQL to avoid schema mismatch (missing columns)
+  try {
+    const admins = await db.$queryRawUnsafe<Array<{
+      id: string; email: string; role: string; status: string; restaurantId: string;
+    }>>('SELECT id, email, role, status, restaurantId FROM Admin WHERE id = ?', payload.id);
+    const admin = admins[0];
+    if (!admin || admin.status === 'inactive') return null;
+    return {
+      id: admin.id,
+      email: admin.email,
+      role: admin.role,
+      restaurantId: admin.restaurantId,
+      restaurantSlug: payload.restaurantSlug || '',
+    };
+  } catch {
+    return null;
+  }
 }
 
 interface AuthenticatedCustomer {
@@ -110,15 +117,23 @@ export async function authenticateCustomer(request: Request): Promise<Authentica
   if (!token) return null;
   const payload = verifyToken(token);
   if (!payload || payload.type !== 'customer') return null;
-  const customer = await db.customer.findUnique({ where: { id: payload.id } });
-  if (!customer || customer.status === 'inactive') return null;
-  return {
-    id: customer.id,
-    email: customer.email,
-    name: customer.name,
-    restaurantId: customer.restaurantId,
-    restaurantSlug: payload.restaurantSlug || '',
-  };
+  // Use raw SQL to avoid schema mismatch
+  try {
+    const customers = await db.$queryRawUnsafe<Array<{
+      id: string; email: string; name: string; status: string; restaurantId: string;
+    }>>('SELECT id, email, name, status, restaurantId FROM Customer WHERE id = ?', payload.id);
+    const customer = customers[0];
+    if (!customer || customer.status === 'inactive') return null;
+    return {
+      id: customer.id,
+      email: customer.email,
+      name: customer.name,
+      restaurantId: customer.restaurantId,
+      restaurantSlug: payload.restaurantSlug || '',
+    };
+  } catch {
+    return null;
+  }
 }
 
 interface AuthenticatedDriver {
@@ -139,19 +154,27 @@ export async function authenticateDriver(request: Request): Promise<Authenticate
   if (!token) return null;
   const payload = verifyToken(token);
   if (!payload || payload.type !== 'driver') return null;
-  const driver = await db.driver.findUnique({ where: { id: payload.id } });
-  if (!driver) return null;
-  return {
-    id: driver.id,
-    email: driver.email,
-    name: driver.name,
-    phone: driver.phone,
-    vehicle: driver.vehicle,
-    status: driver.status,
-    zone: driver.zone,
-    restaurantId: driver.restaurantId,
-    restaurantSlug: payload.restaurantSlug || '',
-  };
+  // Use raw SQL to avoid schema mismatch
+  try {
+    const drivers = await db.$queryRawUnsafe<Array<{
+      id: string; email: string; name: string; phone: string; vehicle: string; status: string; zone: string; restaurantId: string;
+    }>>('SELECT id, email, name, phone, vehicle, status, zone, restaurantId FROM Driver WHERE id = ?', payload.id);
+    const driver = drivers[0];
+    if (!driver) return null;
+    return {
+      id: driver.id,
+      email: driver.email,
+      name: driver.name,
+      phone: driver.phone,
+      vehicle: driver.vehicle,
+      status: driver.status,
+      zone: driver.zone,
+      restaurantId: driver.restaurantId,
+      restaurantSlug: payload.restaurantSlug || '',
+    };
+  } catch {
+    return null;
+  }
 }
 
 // Authenticate either admin, customer, driver, or platform_admin
@@ -160,23 +183,28 @@ export async function authenticateAny(request: Request): Promise<{ id: string; e
   if (!token) return null;
   const payload = verifyToken(token);
   if (!payload) return null;
-  if (payload.type === 'platform_admin') {
-    const platformAdmin = await db.platformAdmin.findUnique({ where: { id: payload.id } });
-    if (!platformAdmin || platformAdmin.status === 'inactive') return null;
-    return { ...payload };
-  }
-  if (payload.type === 'admin') {
-    const admin = await db.admin.findUnique({ where: { id: payload.id } });
-    if (!admin || admin.status === 'inactive') return null;
-    return { ...payload, restaurantId: admin.restaurantId };
-  } else if (payload.type === 'driver') {
-    const driver = await db.driver.findUnique({ where: { id: payload.id } });
-    if (!driver) return null;
-    return { ...payload, restaurantId: driver.restaurantId };
-  } else {
-    const customer = await db.customer.findUnique({ where: { id: payload.id } });
-    if (!customer || customer.status === 'inactive') return null;
-    return { ...payload, restaurantId: customer.restaurantId };
+  // Use raw SQL to avoid schema mismatch (missing columns like mustChangePassword)
+  try {
+    if (payload.type === 'platform_admin') {
+      const rows = await db.$queryRawUnsafe<Array<{ id: string; status: string }>>('SELECT id, status FROM PlatformAdmin WHERE id = ?', payload.id);
+      if (!rows[0] || rows[0].status === 'inactive') return null;
+      return { ...payload };
+    }
+    if (payload.type === 'admin') {
+      const rows = await db.$queryRawUnsafe<Array<{ id: string; status: string; restaurantId: string }>>('SELECT id, status, restaurantId FROM Admin WHERE id = ?', payload.id);
+      if (!rows[0] || rows[0].status === 'inactive') return null;
+      return { ...payload, restaurantId: rows[0].restaurantId };
+    } else if (payload.type === 'driver') {
+      const rows = await db.$queryRawUnsafe<Array<{ id: string; restaurantId: string }>>('SELECT id, restaurantId FROM Driver WHERE id = ?', payload.id);
+      if (!rows[0]) return null;
+      return { ...payload, restaurantId: rows[0].restaurantId };
+    } else {
+      const rows = await db.$queryRawUnsafe<Array<{ id: string; status: string; restaurantId: string }>>('SELECT id, status, restaurantId FROM Customer WHERE id = ?', payload.id);
+      if (!rows[0] || rows[0].status === 'inactive') return null;
+      return { ...payload, restaurantId: rows[0].restaurantId };
+    }
+  } catch {
+    return null;
   }
 }
 
@@ -196,14 +224,22 @@ export async function authenticatePlatformAdmin(request: Request): Promise<Authe
   if (!token) return null;
   const payload = verifyToken(token);
   if (!payload || payload.type !== 'platform_admin') return null;
-  const platformAdmin = await db.platformAdmin.findUnique({ where: { id: payload.id } });
-  if (!platformAdmin || platformAdmin.status === 'inactive') return null;
-  return {
-    id: platformAdmin.id,
-    email: platformAdmin.email,
-    name: platformAdmin.name,
-    role: platformAdmin.role,
-  };
+  // Use raw SQL to avoid schema mismatch
+  try {
+    const rows = await db.$queryRawUnsafe<Array<{
+      id: string; email: string; name: string; role: string; status: string;
+    }>>('SELECT id, email, name, role, status FROM PlatformAdmin WHERE id = ?', payload.id);
+    const platformAdmin = rows[0];
+    if (!platformAdmin || platformAdmin.status === 'inactive') return null;
+    return {
+      id: platformAdmin.id,
+      email: platformAdmin.email,
+      name: platformAdmin.name,
+      role: platformAdmin.role,
+    };
+  } catch {
+    return null;
+  }
 }
 
 // Check if admin has required role

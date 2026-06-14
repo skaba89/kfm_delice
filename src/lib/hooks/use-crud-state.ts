@@ -104,20 +104,26 @@ export function useCrudState<TEntity, TForm>(
   }, [config]);
 
   const save = useCallback(async () => {
-    if (editing) {
-      const body = config.prepareUpdate
-        ? config.prepareUpdate(form, editing)
-        : (form as Record<string, unknown>);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await apiPatch(config.apiEndpoint, { id: (editing as any).id, ...body });
-    } else {
-      const body = config.prepareCreate
-        ? config.prepareCreate(form)
-        : (form as Record<string, unknown>);
-      await apiPost(config.apiEndpoint, body);
+    try {
+      if (editing) {
+        const body = config.prepareUpdate
+          ? config.prepareUpdate(form, editing)
+          : (form as Record<string, unknown>);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await apiPatch(config.apiEndpoint, { id: (editing as any).id, ...body });
+      } else {
+        const body = config.prepareCreate
+          ? config.prepareCreate(form)
+          : (form as Record<string, unknown>);
+        await apiPost(config.apiEndpoint, body);
+      }
+      // Only close form on success (apiPatch/apiPost now throw on error)
+      setShowForm(false);
+      setEditing(null);
+    } catch (error) {
+      // Re-throw so tab components can show error notification
+      throw error;
     }
-    setShowForm(false);
-    setEditing(null);
   }, [editing, form, config, apiPatch, apiPost]);
 
   return {

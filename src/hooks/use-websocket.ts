@@ -4,6 +4,17 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 
 const WS_PORT = 3001;
 
+// Check if we're running on a platform that supports WebSockets (local dev with Caddy)
+// On Render and similar platforms without a WS server, we skip connection entirely
+const isWSSupported = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  // Only attempt WebSocket if the app is running locally (dev mode)
+  // On deployed platforms like Render, there's no WS server running
+  const host = window.location.host || '';
+  const isLocal = host.startsWith('localhost') || host.startsWith('127.0.0.1');
+  return isLocal;
+};
+
 interface WSMessage {
   event: string;
   data: unknown;
@@ -114,6 +125,12 @@ export function useWebSocket(
     mountedRef.current = true;
 
     if (!enabled || !userId) return;
+
+    // Skip WebSocket connection if the platform doesn't support it
+    if (!isWSSupported()) {
+      console.log('[WS] WebSocket not supported on this platform, skipping connection.');
+      return;
+    }
 
     let ws: WebSocket | null = null;
 

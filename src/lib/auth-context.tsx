@@ -14,10 +14,11 @@ interface AuthState {
 
 interface AuthContextType extends AuthState {
   hydrated: boolean;
-  loginAdmin: (data: { token: string; id: string; email: string; name: string; role: string }) => void;
+  loginAdmin: (data: { token: string; id: string; email: string; name: string; role: string; restaurantId?: string; restaurantSlug?: string; mustChangePassword?: boolean }) => void;
   loginCustomer: (data: { token: string; id: string; email: string; name: string; phone: string; address: string; loyaltyPoints: number; totalOrders: number; totalSpent: number; status: string }) => void;
   loginDriver: (data: { token: string; id: string; email: string; name: string; phone: string; vehicle: string; status: string; rating: number; totalDeliveries: number; zone: string; currentOrderId: string; lat: number; lng: number }) => void;
   updateCustomer: (data: Partial<CustomerUser>) => void;
+  updateUserData: (data: Record<string, unknown>) => void;
   logout: () => void;
   apiFetch: (url: string, options?: RequestInit) => Promise<Response>;
 }
@@ -51,6 +52,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const storedDriver = localStorage.getItem(AUTH_DRIVER_KEY);
 
       if (storedToken && storedUserType) {
+        // Set token and userType first
+        setToken(storedToken);
+        setUserType(storedUserType);
+
+        // Then set user data based on type
         if (storedUserType === "admin" && storedAdmin) {
           try { setAdmin(JSON.parse(storedAdmin)); } catch { /* corrupted */ }
         } else if (storedUserType === "customer" && storedCustomer) {
@@ -58,8 +64,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else if (storedUserType === "driver" && storedDriver) {
           try { setDriver(JSON.parse(storedDriver)); } catch { /* corrupted */ }
         }
-        setToken(storedToken);
-        setUserType(storedUserType);
       }
     } catch { /* localStorage not available */ }
     setHydrated(true);
@@ -134,6 +138,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // Update current user data (e.g. mustChangePassword after password change)
+  const updateUserData = useCallback((data: Record<string, unknown>) => {
+    if (userType === "admin" && admin) {
+      const updated = { ...admin, ...data } as AdminUser;
+      setAdmin(updated);
+      localStorage.setItem(AUTH_ADMIN_KEY, JSON.stringify(updated));
+    } else if (userType === "customer" && customer) {
+      const updated = { ...customer, ...data } as CustomerUser;
+      setCustomer(updated);
+      localStorage.setItem(AUTH_CUSTOMER_KEY, JSON.stringify(updated));
+    } else if (userType === "driver" && driver) {
+      const updated = { ...driver, ...data } as DriverUser;
+      setDriver(updated);
+      localStorage.setItem(AUTH_DRIVER_KEY, JSON.stringify(updated));
+    }
+  }, [userType, admin, customer, driver]);
+
   const apiFetch = useCallback(async (url: string, options?: RequestInit): Promise<Response> => {
     const headers: Record<string, string> = {
       ...(options?.headers as Record<string, string> || {}),
@@ -169,18 +190,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Handle token expiration — only logout if we had a token and got 401
     // This means our token is truly invalid/expired, not just a missing auth header
     if (res.status === 401 && token) {
-      // Only logout if it's not a public route that might not need auth
-      // or if the response body indicates an expired/invalid token
+      // Only logout for actual token issues, not for "auth required" on endpoints
       try {
         const clonedRes = res.clone();
         const body = await clonedRes.json();
-        // Only logout for actual token issues, not for "auth required" on public endpoints
-        if (body.error?.includes("expiré") || body.error?.includes("invalide") || body.error?.includes("Token")) {
+        // Only logout for actual token issues (expired/invalid token)
+        if (body.error?.includes("expiré") || body.error?.includes("invalide") || body.error?.includes("Token") || body.error?.includes("expired") || body.error?.includes("invalid") || body.error?.includes("Unauthorized") || body.error?.includes("Token")) {
           logout();
         }
       } catch {
-        // If we can't parse the response, logout to be safe
-        logout();
+        // If we can't parse the response, DON'T auto-logout — it might just be
+        // a non-JSON 401 response (e.g. from a proxy or middleware).
+        // Only auto-logout if we're confident the token is invalid.
       }
     }
 
@@ -192,7 +213,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={{
       token, admin, customer, driver, userType, isAuthenticated, hydrated,
-      loginAdmin, loginCustomer, loginDriver, updateCustomer, logout, apiFetch,
+      loginAdmin, loginCustomer, loginDriver, updateCustomer, updateUserData, logout, apiFetch,
     }}>
       {children}
     </AuthContext.Provider>

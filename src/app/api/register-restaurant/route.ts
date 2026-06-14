@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { hashPassword, generateToken } from "@/lib/auth";
 import { rateLimit } from "@/lib/rate-limit";
@@ -44,6 +44,7 @@ export async function POST(request: Request) {
   }
 
   try {
+    await dbReady;
     const body = await request.json();
     const validation = registerRestaurantSchema.safeParse(body);
     if (!validation.success) {

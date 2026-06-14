@@ -4,6 +4,14 @@
  * Uses CommonJS for maximum compatibility with Prisma + bcryptjs
  */
 
+// Fix DATABASE_URL if it doesn't start with 'file:'
+if (!process.env.DATABASE_URL || !process.env.DATABASE_URL.startsWith('file:')) {
+  process.env.DATABASE_URL = 'file:./data/kfm-delice.db';
+  console.log('[auto-seed] DATABASE_URL was missing or invalid, defaulting to: file:./data/kfm-delice.db');
+} else {
+  console.log('[auto-seed] DATABASE_URL:', process.env.DATABASE_URL);
+}
+
 const { PrismaClient } = require('@prisma/client');
 const { hashSync } = require('bcryptjs');
 

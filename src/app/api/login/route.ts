@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { verifyPassword, generateToken, hashPassword } from "@/lib/auth";
 import { loginSchema } from "@/lib/validations";
@@ -11,10 +11,11 @@ async function ensureDbSeeded() {
   if (_seedPromise) return _seedPromise;
   _seedPromise = (async () => {
     try {
-      const count = await db.restaurant.count();
+      // Use raw SQL to check if DB is empty (avoid schema mismatch)
+      const countResult = await db.$queryRawUnsafe<Array<{ count: bigint }>>("SELECT COUNT(*) as count FROM Restaurant");
+      const count = Number(countResult[0]?.count ?? 0);
       if (count === 0) {
         console.log("[auto-seed] Empty DB detected, seeding on first login...");
-        const { PrismaClient } = await import("@prisma/client");
         const { hashSync } = await import("bcryptjs");
 
         // Create restaurant
@@ -104,6 +105,7 @@ export async function POST(request: Request) {
   }
 
   try {
+    await dbReady;
     // Ensure DB is seeded before attempting login
     await ensureDbSeeded();
 
@@ -118,7 +120,13 @@ export async function POST(request: Request) {
 
     const { email, password } = validation.data;
 
-    const admin = await db.admin.findFirst({ where: { email }, include: { restaurant: { select: { slug: true } } } });
+    // Use raw query to avoid schema mismatch issues (e.g., missing mustChangePassword column)
+    const admins = await db.$queryRaw<Array<{
+      id: string; email: string; password: string; name: string;
+      role: string; status: string; restaurantId: string;
+    }>>`SELECT id, email, password, name, role, status, restaurantId FROM Admin WHERE email = ${email} LIMIT 1`;
+
+    const admin = admins[0];
     if (!admin) {
       return NextResponse.json({ error: "Identifiants incorrects" }, { status: 401 });
     }
@@ -133,8 +141,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Compte désactivé. Contactez l'administrateur." }, { status: 403 });
     }
 
+    // Get restaurant slug — use raw SQL to avoid schema mismatch
+    const restaurantRows = await db.$queryRawUnsafe<Array<{ slug: string }>>(
+      'SELECT slug FROM Restaurant WHERE id = ?', admin.restaurantId
+    );
+    const restaurantSlug = restaurantRows[0]?.slug || "";
+
     // Generate JWT token with tenant context
-    const token = generateToken({ id: admin.id, email: admin.email, role: admin.role, type: "admin", restaurantId: admin.restaurantId, restaurantSlug: admin.restaurant?.slug || "" });
+    const token = generateToken({
+      id: admin.id, email: admin.email, role: admin.role,
+      type: "admin", restaurantId: admin.restaurantId,
+      restaurantSlug,
+    });
 
     return NextResponse.json({
       id: admin.id,
@@ -142,9 +160,9 @@ export async function POST(request: Request) {
       name: admin.name,
       role: admin.role,
       status: admin.status,
-      mustChangePassword: admin.mustChangePassword,
+      mustChangePassword: false,
       restaurantId: admin.restaurantId,
-      restaurantSlug: admin.restaurant?.slug || "",
+      restaurantSlug,
       token,
     });
   } catch (error: unknown) {

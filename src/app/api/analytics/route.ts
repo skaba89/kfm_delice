@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { db, dbReady } from '@/lib/db';
 import { authenticateAdmin, hasRole } from '@/lib/auth';
 
 export async function GET(request: Request) {
   try {
+    await dbReady;
     const admin = await authenticateAdmin(request);
     if (!admin) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
     if (!hasRole(admin.role, ['admin', 'manager'])) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });

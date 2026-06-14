@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { getRestaurantConfig } from "@/lib/constants";
 import { getRestaurantId } from "@/lib/tenant";
@@ -9,6 +9,7 @@ import { authenticateAdmin, authenticatePlatformAdmin } from "@/lib/auth";
 // ────────────────────────────────────────────────────────────────
 export async function GET(request: Request) {
   try {
+    await dbReady;
     const slug = request.headers.get('x-restaurant-slug') || new URL(request.url).searchParams.get('restaurant');
 
     if (slug) {
@@ -47,6 +48,7 @@ export async function GET(request: Request) {
 // ────────────────────────────────────────────────────────────────
 export async function PATCH(request: Request) {
   try {
+    await dbReady;
     const admin = await authenticateAdmin(request);
     if (!admin) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -125,6 +127,7 @@ export async function PATCH(request: Request) {
 // ────────────────────────────────────────────────────────────────
 export async function LIST(request: Request) {
   try {
+    await dbReady;
     const platformAdmin = await authenticatePlatformAdmin(request);
     if (!platformAdmin) {
       return NextResponse.json({ error: "Accès plateforme requis" }, { status: 403 });

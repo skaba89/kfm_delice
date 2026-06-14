@@ -83,9 +83,38 @@ export function useAdminData(activeTab: string, adminId: string) {
         const newStats = await res.json();
         setStats(newStats);
         return newStats;
+      } else {
+        // Stats endpoint returned an error — set empty stats so dashboard can render
+        console.warn("[admin-data] Stats endpoint returned", res.status);
+        const emptyStats = {
+          todayReservations: 0, pendingReservations: 0, todayRevenue: 0,
+          totalOrders: 0, activeOrders: 0, avgRating: 0, totalReviews: 0,
+          popularDishes: [], recentReservations: [],
+          deliveryOrders: 0, activeDeliveries: 0, availableDrivers: 0, totalDrivers: 0,
+          deliveryRevenue: 0, dineInOrders: 0, takeawayOrders: 0,
+          ordersByHour: [], deliveryFee: 0, minDelivery: 0,
+          menuCount: 0, staffCount: 0, customerCount: 0, adminCount: 0,
+          pendingInvoices: 0, sentQuotes: 0, expenseCount: 0, pendingPayments: 0,
+        };
+        setStats(emptyStats as Stats);
+        return emptyStats as Stats;
       }
-    } catch (e) { console.error("[admin-data] Stats load error:", e); }
-    return null;
+    } catch (e) {
+      console.error("[admin-data] Stats load error:", e);
+      // Set empty stats so dashboard renders instead of infinite spinner
+      const emptyStats = {
+        todayReservations: 0, pendingReservations: 0, todayRevenue: 0,
+        totalOrders: 0, activeOrders: 0, avgRating: 0, totalReviews: 0,
+        popularDishes: [], recentReservations: [],
+        deliveryOrders: 0, activeDeliveries: 0, availableDrivers: 0, totalDrivers: 0,
+        deliveryRevenue: 0, dineInOrders: 0, takeawayOrders: 0,
+        ordersByHour: [], deliveryFee: 0, minDelivery: 0,
+        menuCount: 0, staffCount: 0, customerCount: 0, adminCount: 0,
+        pendingInvoices: 0, sentQuotes: 0, expenseCount: 0, pendingPayments: 0,
+      };
+      setStats(emptyStats as Stats);
+      return emptyStats as Stats;
+    }
   }, [apiFetch]);
 
   // ─── Load data for a specific tab ──────────────────────────────
@@ -332,14 +361,14 @@ export function useAdminData(activeTab: string, adminId: string) {
     };
   }, [on, off, activeTab, loadStats, loadTabData]);
 
-  // ─── Full refresh (manual) ─────────────────────────────────────
+  // ─── Full refresh (manual) — use tabLoading, NOT loading ──────
   const loadData = useCallback(async () => {
-    setLoading(true);
+    setTabLoading(true);
     await loadStats();
     // Invalidate all caches and reload active tab
     loadedTabs.current.clear();
     await loadTabData(activeTab, true);
-    setLoading(false);
+    setTabLoading(false);
   }, [loadStats, loadTabData, activeTab]);
 
   // ─── Refresh after CRUD: refresh stats + active tab ────────────
@@ -349,20 +378,32 @@ export function useAdminData(activeTab: string, adminId: string) {
     await loadTabData(activeTab, true);
   }, [loadStats, loadTabData, activeTab]);
 
-  // ─── Generic CRUD helpers ──────────────────────────────────────
+  // ─── Generic CRUD helpers (with error checking) ─────────────────
   const apiPatch = useCallback(async (url: string, body: object) => {
-    await apiFetch(url, { method: "PATCH", body: JSON.stringify(body) });
+    const res = await apiFetch(url, { method: "PATCH", body: JSON.stringify(body) });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `Erreur serveur (${res.status})` }));
+      throw new Error(err.error || `Erreur serveur (${res.status})`);
+    }
     await refreshAfterMutation();
   }, [apiFetch, refreshAfterMutation]);
 
   const apiPost = useCallback(async (url: string, body: object) => {
     const res = await apiFetch(url, { method: "POST", body: JSON.stringify(body) });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `Erreur serveur (${res.status})` }));
+      throw new Error(err.error || `Erreur serveur (${res.status})`);
+    }
     await refreshAfterMutation();
     return res;
   }, [apiFetch, refreshAfterMutation]);
 
   const apiDelete = useCallback(async (url: string, body: object) => {
-    await apiFetch(url, { method: "DELETE", body: JSON.stringify(body) });
+    const res = await apiFetch(url, { method: "DELETE", body: JSON.stringify(body) });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `Erreur serveur (${res.status})` }));
+      throw new Error(err.error || `Erreur serveur (${res.status})`);
+    }
     await refreshAfterMutation();
   }, [apiFetch, refreshAfterMutation]);
 

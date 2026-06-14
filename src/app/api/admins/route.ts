@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole, hashPassword, verifyPassword } from "@/lib/auth";
 import { adminSchema, adminPatchSchema } from "@/lib/validations";
@@ -7,6 +7,7 @@ import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, par
 // All methods: Admin only (most restrictive)
 export async function GET(request: Request) {
   try {
+    await dbReady;
     const admin = await authenticateAdmin(request);
     if (!admin) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -61,6 +62,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    await dbReady;
     const admin = await authenticateAdmin(request);
     if (!admin) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -96,6 +98,7 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
+    await dbReady;
     const admin = await authenticateAdmin(request);
     if (!admin) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -147,6 +150,7 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    await dbReady;
     const admin = await authenticateAdmin(request);
     if (!admin) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });

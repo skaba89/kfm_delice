@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, authenticateAny, hasRole } from "@/lib/auth";
 import { paymentSchema, paymentStatusSchema, webhookSignatureSchema } from "@/lib/validations";
@@ -163,6 +163,7 @@ async function processPayment(method: string, amount: number, orderId: string, p
 // GET: List payments (admin/manager)
 export async function GET(request: Request) {
   try {
+    await dbReady;
     const admin = await authenticateAdmin(request);
     if (!admin) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -179,11 +180,8 @@ export async function GET(request: Request) {
     const methodFilter = parseStatusFilter(sp, ["cash", "orange_money", "mtn_money", "card"], "method");
     const orderId = sp.get("orderId");
 
-    const restaurant = await db.restaurant.findFirst();
-    if (!restaurant) return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
-
     const where = {
-      restaurantId: restaurant.id,
+      restaurantId: admin.restaurantId,
       ...(statusFilter && { status: statusFilter }),
       ...(methodFilter && { method: methodFilter }),
       ...(orderId && { orderId }),
@@ -221,6 +219,7 @@ export async function GET(request: Request) {
 // POST: Initiate a payment for an order
 export async function POST(request: Request) {
   try {
+    await dbReady;
     const auth = await authenticateAny(request);
     if (!auth) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -254,9 +253,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const restaurant = await db.restaurant.findFirst();
-    if (!restaurant) return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
-
     // Process the payment
     const result = await processPayment(method, order.total, orderId, phone || "");
 
@@ -271,7 +267,7 @@ export async function POST(request: Request) {
           phone: phone || "",
           customerName: customerName || order.customerName,
           failedReason: ('error' in result ? result.error : null) || "Échec du paiement",
-          restaurantId: restaurant.id,
+          restaurantId: order.restaurantId,
         },
       });
 
@@ -290,7 +286,7 @@ export async function POST(request: Request) {
         customerName: customerName || order.customerName,
         metadata: JSON.stringify({ otpRequired: result.otpRequired, message: result.message }),
         ...(result.status === "paid" && { paidAt: new Date().toISOString() }),
-        restaurantId: restaurant.id,
+        restaurantId: order.restaurantId,
       },
     });
 

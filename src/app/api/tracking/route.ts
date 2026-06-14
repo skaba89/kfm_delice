@@ -1,12 +1,14 @@
-import { db } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { trackingSchema } from "@/lib/validations";
+import { getRestaurantId } from "@/lib/tenant";
 
 // GET /api/tracking?orderId=xxx  — Customer tracking endpoint
 // GET /api/tracking?phone=xxx    — Find orders by phone
 // Public (anyone can track by order ID or phone)
 export async function GET(request: Request) {
   try {
+    await dbReady;
     const { searchParams } = new URL(request.url);
     const queryParams = {
       orderId: searchParams.get("orderId") || undefined,
@@ -22,12 +24,12 @@ export async function GET(request: Request) {
 
     const { orderId, phone } = validation.data;
 
-    const restaurant = await db.restaurant.findFirst();
-    if (!restaurant) return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
+    const restaurantId = await getRestaurantId(request);
+    if (!restaurantId) return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
 
     if (orderId) {
       const order = await db.order.findFirst({
-        where: { id: orderId, restaurantId: restaurant.id },
+        where: { id: orderId, restaurantId },
         include: { driver: true },
       });
       if (!order) return NextResponse.json({ error: "Commande non trouvée" }, { status: 404 });
@@ -36,7 +38,7 @@ export async function GET(request: Request) {
 
     if (phone) {
       const orders = await db.order.findMany({
-        where: { phone, restaurantId: restaurant.id, orderType: "delivery" },
+        where: { phone, restaurantId, orderType: "delivery" },
         orderBy: { createdAt: "desc" },
         include: { driver: true },
         take: 10,
@@ -47,7 +49,7 @@ export async function GET(request: Request) {
     // All active delivery orders (for admin dashboard)
     const activeOrders = await db.order.findMany({
       where: {
-        restaurantId: restaurant.id,
+        restaurantId,
         orderType: "delivery",
         status: { in: ["pending", "confirmed", "preparing", "ready", "picking_up", "delivering"] },
       },
