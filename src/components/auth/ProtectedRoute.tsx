@@ -18,7 +18,7 @@ interface ProtectedRouteProps {
  * renders children or redirects to `redirectTo`.
  */
 export function ProtectedRoute({ userType, redirectTo, children }: ProtectedRouteProps) {
-  const { admin, customer, driver, hydrated } = useAuth();
+  const { admin, customer, driver, hydrated, token } = useAuth();
   const router = useRouter();
 
   const isAuthenticated =
@@ -26,16 +26,29 @@ export function ProtectedRoute({ userType, redirectTo, children }: ProtectedRout
     userType === "customer" ? !!customer :
     !!driver;
 
+  // Also check if we have a token but the user object hasn't loaded yet
+  const hasTokenButNoUser = !!token && !isAuthenticated;
+
   useEffect(() => {
     // Wait for localStorage hydration before deciding
     if (!hydrated) return;
-    if (!isAuthenticated) {
+    // Only redirect if we're sure the user is not authenticated
+    // (no token AND no user object)
+    if (!isAuthenticated && !token) {
       router.push(redirectTo);
     }
-  }, [hydrated, isAuthenticated, redirectTo, router]);
+  }, [hydrated, isAuthenticated, token, redirectTo, router]);
 
   // Don't flash content while hydrating or redirecting
-  if (!hydrated || !isAuthenticated) {
+  if (!hydrated || hasTokenButNoUser) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-orange-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center">
         <div className="w-8 h-8 border-4 border-orange-500 border-t-transparent rounded-full animate-spin" />

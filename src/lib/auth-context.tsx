@@ -51,6 +51,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const storedDriver = localStorage.getItem(AUTH_DRIVER_KEY);
 
       if (storedToken && storedUserType) {
+        // Set token and userType first
+        setToken(storedToken);
+        setUserType(storedUserType);
+
+        // Then set user data based on type
         if (storedUserType === "admin" && storedAdmin) {
           try { setAdmin(JSON.parse(storedAdmin)); } catch { /* corrupted */ }
         } else if (storedUserType === "customer" && storedCustomer) {
@@ -58,8 +63,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else if (storedUserType === "driver" && storedDriver) {
           try { setDriver(JSON.parse(storedDriver)); } catch { /* corrupted */ }
         }
-        setToken(storedToken);
-        setUserType(storedUserType);
       }
     } catch { /* localStorage not available */ }
     setHydrated(true);
