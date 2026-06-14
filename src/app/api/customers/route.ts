@@ -49,12 +49,7 @@ export async function GET(request: Request) {
 
     // Fetch data — explicit column list to avoid missing column errors
     const offset = (page - 1) * limit;
-    const customers = await db.$queryRawUnsafe<Array<{
-      id: string; email: string; name: string; phone: string; address: string;
-      loyaltyPoints: number; totalOrders: number; totalSpent: number;
-      status: string; mustChangePassword: number; restaurantId: string;
-      createdAt: string; updatedAt: string;
-    }>>(
+    const rawCustomers = await db.$queryRawUnsafe<Array<Record<string, unknown>>>(
       `SELECT c.id, c.email, c.name, c.phone, c.address,
         c.loyaltyPoints, c.totalOrders, c.totalSpent, c.status,
         COALESCE(c.mustChangePassword, 0) as mustChangePassword,
@@ -64,6 +59,7 @@ export async function GET(request: Request) {
       LIMIT ? OFFSET ?`,
       ...params, limit, offset
     );
+    const customers = rawCustomers.map(r => bigIntToNumber(r));
 
     const totalPages = Math.ceil(total / limit);
     return NextResponse.json({
