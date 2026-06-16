@@ -66,6 +66,7 @@ model Restaurant {
   quotes        Quote[]
   expenses      Expense[]
   payments      Payment[]
+  loyaltyRewards LoyaltyReward[]
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -139,6 +140,7 @@ model Customer {
   orders            Order[]
   reservations      Reservation[]
   reviews           Review[]
+  loyaltyHistory    LoyaltyPointsHistory[]
 
   @@unique([email, restaurantId])
   @@index([restaurantId])
@@ -353,4 +355,39 @@ model Payment {
   @@index([status])
   @@index([method])
   @@index([restaurantId, createdAt])
+}
+
+// ────────────────────────────────────────────────────────────────
+// Loyalty — rewards and points history
+// ────────────────────────────────────────────────────────────────
+model LoyaltyReward {
+  id           String   @id @default(cuid())
+  name         String
+  description  String   @default("")
+  category     String   @default("discount") // discount, free_item, special, vip
+  pointsCost   Int
+  value        Int      @default(0) // monetary value in GNF or percentage
+  active       Boolean  @default(true)
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([restaurantId])
+  @@index([active])
+}
+
+model LoyaltyPointsHistory {
+  id          String   @id @default(cuid())
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  points      Int      // positive = earned, negative = redeemed
+  type        String   // earned, redeemed, expired, bonus
+  description String   @default("")
+  referenceId String?  @default("") // linked entity (orderId, rewardId, etc.)
+  createdAt   DateTime @default(now())
+
+  @@index([customerId])
+  @@index([type])
+  @@index([createdAt])
 }

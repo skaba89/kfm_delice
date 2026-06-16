@@ -1,4 +1,4 @@
-import { db, dbReady } from "@/lib/db";
+import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { verifyPassword, generateToken, hashPassword } from "@/lib/auth";
 import { loginSchema } from "@/lib/validations";
@@ -142,9 +142,9 @@ export async function POST(request: Request) {
     }
 
     // Get restaurant slug — use raw SQL to avoid schema mismatch
-    const restaurantRows = await db.$queryRawUnsafe<Array<{ slug: string }>>(
+    const restaurantRows = bigIntToNumber(await db.$queryRawUnsafe<Array<{ slug: string }>>(
       'SELECT slug FROM Restaurant WHERE id = ?', admin.restaurantId
-    );
+    )) as Array<{ slug: string }>;
     const restaurantSlug = restaurantRows[0]?.slug || "";
 
     // Generate JWT token with tenant context

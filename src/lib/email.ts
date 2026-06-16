@@ -540,7 +540,7 @@ export async function findCustomerEmailByName(customerName: string): Promise<str
   try {
     const { db } = await import('@/lib/db');
     const customer = await db.customer.findFirst({
-      where: { name: { contains: customerName, mode: 'insensitive' as const } },
+      where: { name: { contains: customerName } },
       select: { email: true },
     });
     return customer?.email ?? null;

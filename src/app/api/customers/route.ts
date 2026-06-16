@@ -93,10 +93,10 @@ export async function POST(request: Request) {
 
     const data = validation.data;
     // Check existing via raw SQL
-    const existing = await db.$queryRawUnsafe<Array<{ id: string }>>(
+    const existing = bigIntToNumber(await db.$queryRawUnsafe<Array<{ id: string }>>(
       'SELECT id FROM Customer WHERE email = ? AND restaurantId = ?',
       data.email, admin.restaurantId
-    );
+    )) as Array<{ id: string }>;
     if (existing.length > 0) {
       return NextResponse.json({ error: "Cet email est déjà utilisé" }, { status: 400 });
     }
@@ -159,9 +159,9 @@ export async function PATCH(request: Request) {
           return NextResponse.json({ error: "Mot de passe actuel requis" }, { status: 400 });
         }
         // Use raw SQL to get password (avoid schema mismatch)
-        const rows = await db.$queryRawUnsafe<Array<{ password: string }>>(
+        const rows = bigIntToNumber(await db.$queryRawUnsafe<Array<{ password: string }>>(
           'SELECT password FROM Customer WHERE id = ?', id
-        );
+        )) as Array<{ password: string }>;
         if (!rows[0]) {
           return NextResponse.json({ error: "Client introuvable" }, { status: 404 });
         }
@@ -190,14 +190,14 @@ export async function PATCH(request: Request) {
     );
 
     // Fetch updated customer via raw SQL
-    const updated = await db.$queryRawUnsafe<Array<{
+    const updated = bigIntToNumber(await db.$queryRawUnsafe<Array<{
       id: string; email: string; name: string; phone: string; address: string;
       loyaltyPoints: number; totalOrders: number; totalSpent: number;
       status: string; restaurantId: string;
     }>>(
       `SELECT id, email, name, phone, address, loyaltyPoints, totalOrders, totalSpent,
         status, restaurantId FROM Customer WHERE id = ?`, id
-    );
+    )) as Array<Record<string, unknown>>;
 
     return NextResponse.json(updated[0] || { id });
   } catch (error) {

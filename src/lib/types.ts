@@ -73,6 +73,18 @@ export interface PaymentDB {
   customerName: string; paidAt: string; failedReason: string;
   createdAt: string;
 }
+export interface RestaurantDB {
+  id: string; name: string; slug: string; tagline: string; description: string;
+  phone: string; whatsapp: string; email: string; address: string; hours: string;
+  rating: number; tables: number; deliveryFee: number; minDelivery: number;
+  deliveryZones: string; plan: string; status: string; currency: string; locale: string;
+  ownerEmail: string; ownerName: string; ownerPhone: string;
+  primaryColor?: string; accentColor?: string; secondaryColor?: string; logo?: string; heroImage?: string;
+  latitude?: number; longitude?: number;
+  facebook?: string; instagram?: string; twitter?: string;
+  taxRate?: number;
+  createdAt: string; updatedAt: string;
+}
 export interface AdminUser { id: string; email: string; name: string; role: string; restaurantId?: string; restaurantSlug?: string; mustChangePassword?: boolean; }
 export interface CustomerUser { id: string; email: string; name: string; phone: string; address: string; loyaltyPoints: number; totalOrders: number; totalSpent: number; status: string; restaurantId?: string; restaurantSlug?: string; mustChangePassword?: boolean; }
 export interface DriverUser { id: string; email: string; name: string; phone: string; vehicle: string; status: string; rating: number; totalDeliveries: number; zone: string; currentOrderId: string; lat: number; lng: number; restaurantId?: string; restaurantSlug?: string; mustChangePassword?: boolean; }

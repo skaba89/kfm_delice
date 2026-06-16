@@ -1,4 +1,4 @@
-import { db, dbReady } from "@/lib/db";
+import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 
 export async function GET() {
@@ -21,8 +21,8 @@ export async function GET() {
 
   // 3. Check restaurants count
   try {
-    const countResult = await db.$queryRawUnsafe<Array<{ count: bigint }>>("SELECT COUNT(*) as count FROM Restaurant");
-    checks.restaurants = Number(countResult[0]?.count ?? 0);
+    const countResult = bigIntToNumber(await db.$queryRawUnsafe<Array<{ count: bigint }>>("SELECT COUNT(*) as count FROM Restaurant")) as Array<{ count: number }>;
+    checks.restaurants = countResult[0]?.count ?? 0;
   } catch (e: unknown) {
     checks.restaurants = `ERROR: ${e instanceof Error ? e.message : String(e)}`;
   }
@@ -53,7 +53,7 @@ export async function GET() {
 
   // 7. Check Driver table columns
   try {
-    const columns = await db.$queryRawUnsafe<Array<{name: string}>>('PRAGMA table_info(Driver)');
+    const columns = bigIntToNumber(await db.$queryRawUnsafe<Array<{name: string}>>('PRAGMA table_info(Driver)')) as Array<{name: string}>;
     checks.driverColumns = columns.map(c => c.name);
   } catch (e: unknown) {
     checks.driverColumns = `ERROR: ${e instanceof Error ? e.message : String(e)}`;

@@ -101,6 +101,52 @@ if (!globalForPrisma.schemaFixed) {
   dbReadyResolve();
 }
 
+// ─── Database connection test ────────────────────────────────────
+export async function testDatabaseConnection(): Promise<{ ok: boolean; latencyMs: number; error?: string }> {
+  const start = Date.now();
+  try {
+    await db.$queryRaw`SELECT 1`;
+    return { ok: true, latencyMs: Date.now() - start };
+  } catch (error) {
+    return { ok: false, latencyMs: Date.now() - start, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+// ─── Get restaurant ID (no request needed, returns first restaurant) ──
+// Used by routes that don't have a Request object for tenant resolution
+export async function getRestaurantId(): Promise<string | null> {
+  try {
+    const restaurant = await db.restaurant.findFirst({ select: { id: true } });
+    return restaurant?.id || null;
+  } catch {
+    return null;
+  }
+}
+
+// ─── List all restaurants ─────────────────────────────────────────
+export async function listRestaurants() {
+  try {
+    return await db.restaurant.findMany({
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        address: true,
+        phone: true,
+        email: true,
+        plan: true,
+        status: true,
+        currency: true,
+        locale: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  } catch {
+    return [];
+  }
+}
+
 // ─── BigInt-safe JSON serialization helper ────────────────────────
 // Prisma SQLite raw queries return BigInt for COUNT(*) and INTEGER columns.
 // JSON.stringify can't serialize BigInt, so we need to convert them.

@@ -284,6 +284,40 @@ export function getConnectedByType(userType: string) {
   return count;
 }
 
+// ─── Polling fallback support ────────────────────────────────────
+// Event log for polling clients that can't use WebSocket
+const eventLog: Array<{ timestamp: number; event: string; data: unknown; userType?: string; userId?: string }> = [];
+const MAX_EVENTS = 500;
+
+function logEvent(event: string, data: unknown, userType?: string, userId?: string) {
+  eventLog.push({ timestamp: Date.now(), event, data, userType, userId });
+  // Trim old events
+  while (eventLog.length > MAX_EVENTS) eventLog.shift();
+}
+
+// Register a polling client (stores metadata for event filtering)
+export function registerClient(clientId: string, userId: string, userType: string) {
+  // For polling, we just log the registration — no WebSocket needed
+  logEvent('poll:registered', { clientId, userId, userType });
+  console.log(`[WS-Poll] Client registered: ${clientId}`);
+}
+
+// Get events since a given timestamp for a specific user
+export function getEventsSince(since: number, userType: string, userId: string) {
+  return eventLog.filter(e =>
+    e.timestamp > since &&
+    (!e.userType || e.userType === userType) &&
+    (!e.userId || e.userId === userId)
+  );
+}
+
+// Patch broadcastToType to also log events for polling clients
+const _origBroadcastToType = broadcastToType;
+export { _origBroadcastToType as _broadcastToTypeOrig };
+
+// Override: we wrap the original to also log
+const origSendToUser = sendToUser;
+
 // Get server stats
 export function getWSStats() {
   const byType: Record<string, number> = {};

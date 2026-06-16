@@ -1,0 +1,214 @@
+{
+  "timestamp": "2026-06-16T08:07:18.283Z",
+  "total": 41,
+  "passed": 0,
+  "failed": 41,
+  "successRate": "0.0%",
+  "results": [
+    {
+      "name": "Admin Login",
+      "status": "FAIL",
+      "detail": "status=0, token=MISSING"
+    },
+    {
+      "name": "Customer Login",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "Driver Login",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "Platform Login",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "Invalid Login Rejected",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "Unauth Dashboard Blocked",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "Get Restaurant Info",
+      "status": "FAIL",
+      "detail": "status=0, name=N/A"
+    },
+    {
+      "name": "List Restaurants",
+      "status": "FAIL",
+      "detail": "status=0, count=N/A"
+    },
+    {
+      "name": "List Menu Items",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "Create Menu Item",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "Create Order",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "List Orders",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "Create Reservation",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "List Reservations",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "List Drivers",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "Create Driver",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "Create Invoice",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "List Invoices",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "Create Quote",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "List Quotes",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "Create Expense",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "List Expenses",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "Payments",
+      "status": "FAIL",
+      "detail": "No order ID"
+    },
+    {
+      "name": "List Loyalty Rewards",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "Loyalty History",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "Create Review",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "List Reviews",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "Create Staff",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "List Staff",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "Dashboard Data",
+      "status": "FAIL",
+      "detail": "status=0, hasStats=false"
+    },
+    {
+      "name": "Stats Endpoint",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "List Admins",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "List Customers",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "WS Poll Register",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "WS Poll Events",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "WS Notify",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "Platform List Restaurants",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "Health Check",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "Debug Diagnostics",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "Customer Registration",
+      "status": "FAIL",
+      "detail": "status=0"
+    },
+    {
+      "name": "Change Password",
+      "status": "FAIL",
+      "detail": "status=0"
+    }
+  ]
+}

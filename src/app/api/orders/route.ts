@@ -99,7 +99,10 @@ export async function POST(request: Request) {
     }
 
     // Check if restaurant is open (for dine-in and takeaway, not delivery which can be pre-ordered)
-    if ((body.orderType === 'dine_in' || body.orderType === 'takeaway') && !isRestaurantOpen()) {
+    // Admin/Manager can bypass this check by passing adminOverride: true
+    const authResult = await authenticateAdmin(request).catch(() => null);
+    const isAdminOverride = body.adminOverride === true && authResult;
+    if ((body.orderType === 'dine_in' || body.orderType === 'takeaway') && !isRestaurantOpen() && !isAdminOverride) {
       return NextResponse.json({ error: 'Le restaurant est actuellement fermé. Nos heures d\'ouverture sont de 11h à 23h.' }, { status: 400 });
     }
 

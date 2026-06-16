@@ -1,4 +1,4 @@
-import { db, dbReady } from "@/lib/db";
+import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { hashPassword, authenticateAdmin, hasRole } from "@/lib/auth";
 
@@ -89,8 +89,8 @@ export async function GET() {
   try {
     await dbReady;
     // Use raw SQL to avoid schema mismatch issues
-    const result = await db.$queryRawUnsafe<Array<{ count: bigint }>>("SELECT COUNT(*) as count FROM Restaurant");
-    const restaurantCount = Number(result[0]?.count ?? 0);
+    const result = bigIntToNumber(await db.$queryRawUnsafe<Array<{ count: bigint }>>("SELECT COUNT(*) as count FROM Restaurant")) as Array<{ count: number }>;
+    const restaurantCount = result[0]?.count ?? 0;
     const seeded = restaurantCount > 0;
     return NextResponse.json({ seeded, needsSeed: !seeded });
   } catch {
@@ -119,8 +119,8 @@ export async function POST(request: Request) {
     // Use raw SQL to avoid schema mismatch issues
     let existingAdminCount = 0;
     try {
-      const countResult = await db.$queryRawUnsafe<Array<{ count: bigint }>>("SELECT COUNT(*) as count FROM Admin");
-      existingAdminCount = Number(countResult[0]?.count ?? 0);
+      const countResult = bigIntToNumber(await db.$queryRawUnsafe<Array<{ count: bigint }>>("SELECT COUNT(*) as count FROM Admin")) as Array<{ count: number }>;
+      existingAdminCount = countResult[0]?.count ?? 0;
     } catch {
       existingAdminCount = 0;
     }

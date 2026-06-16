@@ -2,8 +2,7 @@ import { NextResponse } from 'next/server';
 import { db, testDatabaseConnection } from '@/lib/db';
 import { authenticateAdmin } from '@/lib/auth';
 
-// GET /api/debug — Detailed diagnostic endpoint (no auth required)
-// This helps diagnose 500 errors on Render/Neon
+// GET /api/debug — Detailed diagnostic endpoint (admin auth required)
 export async function GET(req: Request) {
   const admin = await authenticateAdmin(req);
   if (!admin) {
@@ -13,7 +12,7 @@ export async function GET(req: Request) {
   const diagnostics: Record<string, unknown> = {};
   let overallOk = true;
 
-  // 1. Environment variables — don't expose partial credentials
+  // 1. Environment variables
   diagnostics.env = {
     DATABASE_URL: process.env.DATABASE_URL ? 'set' : 'MISSING',
     JWT_SECRET: process.env.JWT_SECRET ? 'set' : 'MISSING',
@@ -29,29 +28,29 @@ export async function GET(req: Request) {
     diagnostics.database = dbCheck;
     if (!dbCheck.ok) {
       overallOk = false;
-      diagnostics.databaseHint = 'Check DATABASE_URL format for Neon: postgresql://user:pass@ep-xxx.region.aws.neon.tech/dbname?sslmode=require';
     }
   } catch (error) {
     diagnostics.database = `connection error: ${error instanceof Error ? error.message : String(error)}`;
     overallOk = false;
   }
 
-  // 3. Check each table exists
+  // 3. Check each table exists (SQLite: sqlite_master)
   const requiredTables = ['Admin', 'Customer', 'Restaurant', 'MenuItem', 'Reservation', 'Order', 'Driver', 'Review', 'Staff', 'Invoice', 'Quote', 'Expense', 'Payment', 'LoyaltyPointsHistory', 'LoyaltyReward'];
-  
+
   try {
-    const tables = await db.$queryRaw<Array<{ tablename: string }>>`
-      SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename
+    const tables = await db.$queryRaw<Array<{ name: string }>>`
+      SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_prisma%' ORDER BY name
     `;
-    const existingTables = new Set(tables.map(t => t.tablename.toLowerCase()));
+    const existingTables = new Set(tables.map(t => t.name));
     const tableChecks: Record<string, unknown> = {};
-    
+
     for (const table of requiredTables) {
-      const exists = existingTables.has(table.toLowerCase());
+      const exists = existingTables.has(table);
       tableChecks[table] = exists ? 'exists' : 'MISSING';
       if (!exists) overallOk = false;
     }
     diagnostics.tables = tableChecks;
+    diagnostics.existingTables = Array.from(existingTables);
   } catch (error) {
     diagnostics.tables = `error checking tables: ${error instanceof Error ? error.message : String(error)}`;
     overallOk = false;
@@ -74,22 +73,23 @@ export async function GET(req: Request) {
     overallOk = false;
   }
 
-  // 5. Check Restaurant table columns
+  // 5. Check Restaurant table columns (SQLite: pragma_table_info)
   try {
-    const columns = await db.$queryRaw<Array<{ column_name: string; data_type: string }>>`
-      SELECT column_name, data_type FROM information_schema.columns 
-      WHERE table_name = 'Restaurant' AND table_schema = 'public'
-      ORDER BY ordinal_position
+    const columns = await db.$queryRaw<Array<{ name: string; type: string }>>`
+      PRAGMA table_info(Restaurant)
     `;
-    const columnNames = new Set(columns.map(c => c.column_name));
+    const columnNames = new Set(columns.map(c => c.name));
     const criticalColumns = ['logo', 'primaryColor', 'secondaryColor', 'taxRate', 'currency', 'whatsapp', 'slug', 'tagline', 'latitude', 'longitude'];
     const missingColumns = criticalColumns.filter(c => !columnNames.has(c));
     if (missingColumns.length > 0) {
       diagnostics.missingColumns = missingColumns;
       overallOk = false;
+    } else {
+      diagnostics.restaurantColumns = 'all critical columns present';
     }
   } catch (error) {
     // Non-critical
+    diagnostics.restaurantColumns = `check failed: ${error instanceof Error ? error.message : String(error)}`;
   }
 
   return NextResponse.json({
