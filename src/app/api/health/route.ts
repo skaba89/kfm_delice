@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { authenticateAdmin } from '@/lib/auth';
 import { db, testDatabaseConnection } from '@/lib/db';
 
-// GET /api/health — Diagnostic endpoint (admin only in production)
+// GET /api/health — Diagnostic endpoint (public in dev, admin only in production)
 export async function GET(request: Request) {
   // In production, require admin auth
   if (process.env.NODE_ENV === 'production') {
@@ -11,6 +11,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
     }
   }
+  // Dev mode: open access for health checks
 
   const checks: Record<string, unknown> = {};
   let overallOk = true;

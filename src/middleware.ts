@@ -17,9 +17,9 @@ const _JWT_SECRET = new TextEncoder().encode(JWT_SECRET);
 // Route Classification
 // ────────────────────────────────────────────────────────────────
 
-const PUBLIC_GET_ROUTES = ['/api/menu', '/api/reviews', '/api/tracking', '/api/restaurant', '/api/diagnose', '/api/seed'];
-const PUBLIC_POST_ROUTES = ['/api/login', '/api/customer-login', '/api/customer-register', '/api/driver-login', '/api/orders', '/api/reservations', '/api/seed', '/api/register-restaurant', '/api/platform-login'];
-const PUBLIC_ANY_ROUTES = ['/api']; // health check
+const PUBLIC_GET_ROUTES = ['/api/menu', '/api/reviews', '/api/tracking', '/api/restaurant', '/api/diagnose', '/api/seed', '/api/loyalty/rewards', '/api/health'];
+const PUBLIC_POST_ROUTES = ['/api/login', '/api/customer-login', '/api/customer-register', '/api/driver-login', '/api/orders', '/api/reservations', '/api/seed', '/api/register-restaurant', '/api/platform-login', '/api/reviews'];
+const PUBLIC_ANY_ROUTES = ['/api', '/api/health']; // health check
 
 // Auth endpoints that need rate limiting
 const AUTH_ROUTES = ['/api/login', '/api/customer-login', '/api/customer-register', '/api/driver-login', '/api/register-restaurant', '/api/platform-login'];

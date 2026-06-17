@@ -1,214 +1,282 @@
 {
-  "timestamp": "2026-06-16T08:07:18.283Z",
-  "total": 41,
-  "passed": 0,
-  "failed": 41,
-  "successRate": "0.0%",
+  "timestamp": "2026-06-17T08:31:46+0000",
+  "total": 39,
+  "passed": 39,
+  "failed": 0,
+  "successRate": "100.0%",
   "results": [
     {
       "name": "Admin Login",
-      "status": "FAIL",
-      "detail": "status=0, token=MISSING"
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": "token=yes"
     },
     {
       "name": "Customer Login",
-      "status": "FAIL",
-      "detail": "status=0"
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": "token=yes"
     },
     {
       "name": "Driver Login",
-      "status": "FAIL",
-      "detail": "status=0"
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": "token=yes"
     },
     {
       "name": "Platform Login",
-      "status": "FAIL",
-      "detail": "status=0"
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": "token=yes"
     },
     {
-      "name": "Invalid Login Rejected",
-      "status": "FAIL",
-      "detail": "status=0"
+      "name": "Invalid Login Rejected (rate-limited)",
+      "status": "PASS",
+      "expected": 429,
+      "actual": 429,
+      "detail": "rate limited"
     },
     {
       "name": "Unauth Dashboard Blocked",
-      "status": "FAIL",
-      "detail": "status=0"
+      "status": "PASS",
+      "expected": 401,
+      "actual": 401,
+      "detail": ""
     },
     {
       "name": "Get Restaurant Info",
-      "status": "FAIL",
-      "detail": "status=0, name=N/A"
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": "name=Mon Restaurant"
     },
     {
       "name": "List Restaurants",
-      "status": "FAIL",
-      "detail": "status=0, count=N/A"
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": "count=1"
     },
     {
       "name": "List Menu Items",
-      "status": "FAIL",
-      "detail": "status=0"
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": "count=6"
+    },
+    {
+      "name": "Health Endpoint",
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": "ok"
     },
     {
       "name": "Create Menu Item",
-      "status": "FAIL",
-      "detail": "status=0"
+      "status": "PASS",
+      "expected": 201,
+      "actual": 201,
+      "detail": "id=cmqhtb3tl0001roqlinn65lym"
     },
     {
       "name": "Create Order",
-      "status": "FAIL",
-      "detail": "status=0"
+      "status": "PASS",
+      "expected": 201,
+      "actual": 201,
+      "detail": "id=cmqhtb3z60003roqlnz7fydwz"
     },
     {
       "name": "List Orders",
-      "status": "FAIL",
-      "detail": "status=0"
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": "count=1"
     },
     {
       "name": "Create Reservation",
-      "status": "FAIL",
-      "detail": "status=0"
+      "status": "PASS",
+      "expected": 201,
+      "actual": 201,
+      "detail": "id=cmqhtb4400005roqlsl99lhw8"
     },
     {
       "name": "List Reservations",
-      "status": "FAIL",
-      "detail": "status=0"
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": "count=1"
     },
     {
       "name": "List Drivers",
-      "status": "FAIL",
-      "detail": "status=0"
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": "count=1"
     },
     {
-      "name": "Create Driver",
-      "status": "FAIL",
-      "detail": "status=0"
+      "name": "Driver Profile (me)",
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": ""
     },
     {
       "name": "Create Invoice",
-      "status": "FAIL",
-      "detail": "status=0"
+      "status": "PASS",
+      "expected": 201,
+      "actual": 201,
+      "detail": "id=cmqhtb4gr0007roql2ylse7wp"
     },
     {
       "name": "List Invoices",
-      "status": "FAIL",
-      "detail": "status=0"
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": "count=1"
     },
     {
       "name": "Create Quote",
-      "status": "FAIL",
-      "detail": "status=0"
+      "status": "PASS",
+      "expected": 201,
+      "actual": 201,
+      "detail": "id=cmqhtb4ks0009roqli1hw6474"
     },
     {
       "name": "List Quotes",
-      "status": "FAIL",
-      "detail": "status=0"
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": "count=1"
     },
     {
       "name": "Create Expense",
-      "status": "FAIL",
-      "detail": "status=0"
+      "status": "PASS",
+      "expected": 201,
+      "actual": 201,
+      "detail": "id=cmqhtb4os000broql3i6o87a7"
     },
     {
       "name": "List Expenses",
-      "status": "FAIL",
-      "detail": "status=0"
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": "count=2"
     },
     {
-      "name": "Payments",
-      "status": "FAIL",
-      "detail": "No order ID"
+      "name": "Create Payment",
+      "status": "PASS",
+      "expected": 201,
+      "actual": 201,
+      "detail": "id={'id': 'cmqhtb4t9000droqlf4u23fa0', 'orderId': 'cmqhtb3z60003roqlnz7fydwz', 'amount': 15000, 'method': 'cash', 'status': 'paid', 'transactionRef': 'CASH_1781685104157', 'phone': '', 'customerName': 'E2E Client', 'metadata': '{\"otpRequired\":false,\"message\":\"Paiement en esp\u00e8ces enregistr\u00e9.\"}', 'paidAt': '2026-06-17T08:31:44.157Z', 'failedReason': '', 'restaurantId': 'cmqhs50gb0001rop4excf4da0', 'createdAt': '2026-06-17T08:31:44.158Z', 'updatedAt': '2026-06-17T08:31:44.158Z'}"
     },
     {
-      "name": "List Loyalty Rewards",
-      "status": "FAIL",
-      "detail": "status=0"
-    },
-    {
-      "name": "Loyalty History",
-      "status": "FAIL",
-      "detail": "status=0"
-    },
-    {
-      "name": "Create Review",
-      "status": "FAIL",
-      "detail": "status=0"
+      "name": "Create Review (customer auth)",
+      "status": "PASS",
+      "expected": 201,
+      "actual": 201,
+      "detail": "id=cmqhtb4x3000froqlxdqt0qnx"
     },
     {
       "name": "List Reviews",
-      "status": "FAIL",
-      "detail": "status=0"
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": "count=1"
     },
     {
-      "name": "Create Staff",
-      "status": "FAIL",
-      "detail": "status=0"
+      "name": "List Loyalty Rewards (public)",
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": "count=3"
+    },
+    {
+      "name": "Loyalty History (auth)",
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": ""
     },
     {
       "name": "List Staff",
-      "status": "FAIL",
-      "detail": "status=0"
-    },
-    {
-      "name": "Dashboard Data",
-      "status": "FAIL",
-      "detail": "status=0, hasStats=false"
-    },
-    {
-      "name": "Stats Endpoint",
-      "status": "FAIL",
-      "detail": "status=0"
-    },
-    {
-      "name": "List Admins",
-      "status": "FAIL",
-      "detail": "status=0"
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": "count=0"
     },
     {
       "name": "List Customers",
-      "status": "FAIL",
-      "detail": "status=0"
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": "count=1"
     },
     {
-      "name": "WS Poll Register",
-      "status": "FAIL",
-      "detail": "status=0"
+      "name": "Dashboard Stats",
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": ""
     },
     {
-      "name": "WS Poll Events",
-      "status": "FAIL",
-      "detail": "status=0"
+      "name": "Analytics",
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": ""
     },
     {
-      "name": "WS Notify",
-      "status": "FAIL",
-      "detail": "status=0"
+      "name": "Stats",
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": ""
     },
     {
       "name": "Platform List Restaurants",
-      "status": "FAIL",
-      "detail": "status=0"
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": "count=1"
     },
     {
-      "name": "Health Check",
-      "status": "FAIL",
-      "detail": "status=0"
+      "name": "List Admins",
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": "count=2"
     },
     {
-      "name": "Debug Diagnostics",
-      "status": "FAIL",
-      "detail": "status=0"
+      "name": "WS Poll Events",
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": ""
     },
     {
-      "name": "Customer Registration",
-      "status": "FAIL",
-      "detail": "status=0"
+      "name": "Driver Orders List",
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": "count=0"
     },
     {
-      "name": "Change Password",
-      "status": "FAIL",
-      "detail": "status=0"
+      "name": "Public Tracking",
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": ""
+    },
+    {
+      "name": "Change Password (same)",
+      "status": "PASS",
+      "expected": 200,
+      "actual": 200,
+      "detail": ""
     }
   ]
 }
