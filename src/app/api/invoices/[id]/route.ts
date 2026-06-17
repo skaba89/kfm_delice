@@ -1,4 +1,5 @@
-import { db, getRestaurantId } from "@/lib/db";
+import { db } from "@/lib/db";
+import { getRestaurantId } from "@/lib/tenant";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
 import { generateInvoicePDF } from "@/lib/pdf-invoice";
@@ -25,7 +26,7 @@ export async function GET(
       return NextResponse.json({ error: "Facture non trouvee" }, { status: 404 });
     }
 
-    const rid = await getRestaurantId();
+    const rid = await getRestaurantId(request);
     if (!rid) {
       return NextResponse.json({ error: "Restaurant non trouve" }, { status: 404 });
     }

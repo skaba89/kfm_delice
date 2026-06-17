@@ -117,3 +117,62 @@ export function bigIntToNumber(obj: unknown): unknown {
   }
   return obj;
 }
+
+// ─── Database health check ─────────────────────────────────────────
+// Returns ok=true if a trivial DB query succeeds, with latency in ms.
+export async function testDatabaseConnection(): Promise<{
+  ok: boolean;
+  latencyMs: number;
+  error?: string;
+}> {
+  const t0 = Date.now();
+  try {
+    await db.$queryRawUnsafe('SELECT 1');
+    return { ok: true, latencyMs: Date.now() - t0 };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, latencyMs: Date.now() - t0, error: msg };
+  }
+}
+
+// ─── Public restaurant listing (multi-tenant SaaS) ────────────────
+// Returns minimal info for all active restaurants, for platform landing
+// pages and public restaurant directories.
+export async function listRestaurants(): Promise<
+  Array<{
+    id: string;
+    slug: string;
+    name: string;
+    description: string | null;
+    logo: string | null;
+    bannerImage: string | null;
+    currency: string;
+    locale: string;
+    plan: string;
+    status: string;
+  }>
+> {
+  try {
+    const rows = await db.$queryRawUnsafe<Array<Record<string, unknown>>>(`
+      SELECT id, slug, name, description, logo, bannerImage, currency, locale, plan, status
+      FROM Restaurant
+      WHERE status = 'active'
+      ORDER BY name ASC
+    `);
+    return bigIntToNumber(rows) as Array<{
+      id: string;
+      slug: string;
+      name: string;
+      description: string | null;
+      logo: string | null;
+      bannerImage: string | null;
+      currency: string;
+      locale: string;
+      plan: string;
+      status: string;
+    }>;
+  } catch (e) {
+    console.error('[db] listRestaurants error:', e);
+    return [];
+  }
+}

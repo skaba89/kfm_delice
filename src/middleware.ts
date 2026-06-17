@@ -17,8 +17,8 @@ const _JWT_SECRET = new TextEncoder().encode(JWT_SECRET);
 // Route Classification
 // ────────────────────────────────────────────────────────────────
 
-const PUBLIC_GET_ROUTES = ['/api/menu', '/api/reviews', '/api/tracking', '/api/restaurant', '/api/diagnose', '/api/seed'];
-const PUBLIC_POST_ROUTES = ['/api/login', '/api/customer-login', '/api/customer-register', '/api/driver-login', '/api/orders', '/api/reservations', '/api/seed', '/api/register-restaurant', '/api/platform-login'];
+const PUBLIC_GET_ROUTES = ['/api/menu', '/api/reviews', '/api/tracking', '/api/restaurant', '/api/restaurants', '/api/diagnose', '/api/seed', '/api/loyalty/rewards', '/api/health'];
+const PUBLIC_POST_ROUTES = ['/api/login', '/api/customer-login', '/api/customer-register', '/api/driver-login', '/api/orders', '/api/reservations', '/api/seed', '/api/register-restaurant', '/api/platform-login', '/api/reviews'];
 const PUBLIC_ANY_ROUTES = ['/api']; // health check
 
 // Auth endpoints that need rate limiting
@@ -37,6 +37,10 @@ const API_RATE_WINDOW = 60_000;   // per minute
 function extractTenantSlug(request: NextRequest): string | null {
   const strategy = process.env.TENANT_STRATEGY || 'slug-header';
   const { pathname, searchParams } = request.nextUrl;
+
+  // Always check explicit x-restaurant-slug header first (set by frontend)
+  const headerSlug = request.headers.get('x-restaurant-slug');
+  if (headerSlug) return headerSlug;
 
   switch (strategy) {
     case 'path': {
@@ -67,7 +71,7 @@ function extractTenantSlug(request: NextRequest): string | null {
 
     case 'slug-header':
     default: {
-      // Check query param first (client-side can pass it)
+      // Check query param as fallback
       const querySlug = searchParams.get('restaurant');
       if (querySlug) return querySlug;
       break;

@@ -1,4 +1,5 @@
-import { db, getRestaurantId } from "@/lib/db";
+import { db } from "@/lib/db";
+import { getRestaurantId } from "@/lib/tenant";
 import { NextResponse } from "next/server";
 import { authenticateAdmin } from "@/lib/auth";
 
@@ -11,7 +12,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
 
-    const rid = await getRestaurantId();
+    const rid = await getRestaurantId(request);
     if (!rid) {
       // Return empty dashboard data instead of 404 — prevents client crashes
       return NextResponse.json({

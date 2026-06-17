@@ -58,7 +58,7 @@ describe("AuthProvider", () => {
     expect(result.current.token).toBe("test-token");
     expect(result.current.userType).toBe("admin");
     expect(result.current.isAuthenticated).toBe(true);
-    expect(localStorageMock.setItem).toHaveBeenCalledWith("kfm_delice_token", "test-token");
+    expect(localStorageMock.setItem).toHaveBeenCalledWith("restaurantpro_token", "test-token");
   });
 
   it("loginCustomer sets customer state", () => {

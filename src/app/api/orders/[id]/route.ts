@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { db, getRestaurantId } from "@/lib/db";
+import { db } from "@/lib/db";
+import { getRestaurantId } from "@/lib/tenant";
 import { generateReceiptPDF } from "@/lib/pdf-receipt";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
 
@@ -26,7 +27,7 @@ export async function GET(
         return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
       }
 
-      const rid = await getRestaurantId();
+      const rid = await getRestaurantId(request);
       if (!rid) {
         return NextResponse.json({ error: "Restaurant non configuré" }, { status: 500 });
       }

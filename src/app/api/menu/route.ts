@@ -127,7 +127,17 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 
-    const { id } = await request.json();
+    const url = new URL(request.url);
+    let id: string | undefined = url.searchParams.get("id") || undefined;
+    if (!id) {
+      try {
+        const body = await request.json();
+        id = body?.id;
+      } catch { /* empty body, ignore */ }
+    }
+    if (!id) {
+      return NextResponse.json({ error: "ID requis" }, { status: 400 });
+    }
     await db.menuItem.delete({ where: { id } });
     return NextResponse.json({ success: true });
   } catch (error) {

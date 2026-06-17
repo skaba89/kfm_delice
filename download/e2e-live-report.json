@@ -1,0 +1,225 @@
+{
+  "base_url": "http://127.0.0.1:3000",
+  "slug": "mon-restaurant",
+  "timestamp": 1781729897,
+  "total": 43,
+  "pass": 43,
+  "fail": 0,
+  "results": [
+    {
+      "name": "health_public_responds",
+      "status": "PASS",
+      "ms": 17
+    },
+    {
+      "name": "login_admin",
+      "status": "PASS",
+      "ms": 93
+    },
+    {
+      "name": "login_manager",
+      "status": "PASS",
+      "ms": 75
+    },
+    {
+      "name": "login_customer",
+      "status": "PASS",
+      "ms": 78
+    },
+    {
+      "name": "login_driver",
+      "status": "PASS",
+      "ms": 76
+    },
+    {
+      "name": "login_platform",
+      "status": "PASS",
+      "ms": 75
+    },
+    {
+      "name": "login_wrong_password_rejected",
+      "status": "PASS",
+      "ms": 4
+    },
+    {
+      "name": "menu_list",
+      "status": "PASS",
+      "ms": 8
+    },
+    {
+      "name": "menu_create_update_delete",
+      "status": "PASS",
+      "ms": 21
+    },
+    {
+      "name": "orders_create_list",
+      "status": "PASS",
+      "ms": 15
+    },
+    {
+      "name": "reservations_create_list",
+      "status": "PASS",
+      "ms": 10
+    },
+    {
+      "name": "customers_list",
+      "status": "PASS",
+      "ms": 5
+    },
+    {
+      "name": "customer_register_new",
+      "status": "PASS",
+      "ms": 4
+    },
+    {
+      "name": "drivers_list",
+      "status": "PASS",
+      "ms": 5
+    },
+    {
+      "name": "driver_me",
+      "status": "PASS",
+      "ms": 6
+    },
+    {
+      "name": "driver_location_update",
+      "status": "PASS",
+      "ms": 10
+    },
+    {
+      "name": "driver_orders",
+      "status": "PASS",
+      "ms": 5
+    },
+    {
+      "name": "staff_list",
+      "status": "PASS",
+      "ms": 5
+    },
+    {
+      "name": "staff_create_delete",
+      "status": "PASS",
+      "ms": 9
+    },
+    {
+      "name": "admins_list",
+      "status": "PASS",
+      "ms": 5
+    },
+    {
+      "name": "admins_list_as_platform",
+      "status": "PASS",
+      "ms": 3
+    },
+    {
+      "name": "invoices_create_list_get",
+      "status": "PASS",
+      "ms": 19
+    },
+    {
+      "name": "quotes_create_list",
+      "status": "PASS",
+      "ms": 10
+    },
+    {
+      "name": "expenses_create_list_delete",
+      "status": "PASS",
+      "ms": 15
+    },
+    {
+      "name": "payments_create_list",
+      "status": "PASS",
+      "ms": 19
+    },
+    {
+      "name": "loyalty_rewards_list",
+      "status": "PASS",
+      "ms": 5
+    },
+    {
+      "name": "loyalty_history",
+      "status": "PASS",
+      "ms": 5
+    },
+    {
+      "name": "reviews_create_list",
+      "status": "PASS",
+      "ms": 10
+    },
+    {
+      "name": "dashboard",
+      "status": "PASS",
+      "ms": 14
+    },
+    {
+      "name": "stats",
+      "status": "PASS",
+      "ms": 10
+    },
+    {
+      "name": "analytics",
+      "status": "PASS",
+      "ms": 8
+    },
+    {
+      "name": "tracking_endpoint",
+      "status": "PASS",
+      "ms": 5
+    },
+    {
+      "name": "restaurant_config",
+      "status": "PASS",
+      "ms": 7
+    },
+    {
+      "name": "restaurants_list",
+      "status": "PASS",
+      "ms": 8
+    },
+    {
+      "name": "platform_restaurants",
+      "status": "PASS",
+      "ms": 6
+    },
+    {
+      "name": "change_password",
+      "status": "PASS",
+      "ms": 350
+    },
+    {
+      "name": "ws_notify",
+      "status": "PASS",
+      "ms": 7
+    },
+    {
+      "name": "ws_poll",
+      "status": "PASS",
+      "ms": 5
+    },
+    {
+      "name": "health_admin",
+      "status": "PASS",
+      "ms": 4
+    },
+    {
+      "name": "diagnose",
+      "status": "PASS",
+      "ms": 6
+    },
+    {
+      "name": "push_list",
+      "status": "PASS",
+      "ms": 7
+    },
+    {
+      "name": "seed_status",
+      "status": "PASS",
+      "ms": 4
+    },
+    {
+      "name": "email_test_admin",
+      "status": "PASS",
+      "ms": 5
+    }
+  ]
+}
