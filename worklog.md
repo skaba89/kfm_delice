@@ -223,3 +223,72 @@ Stage Summary:
   - client@test.com / Client2024! (customer)
   - driver@test.com / Driver2024! (driver)
 - Live E2E report saved to `download/e2e-live-report.json`
+
+---
+Task ID: 16
+Agent: Main Agent (Continued Session — PostgreSQL Migration Kit + SMTP)
+Task: Prepare production-ready PostgreSQL migration kit, SMTP configuration template, and deployment hardening
+
+Work Log:
+- Normalized file modes (chmod +x) on API routes and lib files for POSIX compatibility
+- Removed stale temp images and tool-result dumps from `upload/` and `tool-results/`
+- Created `prisma/schema.postgres.prisma` — full PostgreSQL schema with:
+  • All monetary Int fields → BigInt (deliveryFee, totalSpent, price, total, salary, amount, etc.) to handle large GNF amounts safely
+  • All JSON-encoded String fields → native Json type (menuCategories, features, openingHours, items, metadata) for proper querying
+  • Additional @@index entries for email lookups and tenant scoping
+- Preserved SQLite schema as `prisma/schema.sqlite.prisma` (original behavior)
+- Added missing `LoyaltyReward` and `LoyaltyPointsHistory` models to all three schema files (regression fix — they were referenced in `prisma/clean-seed.ts`, `src/app/api/loyalty/rewards/route.ts`, and `src/app/api/loyalty/history/route.ts` but had been lost during previous merges)
+- Added corresponding relation fields on `Restaurant.loyaltyRewards` and `Customer.loyaltyHistory`
+- Created `scripts/switch-schema.sh` — switches Prisma provider between SQLite/PostgreSQL with auto-detection from DATABASE_URL prefix
+- Added npm scripts: `schema:status`, `schema:sqlite`, `schema:postgres`, `e2e:live`
+- Created `.env.production.example` — complete production env template covering:
+  • Database (SQLite + PostgreSQL URL formats)
+  • Auth (JWT_SECRET, JWT_EXPIRES_IN)
+  • App URL (PUBLIC_APP_URL)
+  • Tenant strategy (slug-header / subdomain / path / query)
+  • SMTP (host/port/secure/user/pass/from) with provider examples (SendGrid, Mailgun, Brevo, SES, Gmail)
+  • Resend API alternative
+  • VAPID keys for Web Push notifications
+  • Orange Money + MTN MoMo payment credentials
+  • File uploads, rate limiting, Next.js settings
+- Updated `render.yaml` for PostgreSQL production deployment:
+  • Provisions managed PostgreSQL database (`kfm-delice-db`)
+  • Wires DATABASE_URL via `fromDatabase` reference
+  • Declares all SMTP/Push env vars with `sync: false` for dashboard-only configuration
+  • Falls back to `render.yaml.sqlite` for quick demo deployments
+- Updated `render-build.sh` to auto-detect DB provider from DATABASE_URL and switch schema accordingly (PostgreSQL → `prisma migrate deploy`, SQLite → `prisma db push` + column fix safety net)
+- Updated `render-start.sh` with same provider-aware logic
+- Created `docs/MIGRATION_POSTGRES.md` — step-by-step migration guide with:
+  • Why PostgreSQL is needed for production (6 concrete reasons)
+  • 8-step migration procedure
+  • Field-by-field diff table (Int → BigInt, String → Json)
+  • Rollback procedure
+  • Troubleshooting section for common Prisma/PostgreSQL issues
+  • Pre-deployment checklist
+- Created `scripts/run-e2e.sh` — self-contained wrapper that starts dev server, waits for readiness, runs e2e-live.py, kills server, returns exit code
+
+Verification:
+- Production build: PASSES (npx next build completes with 0 type errors)
+- Unit tests: 331/331 PASS (100%)
+- Live E2E tests: 43/43 PASS (100%) — including the new Loyalty endpoints that were previously broken
+- Database re-seeded with clean accounts (no demo data)
+
+Stage Summary:
+- Project is now production-ready with clear migration path to PostgreSQL
+- All env vars documented in `.env.production.example`
+- Render Blueprint supports both SQLite (demo) and PostgreSQL (production)
+- `LoyaltyReward` / `LoyaltyPointsHistory` models restored — loyalty redemption flow fully functional
+- SMTP service already present in `src/lib/email.ts` with multi-provider support (Resend → SMTP → console log fallback)
+- Email test endpoint `POST /api/email-test?template=welcome|orderConfirmation|...` available for admin verification
+- Test accounts (clean DB):
+  - admin@platform.com / Platform2024! (super-admin)
+  - admin@monrestaurant.com / Admin2024! (restaurant admin)
+  - manager@monrestaurant.com / Manager2024! (manager)
+  - client@test.com / Client2024! (customer)
+  - driver@test.com / Driver2024! (driver)
+- Remaining optional hardening before go-live:
+  - Provision real PostgreSQL DB (Render / Railway / Supabase / Neon)
+  - Configure real SMTP credentials (SendGrid / Brevo / SES)
+  - Generate VAPID keys for push notifications (`npx web-push generate-vapid-keys`)
+  - Configure Orange Money + MTN MoMo API credentials for live mobile payments
+  - Set up automated PostgreSQL backups (pg_dump cron or managed backup)

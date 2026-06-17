@@ -1,9 +1,27 @@
+// ───────────────────────────────────────────────────────────────────
+// KFM Delice — PostgreSQL schema (PRODUCTION)
+// ───────────────────────────────────────────────────────────────────
+// Activated by `scripts/switch-schema.sh postgres` which copies this
+// file to schema.prisma. To switch back to SQLite for local dev, run
+// `scripts/switch-schema.sh sqlite` (the original schema is preserved
+// as schema.sqlite.prisma).
+//
+// Key differences vs SQLite schema:
+//   • provider = "postgresql"
+//   • All monetary / counter Int fields → BigInt (GNF amounts can exceed
+//     Int32 max of 2.1 billion; totalSpent / totalOrders / deliveryFee
+//     etc. need headroom for a multi-tenant SaaS).
+//   • Citext is NOT used to stay Prisma-portable; case-insensitive
+//     email lookups are handled in application code (raw SQL `LOWER()`).
+//   • Json fields typed as Json (not String) for native querying.
+// ───────────────────────────────────────────────────────────────────
+
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -19,6 +37,8 @@ model PlatformAdmin {
   status    String   @default("active") // active, inactive
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([email])
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -37,8 +57,8 @@ model Restaurant {
   hours         String   @default("")
   rating        Float    @default(4.5)
   tables        Int      @default(20)
-  deliveryFee   Int      @default(5000)
-  minDelivery   Int      @default(15000)
+  deliveryFee   BigInt   @default(5000)
+  minDelivery   BigInt   @default(15000)
   deliveryZones String   @default("Conakry:Kaloum:Dixinn:Matam:Matoto")
   // SaaS subscription fields
   plan          String   @default("free") // free, starter, pro, enterprise
@@ -67,6 +87,9 @@ model Restaurant {
   expenses      Expense[]
   payments      Payment[]
   loyaltyRewards LoyaltyReward[]
+
+  @@index([status])
+  @@index([plan])
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -83,13 +106,13 @@ model RestaurantConfig {
   accentColor   String   @default("#f97316") // Tailwind orange-500 default
   fontFamily    String   @default("Inter") // CSS font family
   // Menu categories (JSON array: [{id, name}])
-  menuCategories String  @default("[]")
+  menuCategories Json   @default("[]")
   // Features toggle (JSON object)
-  features      String   @default("{}")
+  features      Json     @default("{}")
   // Opening hours (JSON: {open: 11, close: 23, timezone: "Africa/Conakry"})
-  openingHours  String   @default("{}")
+  openingHours  Json     @default("{}")
   // Social links (JSON)
-  socialLinks   String   @default("{}")
+  socialLinks   Json     @default("{}")
   // Custom domain (for white-label)
   customDomain  String   @default("")
   // SEO
@@ -116,6 +139,7 @@ model Admin {
   updatedAt         DateTime   @updatedAt
 
   @@index([restaurantId])
+  @@index([email])
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -130,7 +154,7 @@ model Customer {
   address           String   @default("")
   loyaltyPoints     Int      @default(0)
   totalOrders       Int      @default(0)
-  totalSpent        Int      @default(0)
+  totalSpent        BigInt   @default(0)
   status            String   @default("active") // active, inactive
   mustChangePassword Boolean @default(false) // force password change on first login
   restaurantId      String
@@ -144,13 +168,14 @@ model Customer {
 
   @@unique([email, restaurantId])
   @@index([restaurantId])
+  @@index([restaurantId, email])
 }
 
 model MenuItem {
   id           String   @id @default(cuid())
   name         String
   description  String   @default("")
-  price        Int
+  price        BigInt
   category     String
   image        String   @default("")
   badge        String   @default("")
@@ -193,17 +218,17 @@ model Order {
   id            String   @id @default(cuid())
   customerName  String   @default("")
   phone         String   @default("")
-  items         String   // JSON string
-  total         Int
+  items         Json     // JSON array of {id, name, price, qty}
+  total         BigInt
   status        String   @default("pending") // pending, confirmed, preparing, ready, picking_up, delivering, delivered, cancelled
   orderType     String   @default("dine_in") // dine_in, takeaway, delivery
   paymentMethod String   @default("cash")
   paymentStatus String   @default("pending") // pending, processing, paid, failed, refunded
   deliveryAddress String @default("")
-  deliveryFee   Int      @default(0)
+  deliveryFee   BigInt   @default(0)
   tableNumber   Int      @default(0)
-  discount      Int      @default(0)
-  tax           Int      @default(0)
+  discount      BigInt   @default(0)
+  tax           BigInt   @default(0)
   note          String   @default("")
   estimatedDeliveryTime String @default("") // ISO string of estimated delivery
   driverLat     Float    @default(0) // driver live latitude
@@ -272,7 +297,7 @@ model Staff {
   name         String
   phone        String   @default("")
   role         String   // cuisinier, serveur, barman, gerant, plongeur, securite, caissier
-  salary       Int      @default(0)
+  salary       BigInt   @default(0)
   status       String   @default("active") // active, inactive, on_leave
   hireDate     String   @default("")
   notes        String   @default("")
@@ -287,10 +312,10 @@ model Invoice {
   number       String
   customerName String
   customerPhone String @default("")
-  items        String   // JSON string
-  subtotal     Int
-  tax          Int      @default(0)
-  total        Int
+  items        Json     // JSON array
+  subtotal     BigInt
+  tax          BigInt   @default(0)
+  total        BigInt
   status       String   @default("pending") // pending, paid, cancelled, overdue
   dueDate      String   @default("")
   notes        String   @default("")
@@ -299,6 +324,9 @@ model Invoice {
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
+
+  @@index([restaurantId, status])
+  @@index([number])
 }
 
 model Quote {
@@ -306,10 +334,10 @@ model Quote {
   number        String
   customerName  String
   customerPhone String  @default("")
-  items         String   // JSON string
-  subtotal      Int
-  discount      Int      @default(0)
-  total         Int
+  items         Json     // JSON array
+  subtotal      BigInt
+  discount      BigInt   @default(0)
+  total         BigInt
   status        String   @default("draft") // draft, sent, accepted, refused, expired
   validUntil    String   @default("")
   notes         String   @default("")
@@ -317,12 +345,15 @@ model Quote {
   restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
+
+  @@index([restaurantId, status])
+  @@index([number])
 }
 
 model Expense {
   id           String   @id @default(cuid())
   description  String
-  amount       Int
+  amount       BigInt
   category     String   // ingredients, utilities, rent, salary, equipment, transport, other
   date         String
   paidBy       String   @default("")
@@ -331,19 +362,22 @@ model Expense {
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
+
+  @@index([restaurantId, date])
+  @@index([category])
 }
 
 model Payment {
   id              String   @id @default(cuid())
   orderId         String
   order           Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  amount          Int
+  amount          BigInt
   method          String   // cash, orange_money, mtn_money, card
   status          String   @default("pending") // pending, processing, paid, failed, refunded
   transactionRef  String   @default("") // External payment reference from Orange/MTN
   phone           String   @default("") // Customer phone for mobile money
   customerName    String   @default("")
-  metadata        String   @default("{}") // JSON: additional payment data (OTP, receipt, etc.)
+  metadata        Json     @default("{}") // JSON: additional payment data (OTP, receipt, etc.)
   paidAt          String   @default("")
   failedReason    String   @default("")
   restaurantId    String
@@ -366,7 +400,7 @@ model LoyaltyReward {
   description  String   @default("")
   category     String   @default("discount") // discount, free_item, vip, cashback
   pointsCost   Int
-  value        Int      @default(0) // monetary value or percentage
+  value        BigInt   @default(0) // monetary value or percentage
   active       Boolean  @default(true)
   restaurantId String
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
