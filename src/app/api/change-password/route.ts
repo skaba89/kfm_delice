@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 import { db, dbReady, bigIntToNumber } from "@/lib/db";
+=======
+import { db, dbReady } from "@/lib/db";
+>>>>>>> kfm/main
 import { NextResponse } from "next/server";
 import { authenticateAny, hashPassword, verifyPassword } from "@/lib/auth";
 import { z } from "zod";
@@ -35,10 +39,17 @@ export async function POST(request: Request) {
     let user: { id: string; password: string; mustChangePassword: number } | null = null;
     const tableName = auth.type.charAt(0).toUpperCase() + auth.type.slice(1); // Admin, Customer, Driver
 
+<<<<<<< HEAD
     const rows = bigIntToNumber(await db.$queryRawUnsafe(
       `SELECT id, password, COALESCE(mustChangePassword, 0) as mustChangePassword FROM ${tableName} WHERE id = ?`,
       auth.id
     )) as any[];
+=======
+    const rows: any[] = await db.$queryRawUnsafe(
+      `SELECT id, password, COALESCE(mustChangePassword, 0) as mustChangePassword FROM ${tableName} WHERE id = ?`,
+      auth.id
+    );
+>>>>>>> kfm/main
 
     if (rows && rows.length > 0) {
       user = {

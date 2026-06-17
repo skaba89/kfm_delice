@@ -131,10 +131,10 @@ export async function PATCH(request: Request) {
     }
 
     // Scope update to admin's restaurant
-    const existing = bigIntToNumber(await db.$queryRawUnsafe<Array<{ id: string }>>(
+    const existing = await db.$queryRawUnsafe<Array<{ id: string }>>(
       'SELECT id FROM Driver WHERE id = ? AND restaurantId = ?',
       id, admin.restaurantId
-    )) as Array<{ id: string }>;
+    );
     if (!existing[0]) return NextResponse.json({ error: "Livreur introuvable" }, { status: 404 });
 
     const updateData: Record<string, unknown> = { ...data };
@@ -157,7 +157,7 @@ export async function PATCH(request: Request) {
     );
 
     // Fetch updated driver
-    const updated = bigIntToNumber(await db.$queryRawUnsafe<Array<{
+    const updated = await db.$queryRawUnsafe<Array<{
       id: string; email: string; name: string; phone: string; vehicle: string;
       status: string; rating: number; totalDeliveries: number; zone: string;
       lat: number; lng: number; currentOrderId: string; restaurantId: string;
@@ -166,7 +166,7 @@ export async function PATCH(request: Request) {
         COALESCE(lat, 0) as lat, COALESCE(lng, 0) as lng,
         COALESCE(currentOrderId, '') as currentOrderId, restaurantId
       FROM Driver WHERE id = ?`, id
-    )) as Array<Record<string, unknown>>;
+    );
 
     return NextResponse.json(updated[0] || { id });
   } catch (error) {

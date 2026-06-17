@@ -1,4 +1,4 @@
-import { db, dbReady, bigIntToNumber } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { verifyPassword, generateToken } from "@/lib/auth";
 import { rateLimit } from "@/lib/rate-limit";
@@ -27,10 +27,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Email et mot de passe requis" }, { status: 400 });
     }
 
-    const rows = bigIntToNumber(await db.$queryRawUnsafe(
+    const rows: any[] = await db.$queryRawUnsafe(
       'SELECT id, email, password, name, role, status FROM PlatformAdmin WHERE email = ?',
       email
-    )) as any[];
+    );
     const platformAdmin = rows[0];
     if (!platformAdmin) {
       return NextResponse.json({ error: "Identifiants incorrects" }, { status: 401 });

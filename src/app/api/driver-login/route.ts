@@ -1,4 +1,4 @@
-import { db, dbReady, bigIntToNumber } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { verifyPassword, generateToken } from "@/lib/auth";
 import { rateLimit } from "@/lib/rate-limit";
@@ -37,11 +37,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
     }
 
-    const rows = bigIntToNumber(await db.$queryRawUnsafe(
+    const rows: any[] = await db.$queryRawUnsafe(
       'SELECT d.id, d.email, d.password, d.name, d.phone, d.vehicle, d.status, d.rating, d.totalDeliveries, d.zone, COALESCE(d.lat, 0) as lat, COALESCE(d.lng, 0) as lng, COALESCE(d.currentOrderId, "") as currentOrderId, COALESCE(d.mustChangePassword, 0) as mustChangePassword, d.restaurantId, r.slug as restaurantSlug FROM Driver d LEFT JOIN Restaurant r ON d.restaurantId = r.id WHERE d.email = ? AND d.restaurantId = ?',
       email,
       restaurantId
-    )) as any[];
+    );
     const driver = rows[0];
     if (!driver || !driver.password) {
       return NextResponse.json({ error: "Identifiants incorrects" }, { status: 401 });

@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 import { db, dbReady, bigIntToNumber } from "@/lib/db";
+=======
+import { db, dbReady } from "@/lib/db";
+>>>>>>> kfm/main
 import { NextResponse } from "next/server";
 import { verifyPassword, generateToken } from "@/lib/auth";
 import { loginSchema } from "@/lib/validations";
@@ -39,12 +43,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
     }
 
+<<<<<<< HEAD
     const rawRows: any[] = await db.$queryRawUnsafe(
+=======
+    const rows: any[] = await db.$queryRawUnsafe(
+>>>>>>> kfm/main
       'SELECT c.id, c.email, c.password, c.name, c.phone, c.address, c.loyaltyPoints, c.totalOrders, c.totalSpent, c.status, COALESCE(c.mustChangePassword, 0) as mustChangePassword, c.restaurantId, r.slug as restaurantSlug FROM Customer c LEFT JOIN Restaurant r ON c.restaurantId = r.id WHERE c.email = ? AND c.restaurantId = ?',
       email,
       restaurantId
     );
+<<<<<<< HEAD
     const rows = bigIntToNumber(rawRows) as any[];
+=======
+>>>>>>> kfm/main
     const customer = rows[0];
     if (!customer) {
       return NextResponse.json({ error: "Identifiants incorrects" }, { status: 401 });
