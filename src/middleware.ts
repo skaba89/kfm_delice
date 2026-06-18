@@ -23,12 +23,12 @@ const PUBLIC_ANY_ROUTES = ['/api']; // health check
 
 // Auth endpoints that need rate limiting
 const AUTH_ROUTES = ['/api/login', '/api/customer-login', '/api/customer-register', '/api/driver-login', '/api/register-restaurant', '/api/platform-login'];
-const AUTH_RATE_LIMIT = 10;       // max requests
-const AUTH_RATE_WINDOW = 60_000;  // per minute
+const AUTH_RATE_LIMIT = parseInt(process.env.AUTH_RATE_LIMIT || '10', 10);       // max requests
+const AUTH_RATE_WINDOW = parseInt(process.env.AUTH_RATE_WINDOW_MS || '60000', 10);  // per minute
 
 // General API rate limiting
-const API_RATE_LIMIT = 60;        // max requests
-const API_RATE_WINDOW = 60_000;   // per minute
+const API_RATE_LIMIT = parseInt(process.env.API_RATE_LIMIT || '60', 10);        // max requests
+const API_RATE_WINDOW = parseInt(process.env.API_RATE_WINDOW_MS || '60000', 10);   // per minute
 
 // ────────────────────────────────────────────────────────────────
 // Tenant Slug Extraction (Edge-compatible, no DB access)

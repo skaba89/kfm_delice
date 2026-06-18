@@ -442,13 +442,15 @@ def test_expenses_create_list():
 
 def test_payments_create_list():
     # Use a cash payment tied to an order — use `qty` not `quantity`
+    # Use delivery orderType to bypass the restaurant-hours check (dine_in/takeaway are blocked outside 11h-23h UTC)
     status, body = req("POST", "/api/orders", body={
         "customerName": "Client Paiement E2E",
         "customerPhone": "622000000",
         "items": json.dumps([{"name": "Bissap", "price": 5000, "qty": 3}]),
         "total": 15000,
-        "orderType": "takeaway",
+        "orderType": "delivery",
         "paymentMethod": "cash",
+        "deliveryAddress": "Test address",
     }, token=TOKENS["customer"], slug=SLUG, expect=201)
     order_id = body.get("id")
     assert order_id, f"order create failed: {body}"
@@ -669,6 +671,26 @@ def main():
         print("FATAL: server not reachable on", BASE)
         sys.exit(1)
     print("  server is up")
+
+    # 1b) Pre-warm all API routes that will be tested
+    # (Turbopack compiles routes on-demand; first hit can return 404 HTML page during compile)
+    print("  pre-warming API routes...")
+    warmup_paths = [
+        "/api/loyalty/rewards",
+        "/api/loyalty/history",
+        "/api/platform/restaurants",
+        "/api/invoices",
+        "/api/quotes",
+        "/api/expenses",
+        "/api/payments",
+        "/api/push",
+    ]
+    for path in warmup_paths:
+        try:
+            req("GET", path, slug=SLUG, expect=None)
+        except Exception:
+            pass
+    print("  pre-warm complete")
 
     # 2) Auth tests
     print("\n[1] Authentication")

@@ -427,3 +427,25 @@ model LoyaltyPointsHistory {
   @@index([customerId, createdAt])
   @@index([type])
 }
+
+// ────────────────────────────────────────────────────────────────
+// PushSubscription — Web Push API subscriptions for notifications
+// ────────────────────────────────────────────────────────────────
+model PushSubscription {
+  id           String   @id @default(cuid())
+  // Composite key: "<userType>:<userId>" (e.g. "admin:abc123")
+  userKey      String
+  userType     String   // admin, customer, driver, platform
+  userId       String
+  restaurantId String   @default("") // empty for platform admins
+  endpoint     String   @unique // PushSubscription.endpoint (FCM/Mozilla URL)
+  p256dhKey    String   // base64-encoded ECDH public key
+  authKey      String   // base64-encoded auth secret
+  userAgent    String   @default("") // browser identification
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userKey])
+  @@index([userId, userType])
+  @@index([restaurantId])
+}

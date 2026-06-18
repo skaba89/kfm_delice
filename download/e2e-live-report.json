@@ -1,7 +1,7 @@
 {
   "base_url": "http://127.0.0.1:3000",
   "slug": "mon-restaurant",
-  "timestamp": 1781732404,
+  "timestamp": 1781757793,
   "total": 43,
   "pass": 43,
   "fail": 0,
@@ -9,217 +9,217 @@
     {
       "name": "health_public_responds",
       "status": "PASS",
-      "ms": 11
+      "ms": 9
     },
     {
       "name": "login_admin",
       "status": "PASS",
-      "ms": 444
+      "ms": 500
     },
     {
       "name": "login_manager",
       "status": "PASS",
-      "ms": 85
+      "ms": 81
     },
     {
       "name": "login_customer",
       "status": "PASS",
-      "ms": 278
+      "ms": 447
     },
     {
       "name": "login_driver",
       "status": "PASS",
-      "ms": 227
+      "ms": 210
     },
     {
       "name": "login_platform",
       "status": "PASS",
-      "ms": 192
+      "ms": 189
     },
     {
       "name": "login_wrong_password_rejected",
       "status": "PASS",
-      "ms": 9
+      "ms": 10
     },
     {
       "name": "menu_list",
       "status": "PASS",
-      "ms": 40
+      "ms": 156
     },
     {
       "name": "menu_create_update_delete",
       "status": "PASS",
-      "ms": 37
+      "ms": 40
     },
     {
       "name": "orders_create_list",
       "status": "PASS",
-      "ms": 255
+      "ms": 245
     },
     {
       "name": "reservations_create_list",
       "status": "PASS",
-      "ms": 166
+      "ms": 160
     },
     {
       "name": "customers_list",
       "status": "PASS",
-      "ms": 152
+      "ms": 151
     },
     {
       "name": "customer_register_new",
       "status": "PASS",
-      "ms": 142
+      "ms": 129
     },
     {
       "name": "drivers_list",
       "status": "PASS",
-      "ms": 156
+      "ms": 138
     },
     {
       "name": "driver_me",
       "status": "PASS",
-      "ms": 145
+      "ms": 139
     },
     {
       "name": "driver_location_update",
       "status": "PASS",
-      "ms": 145
+      "ms": 142
     },
     {
       "name": "driver_orders",
       "status": "PASS",
-      "ms": 141
+      "ms": 161
     },
     {
       "name": "staff_list",
       "status": "PASS",
-      "ms": 141
+      "ms": 146
     },
     {
       "name": "staff_create_delete",
       "status": "PASS",
-      "ms": 19
+      "ms": 22
     },
     {
       "name": "admins_list",
       "status": "PASS",
-      "ms": 147
+      "ms": 142
     },
     {
       "name": "admins_list_as_platform",
       "status": "PASS",
-      "ms": 8
+      "ms": 6
     },
     {
       "name": "invoices_create_list_get",
       "status": "PASS",
-      "ms": 1190
+      "ms": 1163
     },
     {
       "name": "quotes_create_list",
       "status": "PASS",
-      "ms": 206
+      "ms": 167
     },
     {
       "name": "expenses_create_list_delete",
       "status": "PASS",
-      "ms": 169
+      "ms": 166
     },
     {
       "name": "payments_create_list",
       "status": "PASS",
-      "ms": 192
+      "ms": 177
     },
     {
       "name": "loyalty_rewards_list",
       "status": "PASS",
-      "ms": 122
+      "ms": 7
     },
     {
       "name": "loyalty_history",
       "status": "PASS",
-      "ms": 125
+      "ms": 129
     },
     {
       "name": "reviews_create_list",
       "status": "PASS",
-      "ms": 166
+      "ms": 143
     },
     {
       "name": "dashboard",
       "status": "PASS",
-      "ms": 140
+      "ms": 127
     },
     {
       "name": "stats",
       "status": "PASS",
-      "ms": 139
+      "ms": 126
     },
     {
       "name": "analytics",
       "status": "PASS",
-      "ms": 134
+      "ms": 115
     },
     {
       "name": "tracking_endpoint",
       "status": "PASS",
-      "ms": 131
+      "ms": 121
     },
     {
       "name": "restaurant_config",
       "status": "PASS",
-      "ms": 137
+      "ms": 117
     },
     {
       "name": "restaurants_list",
       "status": "PASS",
-      "ms": 269
+      "ms": 241
     },
     {
       "name": "platform_restaurants",
       "status": "PASS",
-      "ms": 182
+      "ms": 181
     },
     {
       "name": "change_password",
       "status": "PASS",
-      "ms": 494
+      "ms": 683
     },
     {
       "name": "ws_notify",
       "status": "PASS",
-      "ms": 143
+      "ms": 134
     },
     {
       "name": "ws_poll",
       "status": "PASS",
-      "ms": 136
+      "ms": 131
     },
     {
       "name": "health_admin",
       "status": "PASS",
-      "ms": 9
+      "ms": 10
     },
     {
       "name": "diagnose",
       "status": "PASS",
-      "ms": 99
+      "ms": 95
     },
     {
       "name": "push_list",
       "status": "PASS",
-      "ms": 132
+      "ms": 195
     },
     {
       "name": "seed_status",
       "status": "PASS",
-      "ms": 125
+      "ms": 118
     },
     {
       "name": "email_test_admin",
       "status": "PASS",
-      "ms": 236
+      "ms": 213
     }
   ]
 }

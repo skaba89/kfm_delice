@@ -46,6 +46,7 @@
     "datasphere-innovation-ia-plateform",
     "mini-services",
     "tool-results",
-    "agent-ctx"
+    "agent-ctx",
+    "scripts/migrate-sqlite-to-postgres.ts"
   ]
 }

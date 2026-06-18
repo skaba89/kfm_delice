@@ -12,7 +12,13 @@ sleep 3
 
 # 2. Start dev server in background
 echo "[run-e2e] Starting Next.js dev server..."
-NODE_OPTIONS="--max-old-space-size=1024" nohup next dev -p 3000 -H 127.0.0.1 > /tmp/kfm-dev.log 2>&1 &
+# Use higher rate limits for testing (default 60/min is too low for 43+ test requests)
+NODE_OPTIONS="--max-old-space-size=1024" \
+API_RATE_LIMIT=1000 \
+API_RATE_WINDOW_MS=60000 \
+AUTH_RATE_LIMIT=1000 \
+AUTH_RATE_WINDOW_MS=60000 \
+nohup next dev -p 3000 -H 127.0.0.1 > /tmp/kfm-dev.log 2>&1 &
 SERVER_PID=$!
 echo "[run-e2e] Server PID: $SERVER_PID"
 
