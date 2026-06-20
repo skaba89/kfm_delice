@@ -1,0 +1,63 @@
+# KFM Delice - Render Deploy Trigger (auto on main push + manual dispatch)
+name: Deploy to Render
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        default: production
+        options: [production, staging]
+      clear_cache:
+        description: "Clear build cache"
+        required: false
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "prisma/**"
+      - "public/**"
+      - "package.json"
+      - "bun.lock"
+      - "next.config.ts"
+      - "tsconfig.json"
+      - "render.yaml"
+      - "render-build.sh"
+      - "render-start.sh"
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
+    timeout-minutes: 5
+    steps:
+      - name: Check secret
+        id: check
+        env:
+          HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$HOOK_URL" ]; then
+            echo "::warning::RENDER_DEPLOY_HOOK_URL not set - skipping"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+      - name: Trigger Render deploy hook
+        if: steps.check.outputs.skip != 'true'
+        env:
+          HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          CLEAR_CACHE: ${{ github.event.inputs.clear_cache || 'false' }}
+        run: |
+          echo "Triggering Render deploy..."
+          if [ "$CLEAR_CACHE" = "true" ]; then
+            curl -sSL -X POST -H "Content-Type: application/json" -d '{"clearCache": true}' -w "\nHTTP %{http_code}\n" "$HOOK_URL"
+          else
+            curl -sSL -X POST -w "\nHTTP %{http_code}\n" "$HOOK_URL"
+          fi
+      - name: Summary
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          echo "Deploy triggered. Commit: ${{ github.sha }} Branch: ${{ github.ref_name }}"
+          echo "Monitor: https://dashboard.render.com"

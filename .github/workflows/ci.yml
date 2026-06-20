@@ -1,0 +1,124 @@
+# KFM Delice - CI pipeline (6 stages: lint -> typecheck -> build -> unit -> e2e -> preflight)
+name: CI
+on:
+  push: { branches: [main, develop] }
+  pull_request: { branches: [main, develop] }
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  DATABASE_URL: "file:./prisma/ci-test.db"
+  JWT_SECRET: "ci-test-jwt-secret-not-for-production-32chars-min"
+  JWT_EXPIRES_IN: "1d"
+  NEXT_PUBLIC_APP_NAME: "KFM Delice (CI)"
+  NEXT_PUBLIC_VAPID_PUBLIC_KEY: "ci-test-public-key"
+  VAPID_PRIVATE_KEY: "ci-test-private-key"
+  VAPID_SUBJECT: "mailto:ci@example.com"
+  NODE_ENV: "test"
+  API_RATE_LIMIT: "1000"
+  AUTH_RATE_LIMIT: "1000"
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: latest }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: bun }
+      - run: bun install --frozen-lockfile
+      - run: bunx prisma generate
+      - run: bun run lint
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: latest }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: bun }
+      - run: bun install --frozen-lockfile
+      - run: bunx prisma generate
+      - run: bunx tsc --noEmit
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [lint, typecheck]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: latest }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: bun }
+      - run: bun install --frozen-lockfile
+      - run: bunx prisma generate
+      - run: bunx prisma db push --skip-generate --accept-data-loss
+      - run: bun run build
+        env: { NEXT_TELEMETRY_DISABLED: "1" }
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [build]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: latest }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: bun }
+      - run: bun install --frozen-lockfile
+      - run: bunx prisma generate
+      - run: bunx prisma db push --skip-generate --accept-data-loss
+      - run: bun run test
+        env: { NEXT_TELEMETRY_DISABLED: "1" }
+  e2e-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [build]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: latest }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: bun }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: bun install --frozen-lockfile
+      - run: bunx prisma generate
+      - run: bunx prisma db push --skip-generate --accept-data-loss
+      - run: bunx tsx prisma/clean-seed.ts
+      - run: bash scripts/run-e2e.sh
+        env: { NEXT_TELEMETRY_DISABLED: "1" }
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [unit-tests, e2e-tests]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: latest }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: bun }
+      - run: bun install --frozen-lockfile
+      - run: bunx prisma generate
+      - run: bash scripts/preflight-check.sh --skip-build --skip-tests
+        env:
+          DATABASE_URL: "file:./prisma/ci-test.db"
+          JWT_SECRET: "ci-test-jwt-secret-not-for-production-32chars-min"
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: "ci-test-public-key"
+          VAPID_PRIVATE_KEY: "ci-test-private-key"
+          VAPID_SUBJECT: "mailto:ci@example.com"
+          PUBLIC_APP_URL: "http://localhost:3000"
+  ci-pass:
+    runs-on: ubuntu-latest
+    needs: [lint, typecheck, build, unit-tests, e2e-tests, preflight]
+    if: always()
+    steps:
+      - name: Fail if any upstream job failed
+        if: ${{ needs.lint.result != 'success' || needs.typecheck.result != 'success' || needs.build.result != 'success' || needs.unit-tests.result != 'success' || needs.e2e-tests.result != 'success' || needs.preflight.result != 'success' }}
+        run: |
+          echo "CI failed: lint=${{ needs.lint.result }} typecheck=${{ needs.typecheck.result }} build=${{ needs.build.result }} unit=${{ needs.unit-tests.result }} e2e=${{ needs.e2e-tests.result }} preflight=${{ needs.preflight.result }}"
+          exit 1
+      - run: echo "All CI stages passed - safe to deploy."
