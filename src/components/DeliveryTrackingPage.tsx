@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { motion } from "framer-motion";
 import {
   CheckCircle2, UtensilsCrossed, Package, Navigation, Truck,
   ChevronLeft, Radio, XCircle, Phone, MessageCircle, MapPin,
-  CreditCard, Timer, Map,
+  CreditCard, Timer, Map, AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,6 +15,7 @@ import { DeliveryMap } from "@/components/DeliveryMap";
 import type { OrderDB, DriverDB } from "@/lib/types";
 import { RESTO, vehicleLabels, paymentLabels, formatPrice } from "@/lib/constants";
 import { useAuth } from "@/lib/auth-context";
+import { geocodeAddress, estimateRoadKm, estimateEtaMinutes } from "@/lib/geocode";
 
 const DELIVERY_STEPS = [
   { id: "confirmed", label: "Commande reçue", icon: CheckCircle2, desc: "Votre commande a été confirmée" },
@@ -32,31 +33,58 @@ function getStepIndex(status: string) {
   return idx;
 }
 
-// Restaurant location
+// Restaurant location (KFM Delice — Almamya, Corniche Nord, Conakry)
 const RESTO_LAT = 9.5092;
 const RESTO_LNG = -13.7122;
-
-// Generate a simulated destination based on delivery address
-function getDestinationFromAddress(address: string): { lat: number; lng: number } {
-  // Generate a deterministic but varied position based on address string
-  let hash = 0;
-  for (let i = 0; i < address.length; i++) {
-    hash = ((hash << 5) - hash) + address.charCodeAt(i);
-    hash |= 0;
-  }
-  const absHash = Math.abs(hash);
-  const lat = 9.48 + (absHash % 1000) / 1000 * 0.10;
-  const lng = -13.75 + ((absHash >> 10) % 1000) / 1000 * 0.13;
-  return { lat, lng };
-}
 
 export function DeliveryTrackingPage({ trackingOrder, onBack }: { trackingOrder: OrderDB; onBack: () => void }) {
   const { apiFetch } = useAuth();
   const [order, setOrder] = useState<OrderDB>(trackingOrder);
   const [driverData, setDriverData] = useState<DriverDB | null>(trackingOrder.driver);
   const [showMap, setShowMap] = useState(true);
+  const [dest, setDest] = useState<{ lat: number; lng: number } | null>(null);
+  const [geocoding, setGeocoding] = useState(false);
+  const [geocodeError, setGeocodeError] = useState<string | null>(null);
+  const geocodeAbortRef = useRef<AbortController | null>(null);
 
-  // Poll for updates every 5 seconds
+  // Geocode the delivery address to get real lat/lng
+  useEffect(() => {
+    if (!order.deliveryAddress) {
+      setDest(null);
+      return;
+    }
+
+    // Cancel any in-flight request
+    geocodeAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    geocodeAbortRef.current = ctrl;
+
+    setGeocoding(true);
+    setGeocodeError(null);
+
+    geocodeAddress(order.deliveryAddress, ctrl.signal)
+      .then((result) => {
+        if (ctrl.signal.aborted) return;
+        if (result) {
+          setDest({ lat: result.lat, lng: result.lng });
+        } else {
+          setGeocodeError("Adresse non localisée précisément — position approximative");
+          // Fall back to a deterministic point in Conakry near the restaurant
+          const seed = order.deliveryAddress.length;
+          setDest({
+            lat: RESTO_LAT + ((seed * 7) % 50) / 1000,
+            lng: RESTO_LNG + ((seed * 13) % 60) / 1000,
+          });
+        }
+      })
+      .finally(() => {
+        if (!ctrl.signal.aborted) setGeocoding(false);
+      });
+
+    return () => ctrl.abort();
+  }, [order.deliveryAddress]);
+
+  // Poll order updates every 5 s
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
@@ -71,7 +99,7 @@ export function DeliveryTrackingPage({ trackingOrder, onBack }: { trackingOrder:
     return () => clearInterval(interval);
   }, [order.id]);
 
-  // Also poll driver location if there's a driver
+  // Poll driver GPS position every 5 s (real-time tracking)
   useEffect(() => {
     if (!order.driverId) return;
     const interval = setInterval(async () => {
@@ -80,7 +108,10 @@ export function DeliveryTrackingPage({ trackingOrder, onBack }: { trackingOrder:
         if (res.ok) {
           const data = await res.json();
           if (data && !Array.isArray(data)) {
-            setDriverData(prev => prev ? { ...prev, lat: data.lat, lng: data.lng, lastLocationUpdate: data.lastLocationUpdate } : prev);
+            setDriverData(prev => prev
+              ? { ...prev, lat: data.lat, lng: data.lng, status: data.status, lastLocationUpdate: data.lastLocationUpdate }
+              : prev
+            );
           }
         }
       } catch { /* silently retry */ }
@@ -94,14 +125,25 @@ export function DeliveryTrackingPage({ trackingOrder, onBack }: { trackingOrder:
   let items: { name: string; price: number; qty: number }[] = [];
   try { items = JSON.parse(order.items); } catch { /* */ }
 
-  // Simulated progress percentage
   const progressPercent = isCancelled ? 0 : isDelivered ? 100 : stepIdx >= 0 ? Math.round(((stepIdx + 1) / DELIVERY_STEPS.length) * 100) : 5;
 
-  // Destination for map
-  const dest = order.deliveryAddress ? getDestinationFromAddress(order.deliveryAddress) : null;
+  // ETA: distance-based estimate (or fallback to order's stored ETA)
+  const etaMinutes = useMemo(() => {
+    if (!driverData || !dest) return null;
+    if (driverData.lat === 0 && driverData.lng === 0) return null;
+    const roadKm = estimateRoadKm(driverData.lat, driverData.lng, dest.lat, dest.lng);
+    return estimateEtaMinutes(roadKm);
+  }, [driverData, dest]);
 
   // Drivers array for the map (just the one driver if available)
   const mapDrivers = driverData ? [driverData] : [];
+
+  // Show the map as soon as we have a driver assigned (not just during picking_up/delivering)
+  const showLiveMap =
+    !isCancelled &&
+    !!order.driverId &&
+    !!driverData &&
+    (order.status === "ready" || order.status === "picking_up" || order.status === "delivering");
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white dark:from-gray-950 dark:to-gray-900">
@@ -132,32 +174,41 @@ export function DeliveryTrackingPage({ trackingOrder, onBack }: { trackingOrder:
       </div>
 
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
-        {/* Live Map */}
-        {(order.status === "picking_up" || order.status === "delivering") && showMap && (
+        {/* Live Map — shown as soon as a driver is assigned */}
+        {showLiveMap && showMap && (
           <Card className="border-none shadow-md overflow-hidden">
             <CardContent className="p-0">
-              <div className="flex items-center justify-between px-4 py-2 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 border-b dark:border-gray-700">
+              <div className="flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 border-b dark:border-gray-700">
                 <div className="flex items-center gap-2 text-sm font-semibold text-purple-700 dark:text-purple-400">
                   <Map className="w-4 h-4" />
-                  Position du livreur
+                  Carte de livraison en temps réel
+                  {geocoding && <span className="text-xs text-purple-400 ml-1">(localisation…)</span>}
                 </div>
                 <button onClick={() => setShowMap(false)} className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">Masquer</button>
               </div>
-              <DeliveryMap
-                drivers={mapDrivers}
-                orders={[order]}
-                apiFetch={apiFetch}
-                focusDriverId={order.driverId || undefined}
-                destinationLat={dest?.lat}
-                destinationLng={dest?.lng}
-                simple
-                className="border-0 shadow-none rounded-none"
-              />
+              <div className="p-2">
+                <DeliveryMap
+                  drivers={mapDrivers}
+                  orders={[order]}
+                  apiFetch={apiFetch}
+                  focusDriverId={order.driverId || undefined}
+                  destinationLat={dest?.lat}
+                  destinationLng={dest?.lng}
+                  simple
+                  className="border-0 shadow-none rounded-xl overflow-hidden"
+                />
+              </div>
+              {geocodeError && (
+                <div className="px-4 pb-3 flex items-start gap-2 text-xs text-amber-600 dark:text-amber-400">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <span>{geocodeError}</span>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
 
-        {!showMap && (order.status === "picking_up" || order.status === "delivering") && (
+        {!showMap && showLiveMap && (
           <Button size="sm" variant="outline" onClick={() => setShowMap(true)} className="w-full border-purple-200 text-purple-600 hover:bg-purple-50 dark:border-purple-800 dark:text-purple-400">
             <Map className="w-4 h-4 mr-2" /> Afficher la carte
           </Button>
@@ -196,7 +247,6 @@ export function DeliveryTrackingPage({ trackingOrder, onBack }: { trackingOrder:
                   const isPending = idx > stepIdx;
                   return (
                     <div key={step.id} className="flex gap-3">
-                      {/* Timeline line & dot */}
                       <div className="flex flex-col items-center">
                         <motion.div initial={{ scale: 0.8 }} animate={{ scale: isCurrent ? 1.1 : 1 }} className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 transition-colors ${isCompleted ? "bg-gradient-to-br from-orange-500 to-red-500 text-white shadow-lg shadow-orange-500/30" : isPending ? "bg-gray-100 dark:bg-gray-700 text-gray-400" : "bg-gray-100 dark:bg-gray-700 text-gray-400"}`}>
                           <step.icon className="w-5 h-5" />
@@ -205,7 +255,6 @@ export function DeliveryTrackingPage({ trackingOrder, onBack }: { trackingOrder:
                           <div className={`w-0.5 h-12 transition-colors ${idx < stepIdx ? "bg-orange-400" : "bg-gray-200 dark:bg-gray-700"}`} />
                         )}
                       </div>
-                      {/* Content */}
                       <div className={`pb-6 ${idx === DELIVERY_STEPS.length - 1 ? "pb-0" : ""}`}>
                         <p className={`font-medium text-sm ${isCompleted ? "text-gray-900 dark:text-gray-100" : "text-gray-400 dark:text-gray-500"}`}>{step.label}</p>
                         <p className={`text-xs mt-0.5 ${isCurrent ? "text-orange-600 dark:text-orange-400" : "text-gray-400 dark:text-gray-500"}`}>{step.desc}</p>
@@ -262,7 +311,7 @@ export function DeliveryTrackingPage({ trackingOrder, onBack }: { trackingOrder:
         </Card>
 
         {/* ETA */}
-        {!isCancelled && !isDelivered && (order.status === "delivering" || order.status === "picking_up") && (
+        {!isCancelled && !isDelivered && showLiveMap && (
           <Card className="border-none shadow-md bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20">
             <CardContent className="p-5">
               <div className="flex items-center gap-3">
@@ -272,8 +321,17 @@ export function DeliveryTrackingPage({ trackingOrder, onBack }: { trackingOrder:
                 <div>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Arrivée estimée</p>
                   <p className="text-xl font-bold text-gray-900 dark:text-gray-100">
-                    {order.estimatedDeliveryTime ? new Date(order.estimatedDeliveryTime).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "~30 min"}
+                    {etaMinutes
+                      ? `~${etaMinutes} min`
+                      : order.estimatedDeliveryTime
+                      ? new Date(order.estimatedDeliveryTime).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
+                      : "~30 min"}
                   </p>
+                  {driverData && dest && (driverData.lat !== 0 || driverData.lng !== 0) && (
+                    <p className="text-xs text-purple-600 dark:text-purple-400 mt-0.5">
+                      {driverData.name} est à ~{estimateRoadKm(driverData.lat, driverData.lng, dest.lat, dest.lng).toFixed(1)} km de vous
+                    </p>
+                  )}
                 </div>
                 <div className="ml-auto">
                   <motion.div animate={{ scale: [1, 1.2, 1] }} transition={{ duration: 2, repeat: Infinity }} className="w-4 h-4 bg-green-500 rounded-full" />

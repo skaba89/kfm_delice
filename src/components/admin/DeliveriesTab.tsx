@@ -189,7 +189,7 @@ export function DeliveriesTab({ orders, drivers, apiPatch, apiFetch, assigningOr
           </div>
           <div className="flex items-center gap-2">
             <motion.div animate={{ scale: [1, 1.3, 1] }} transition={{ duration: 2, repeat: Infinity }} className="w-2 h-2 bg-green-500 rounded-full" />
-            <span className="text-xs text-gray-500 dark:text-gray-400">MAJ auto 15s</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">MAJ auto 5s</span>
           </div>
         </div>
         <DeliveryMap

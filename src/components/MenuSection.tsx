@@ -34,8 +34,12 @@ export function MenuSection() {
             {items.map((item) => (
               <AnimatedSection key={item.id}>
                 <Card className="overflow-hidden hover:shadow-xl transition-all group">
-                  <div className="h-48 overflow-hidden relative">
-                    <img src={item.image} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                  <div className="h-48 overflow-hidden relative bg-gradient-to-br from-orange-100 to-amber-100 dark:from-gray-800 dark:to-gray-700 flex items-center justify-center">
+                    {item.image ? (
+                      <img src={item.image} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                    ) : (
+                      <span className="text-6xl opacity-30">🍽️</span>
+                    )}
                     {item.badge && <Badge className="absolute top-3 right-3 bg-gradient-to-r from-orange-500 to-red-500 text-white text-xs">{item.badge}</Badge>}
                     {item.popular && <Badge className="absolute top-3 left-3 bg-amber-500 text-white text-xs"><Star className="w-3 h-3 mr-1 fill-white" /> Populaire</Badge>}
                   </div>
