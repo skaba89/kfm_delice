@@ -221,7 +221,7 @@ export async function POST(request: Request) {
       update: {},
       create: {
         restaurantId: restaurant.id,
-        logo: "/images/logo.png",
+        logo: "/images/logo-512.png",
         heroImage: "/images/hero.jpg",
         primaryColor: "#ea580c",
         accentColor: "#f97316",

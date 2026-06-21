@@ -30,9 +30,17 @@ export const metadata: Metadata = {
     "Conakry",
     "booking",
   ],
-  authors: [{ name: "Restaurant Booking Pro" }],
+  authors: [{ name: "KFM Delice" }],
   icons: {
-    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
+    icon: [
+      { url: "/favicon.ico", sizes: "48x48", type: "image/x-icon" },
+      { url: "/images/favicon-16.png", sizes: "16x16", type: "image/png" },
+      { url: "/images/favicon-32.png", sizes: "32x32", type: "image/png" },
+      { url: "/images/favicon-48.png", sizes: "48x48", type: "image/png" },
+      { url: "/logo.svg", type: "image/svg+xml" },
+    ],
+    apple: "/images/apple-touch-icon.png",
+    shortcut: "/favicon.ico",
   },
 };
 
@@ -46,8 +54,12 @@ export default function RootLayout({
       <head>
         <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#ea580c" />
-        <link rel="apple-touch-icon" href="/images/apple-touch-icon.png" />
+        <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon.png" />
+        <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+        <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+        <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16.png" />
         <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32.png" />
+        <link rel="icon" type="image/png" sizes="48x48" href="/images/favicon-48.png" />
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
