@@ -110,20 +110,22 @@ export async function POST(request: Request) {
     if (!restaurantId) return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
 
     // Server-side price verification
-    const orderedItems = JSON.parse(body.items || "[]") as { name: string; price: number; qty: number; note?: string }[];
+    // Accept both `qty` and `quantity` for backward compatibility
+    const orderedItems = JSON.parse(body.items || "[]") as { name: string; price: number; qty?: number; quantity?: number; note?: string }[];
     const menuItemsFromDB = await db.menuItem.findMany({ where: { available: true, restaurantId } });
 
     let recalculatedTotal = 0;
     const verifiedItems = orderedItems.map(item => {
+      const itemQty = item.qty ?? item.quantity ?? 1;
       const dbItem = menuItemsFromDB.find(m => m.name === item.name);
       if (dbItem) {
         // Use the DB price, not the client-sent price
-        recalculatedTotal += dbItem.price * item.qty;
-        return { ...item, price: dbItem.price };
+        recalculatedTotal += dbItem.price * itemQty;
+        return { ...item, qty: itemQty, price: dbItem.price };
       }
       // If item not found in DB, keep client price but flag it
-      recalculatedTotal += item.price * item.qty;
-      return item;
+      recalculatedTotal += (item.price || 0) * itemQty;
+      return { ...item, qty: itemQty };
     });
 
     // Add delivery fee if applicable

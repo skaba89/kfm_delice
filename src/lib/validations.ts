@@ -315,7 +315,7 @@ export const customerCreateSchema = z.object({
 });
 
 export const driverLocationPatchSchema = z.object({
-  driverId: z.string().min(1, 'ID livreur requis'),
+  driverId: z.string().min(1, 'ID livreur requis').optional(),
   lat: z.number().min(-90).max(90, 'Latitude invalide'),
   lng: z.number().min(-180).max(180, 'Longitude invalide'),
   orderId: z.string().optional(),

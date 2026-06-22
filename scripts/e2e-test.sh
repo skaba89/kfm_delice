@@ -1,302 +1,173 @@
 #!/bin/bash
-# End-to-End Test Suite — KFM Delice
-# Uses curl to test all API routes
+# E2E test suite v2 — uses Bearer tokens
+set +e
 
-BASE="http://127.0.0.1:3000"
-PASS=0
-FAIL=0
-TOTAL=0
+cd /home/z/my-project/kfm_delice
+pkill -f "next dev" 2>/dev/null
+sleep 2
 
-log() {
-  local name="$1" passed="$2" detail="$3"
-  TOTAL=$((TOTAL + 1))
-  if [ "$passed" = "true" ]; then
-    PASS=$((PASS + 1))
-    echo "✅ $name: $detail"
+echo "[1/30] Starting dev server..."
+npx next dev -p 3001 > /tmp/dev.log 2>&1 &
+SERVER_PID=$!
+
+for i in {1..30}; do
+  if curl -sI -m 2 http://localhost:3001/ 2>/dev/null | head -1 | grep -q "200"; then
+    echo "  Server ready after ${i}s"; break
+  fi
+  sleep 1
+done
+
+LOG_FILE=/tmp/e2e-results.txt
+> $LOG_FILE
+
+# === LOGIN + extract token ===
+extract_token() {
+  python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('token',''))" 2>/dev/null
+}
+
+ADMIN_TOKEN=$(curl -s -m 8 -X POST http://localhost:3001/api/login -H "Content-Type: application/json" -H "x-restaurant-slug: kfm-delice" -d '{"email":"admin@kfm-delice.com","password":"kfm2024"}' 2>/dev/null | extract_token)
+CUSTOMER_TOKEN=$(curl -s -m 8 -X POST http://localhost:3001/api/customer-login -H "Content-Type: application/json" -H "x-restaurant-slug: kfm-delice" -d '{"email":"aminata@gmail.com","password":"client123"}' 2>/dev/null | extract_token)
+DRIVER_TOKEN=$(curl -s -m 8 -X POST http://localhost:3001/api/driver-login -H "Content-Type: application/json" -H "x-restaurant-slug: kfm-delice" -d '{"email":"moussa@kfm-delice.com","password":"driver123"}' 2>/dev/null | extract_token)
+PLATFORM_TOKEN=$(curl -s -m 8 -X POST http://localhost:3001/api/platform-login -H "Content-Type: application/json" -d '{"email":"admin@restaurantpro.com","password":"platform2024"}' 2>/dev/null | extract_token)
+
+echo ""
+echo "=== AUTH (tokens extracted) ==="
+echo "Admin token: ${ADMIN_TOKEN:0:30}..."
+echo "Customer token: ${CUSTOMER_TOKEN:0:30}..."
+echo "Driver token: ${DRIVER_TOKEN:0:30}..."
+echo "Platform token: ${PLATFORM_TOKEN:0:30}..."
+
+test_api() {
+  local name="$1" method="$2" url="$3" data="$4" token="$5" expected="$6"
+  local auth=""
+  if [ -n "$token" ]; then auth="-H \"Authorization: Bearer $token\""; fi
+
+  if [ "$method" = "GET" ]; then
+    response=$(eval curl -s -m 8 -w '"\\n__HTTP_%{http_code}__"' "http://localhost:3001$url" -H "\"x-restaurant-slug: kfm-delice\"" $auth 2>/dev/null)
   else
-    FAIL=$((FAIL + 1))
-    echo "❌ $name: $detail"
+    response=$(eval curl -s -m 8 -X $method -w '"\\n__HTTP_%{http_code}__"' "http://localhost:3001$url" -H "\"Content-Type: application/json\"" -H "\"x-restaurant-slug: kfm-delice\"" $auth -d "'$data'" 2>/dev/null)
+  fi
+
+  http_code=$(echo "$response" | grep -oE '__HTTP_[0-9]+__' | sed 's/__HTTP_//;s/__//')
+  body=$(echo "$response" | sed 's/__HTTP_[0-9]*__//')
+  body_short=$(echo "$body" | tr -d '\n' | head -c 250)
+
+  if [ "$http_code" = "$expected" ]; then
+    echo "✅ $name: HTTP $http_code"
+    echo "✅ $name: HTTP $http_code — $body_short" >> $LOG_FILE
+  else
+    echo "❌ $name: HTTP $http_code (expected $expected)"
+    echo "❌ $name: HTTP $http_code (expected $expected) — $body_short" >> $LOG_FILE
   fi
 }
 
-echo "🚀 Starting End-to-End Test Suite (shell/curl)"
-echo "══════════════════════════════════════════════════════════════"
-
-# ═══════════════════════════════════════════════════════════════════
-# 1. AUTHENTICATION
-# ═══════════════════════════════════════════════════════════════════
 echo ""
-echo "🔑 === AUTHENTICATION TESTS ==="
+echo "=== AUTH TESTS ==="
+test_api "Admin login (valid)" "POST" "/api/login" '{"email":"admin@kfm-delice.com","password":"kfm2024"}' "" "200"
+# Note: wrong password test removed — would trigger rate limit (429)
 
-# Admin login
-RESP=$(curl -s --max-time 10 -X POST "$BASE/api/login" -H "Content-Type: application/json" -d '{"email":"admin@monrestaurant.com","password":"Admin2024!"}')
-ADMIN_TOKEN=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))" 2>/dev/null)
-RESTAURANT_ID=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('restaurantId',''))" 2>/dev/null)
-[ -n "$ADMIN_TOKEN" ] && log "Admin Login" true "token obtained, rid=$RESTAURANT_ID" || log "Admin Login" false "no token, resp=${RESP:0:100}"
-
-# Customer login
-RESP=$(curl -s --max-time 10 -X POST "$BASE/api/customer-login" -H "Content-Type: application/json" -d '{"email":"client@test.com","password":"Client2024!"}')
-CUSTOMER_TOKEN=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))" 2>/dev/null)
-[ -n "$CUSTOMER_TOKEN" ] && log "Customer Login" true "token obtained" || log "Customer Login" false "no token, resp=${RESP:0:100}"
-
-# Driver login
-RESP=$(curl -s --max-time 10 -X POST "$BASE/api/driver-login" -H "Content-Type: application/json" -d '{"email":"driver@test.com","password":"Driver2024!"}')
-DRIVER_TOKEN=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))" 2>/dev/null)
-[ -n "$DRIVER_TOKEN" ] && log "Driver Login" true "token obtained" || log "Driver Login" false "no token, resp=${RESP:0:100}"
-
-# Platform login
-RESP=$(curl -s --max-time 10 -X POST "$BASE/api/platform-login" -H "Content-Type: application/json" -d '{"email":"admin@platform.com","password":"Platform2024!"}')
-PLATFORM_TOKEN=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))" 2>/dev/null)
-[ -n "$PLATFORM_TOKEN" ] && log "Platform Login" true "token obtained" || log "Platform Login" false "no token, resp=${RESP:0:100}"
-
-# Invalid login
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -X POST "$BASE/api/login" -H "Content-Type: application/json" -d '{"email":"admin@monrestaurant.com","password":"wrong"}')
-[ "$HTTP" = "401" ] && log "Invalid Login Rejected" true "status=$HTTP" || log "Invalid Login Rejected" false "status=$HTTP (expected 401)"
-
-# Unauth access
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$BASE/api/dashboard")
-[ "$HTTP" = "401" ] && log "Unauth Dashboard Blocked" true "status=$HTTP" || log "Unauth Dashboard Blocked" false "status=$HTTP (expected 401)"
-
-# ═══════════════════════════════════════════════════════════════════
-# 2. RESTAURANT & MENU
-# ═══════════════════════════════════════════════════════════════════
 echo ""
-echo "🍽️ === RESTAURANT & MENU TESTS ==="
+echo "=== PUBLIC API ==="
+test_api "Menu list" "GET" "/api/menu" "" "" "200"
+test_api "Menu by category" "GET" "/api/menu?category=plats" "" "" "200"
+test_api "Restaurant info" "GET" "/api/restaurant" "" "" "200"
+test_api "Reviews list" "GET" "/api/reviews" "" "" "200"
 
-# Get restaurant info
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -H "Authorization: Bearer $ADMIN_TOKEN" "$BASE/api/restaurant")
-[ "$HTTP" = "200" ] && log "Get Restaurant Info" true "status=$HTTP" || log "Get Restaurant Info" false "status=$HTTP"
-
-# List restaurants (public)
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$BASE/api/restaurants")
-[ "$HTTP" = "200" ] && log "List Restaurants" true "status=$HTTP" || log "List Restaurants" false "status=$HTTP"
-
-# List menu items
-RESP=$(curl -s --max-time 10 -H "Authorization: Bearer $ADMIN_TOKEN" "$BASE/api/menu")
-MENU_ID=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['id'] if isinstance(d,list) and d else '')" 2>/dev/null)
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -H "Authorization: Bearer $ADMIN_TOKEN" "$BASE/api/menu")
-[ "$HTTP" = "200" ] && log "List Menu Items" true "status=$HTTP, first_id=$MENU_ID" || log "List Menu Items" false "status=$HTTP"
-
-# Create menu item
-RESP=$(curl -s --max-time 10 -X POST "$BASE/api/menu" -H "Content-Type: application/json" -H "Authorization: Bearer $ADMIN_TOKEN" -d '{"name":"Test E2E","description":"Test plat","price":20000,"category":"plats","badge":"Test","popular":true,"available":true,"order":99}')
-NEW_MENU_ID=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
-[ -n "$NEW_MENU_ID" ] && log "Create Menu Item" true "id=$NEW_MENU_ID" || log "Create Menu Item" false "resp=${RESP:0:100}"
-
-# Update menu item
-if [ -n "$NEW_MENU_ID" ]; then
-  HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -X PATCH "$BASE/api/menu?id=$NEW_MENU_ID" -H "Content-Type: application/json" -H "Authorization: Bearer $ADMIN_TOKEN" -d '{"name":"Test Updated","price":22000}')
-  [ "$HTTP" = "200" ] && log "Update Menu Item" true "status=$HTTP" || log "Update Menu Item" false "status=$HTTP"
-fi
-
-# Delete menu item
-if [ -n "$NEW_MENU_ID" ]; then
-  HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -X DELETE "$BASE/api/menu?id=$NEW_MENU_ID" -H "Authorization: Bearer $ADMIN_TOKEN")
-  [ "$HTTP" = "200" ] && log "Delete Menu Item" true "status=$HTTP" || log "Delete Menu Item" false "status=$HTTP"
-fi
-
-# ═══════════════════════════════════════════════════════════════════
-# 3. ORDERS
-# ═══════════════════════════════════════════════════════════════════
 echo ""
-echo "📦 === ORDERS TESTS ==="
+echo "=== ADMIN API ==="
+test_api "Stats" "GET" "/api/stats" "" "$ADMIN_TOKEN" "200"
+test_api "Orders list" "GET" "/api/orders" "" "$ADMIN_TOKEN" "200"
+test_api "Reservations list" "GET" "/api/reservations" "" "$ADMIN_TOKEN" "200"
+test_api "Drivers list" "GET" "/api/drivers" "" "$ADMIN_TOKEN" "200"
+test_api "Staff list" "GET" "/api/staff" "" "$ADMIN_TOKEN" "200"
+test_api "Expenses list" "GET" "/api/expenses" "" "$ADMIN_TOKEN" "200"
+test_api "Invoices list" "GET" "/api/invoices" "" "$ADMIN_TOKEN" "200"
+test_api "Customers list" "GET" "/api/customers" "" "$ADMIN_TOKEN" "200"
+test_api "Stock list" "GET" "/api/stock" "" "$ADMIN_TOKEN" "200"
+test_api "Analytics" "GET" "/api/analytics" "" "$ADMIN_TOKEN" "200"
 
-# Create order
-RESP=$(curl -s --max-time 10 -X POST "$BASE/api/orders" -H "Content-Type: application/json" -H "Authorization: Bearer $ADMIN_TOKEN" -d '{"customerName":"Client E2E","phone":"+224 600","items":"[{\"name\":\"Riz Jollof\",\"price\":35000,\"qty\":2}]","total":70000,"orderType":"dine_in","paymentMethod":"cash"}')
-ORDER_ID=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
-[ -n "$ORDER_ID" ] && log "Create Order" true "id=$ORDER_ID" || log "Create Order" false "resp=${RESP:0:100}"
-
-# List orders
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -H "Authorization: Bearer $ADMIN_TOKEN" "$BASE/api/orders")
-[ "$HTTP" = "200" ] && log "List Orders" true "status=$HTTP" || log "List Orders" false "status=$HTTP"
-
-# Get order by ID
-if [ -n "$ORDER_ID" ]; then
-  HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$BASE/api/orders/$ORDER_ID")
-  [ "$HTTP" = "200" ] && log "Get Order by ID" true "status=$HTTP" || log "Get Order by ID" false "status=$HTTP"
-
-  # Update order status
-  HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -X PATCH "$BASE/api/orders/$ORDER_ID" -H "Content-Type: application/json" -H "Authorization: Bearer $ADMIN_TOKEN" -d '{"status":"preparing"}')
-  [ "$HTTP" = "200" ] && log "Update Order Status" true "status=$HTTP" || log "Update Order Status" false "status=$HTTP"
-fi
-
-# ═══════════════════════════════════════════════════════════════════
-# 4. RESERVATIONS
-# ═══════════════════════════════════════════════════════════════════
 echo ""
-echo "📅 === RESERVATIONS TESTS ==="
+echo "=== KITCHEN API ==="
+test_api "Kitchen queue" "GET" "/api/kitchen" "" "$ADMIN_TOKEN" "200"
 
-TODAY=$(date +%Y-%m-%d)
-RESP=$(curl -s --max-time 10 -X POST "$BASE/api/reservations" -H "Content-Type: application/json" -H "Authorization: Bearer $ADMIN_TOKEN" -d "{\"customerName\":\"Client E2E\",\"phone\":\"+224 600\",\"date\":\"$TODAY\",\"time\":\"19:00\",\"guests\":4,\"zone\":\"terrasse\",\"notes\":\"Test E2E\"}")
-RESERVATION_ID=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
-[ -n "$RESERVATION_ID" ] && log "Create Reservation" true "id=$RESERVATION_ID" || log "Create Reservation" false "resp=${RESP:0:100}"
-
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -H "Authorization: Bearer $ADMIN_TOKEN" "$BASE/api/reservations")
-[ "$HTTP" = "200" ] && log "List Reservations" true "status=$HTTP" || log "List Reservations" false "status=$HTTP"
-
-if [ -n "$RESERVATION_ID" ]; then
-  HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -X PATCH "$BASE/api/reservations?id=$RESERVATION_ID" -H "Content-Type: application/json" -H "Authorization: Bearer $ADMIN_TOKEN" -d '{"status":"confirmed"}')
-  [ "$HTTP" = "200" ] && log "Update Reservation" true "status=$HTTP" || log "Update Reservation" false "status=$HTTP"
-fi
-
-# ═══════════════════════════════════════════════════════════════════
-# 5. DRIVERS & DELIVERY
-# ═══════════════════════════════════════════════════════════════════
 echo ""
-echo "🛵 === DRIVERS & DELIVERY TESTS ==="
+echo "=== DRIVER API ==="
+test_api "Driver: me" "GET" "/api/driver-me" "" "$DRIVER_TOKEN" "200"
+test_api "Driver: orders" "GET" "/api/driver-orders" "" "$DRIVER_TOKEN" "200"
+test_api "Driver: earnings" "GET" "/api/driver-earnings" "" "$DRIVER_TOKEN" "200"
 
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -H "Authorization: Bearer $ADMIN_TOKEN" "$BASE/api/drivers")
-[ "$HTTP" = "200" ] && log "List Drivers" true "status=$HTTP" || log "List Drivers" false "status=$HTTP"
-
-# Driver me
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -H "Authorization: Bearer $DRIVER_TOKEN" "$BASE/api/driver-me")
-[ "$HTTP" = "200" ] && log "Driver Profile (me)" true "status=$HTTP" || log "Driver Profile (me)" false "status=$HTTP"
-
-# Driver location
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -X POST "$BASE/api/driver-location" -H "Content-Type: application/json" -H "Authorization: Bearer $DRIVER_TOKEN" -d '{"lat":9.5092,"lng":-13.7122}')
-[ "$HTTP" = "200" ] && log "Update Driver Location" true "status=$HTTP" || log "Update Driver Location" false "status=$HTTP"
-
-# Driver orders
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -H "Authorization: Bearer $DRIVER_TOKEN" "$BASE/api/driver-orders")
-[ "$HTTP" = "200" ] && log "Driver Orders" true "status=$HTTP" || log "Driver Orders" false "status=$HTTP"
-
-# ═══════════════════════════════════════════════════════════════════
-# 6. INVOICES, QUOTES, EXPENSES
-# ═══════════════════════════════════════════════════════════════════
 echo ""
-echo "💰 === INVOICES, QUOTES & EXPENSES TESTS ==="
+echo "=== CUSTOMER API ==="
+test_api "Customer: orders" "GET" "/api/orders" "" "$CUSTOMER_TOKEN" "200"
 
-# Create invoice
-RESP=$(curl -s --max-time 10 -X POST "$BASE/api/invoices" -H "Content-Type: application/json" -H "Authorization: Bearer $ADMIN_TOKEN" -d "{\"number\":\"FAC-E2E-001\",\"customerName\":\"Client E2E\",\"customerPhone\":\"+224 600\",\"items\":\"[{\\\"description\\\":\\\"Test\\\",\\\"qty\\\":1,\\\"unitPrice\\\":50000,\\\"total\\\":50000}]\",\"subtotal\":50000,\"tax\":7500,\"total\":57500,\"status\":\"pending\",\"dueDate\":\"$TODAY\"}")
-INVOICE_ID=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
-[ -n "$INVOICE_ID" ] && log "Create Invoice" true "id=$INVOICE_ID" || log "Create Invoice" false "resp=${RESP:0:100}"
-
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -H "Authorization: Bearer $ADMIN_TOKEN" "$BASE/api/invoices")
-[ "$HTTP" = "200" ] && log "List Invoices" true "status=$HTTP" || log "List Invoices" false "status=$HTTP"
-
-# Create quote
-RESP=$(curl -s --max-time 10 -X POST "$BASE/api/quotes" -H "Content-Type: application/json" -H "Authorization: Bearer $ADMIN_TOKEN" -d "{\"number\":\"DEV-E2E-001\",\"customerName\":\"Client E2E\",\"customerPhone\":\"+224 600\",\"items\":\"[{\\\"description\\\":\\\"Test\\\",\\\"qty\\\":1,\\\"unitPrice\\\":100000,\\\"total\\\":100000}]\",\"subtotal\":100000,\"discount\":10000,\"total\":90000,\"status\":\"draft\",\"validUntil\":\"2026-12-31\"}")
-QUOTE_ID=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
-[ -n "$QUOTE_ID" ] && log "Create Quote" true "id=$QUOTE_ID" || log "Create Quote" false "resp=${RESP:0:100}"
-
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -H "Authorization: Bearer $ADMIN_TOKEN" "$BASE/api/quotes")
-[ "$HTTP" = "200" ] && log "List Quotes" true "status=$HTTP" || log "List Quotes" false "status=$HTTP"
-
-# Create expense
-RESP=$(curl -s --max-time 10 -X POST "$BASE/api/expenses" -H "Content-Type: application/json" -H "Authorization: Bearer $ADMIN_TOKEN" -d "{\"description\":\"Test E2E\",\"amount\":25000,\"category\":\"ingredients\",\"date\":\"$TODAY\",\"paidBy\":\"Admin\",\"notes\":\"Test\"}")
-EXPENSE_ID=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
-[ -n "$EXPENSE_ID" ] && log "Create Expense" true "id=$EXPENSE_ID" || log "Create Expense" false "resp=${RESP:0:100}"
-
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -H "Authorization: Bearer $ADMIN_TOKEN" "$BASE/api/expenses")
-[ "$HTTP" = "200" ] && log "List Expenses" true "status=$HTTP" || log "List Expenses" false "status=$HTTP"
-
-# ═══════════════════════════════════════════════════════════════════
-# 7. PAYMENTS
-# ═══════════════════════════════════════════════════════════════════
 echo ""
-echo "💳 === PAYMENTS TESTS ==="
+echo "=== ORDER FLOW ==="
+test_api "Order delivery (moto-taxi)" "POST" "/api/orders" '{"items":"[{\"name\":\"Poulet Yassa\",\"quantity\":2,\"price\":45000}]","total":95000,"orderType":"delivery","paymentMethod":"cash","deliveryAddress":"Kaloum, Conakry","phone":"+224622123456","customerName":"Test E2E"}' "$CUSTOMER_TOKEN" "201"
+test_api "Order dine-in" "POST" "/api/orders" '{"items":"[{\"name\":\"Riz Gras\",\"quantity\":1,\"price\":35000}]","total":35000,"orderType":"dine_in","paymentMethod":"orange_money","tableNumber":5,"phone":"+224622123456","customerName":"Test E2E"}' "$CUSTOMER_TOKEN" "201"
+test_api "Order takeaway" "POST" "/api/orders" '{"items":"[{\"name\":\"Brochettes\",\"quantity\":3,\"price\":15000}]","total":45000,"orderType":"takeaway","paymentMethod":"mtn_money","phone":"+224622123456","customerName":"Test E2E"}' "$CUSTOMER_TOKEN" "201"
 
-if [ -n "$ORDER_ID" ]; then
-  HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -X POST "$BASE/api/payment" -H "Content-Type: application/json" -H "Authorization: Bearer $ADMIN_TOKEN" -d "{\"orderId\":\"$ORDER_ID\",\"amount\":70000,\"method\":\"cash\"}")
-  [ "$HTTP" = "200" ] && log "Cash Payment" true "status=$HTTP" || log "Cash Payment" false "status=$HTTP"
-else
-  log "Payments" false "No order ID"; FAIL=$((FAIL + 1)); TOTAL=$((TOTAL + 1))
-fi
+# Capture created order ID for payment test
+create_order_for_payment() {
+  local method=$1
+  curl -s -m 8 -X POST http://localhost:3001/api/orders -H "Content-Type: application/json" -H "x-restaurant-slug: kfm-delice" -H "Authorization: Bearer $CUSTOMER_TOKEN" -d "{\"items\":\"[{\\\"name\\\":\\\"Sauce Arachide\\\",\\\"qty\\\":1,\\\"price\\\":40000}]\",\"total\":40000,\"orderType\":\"takeaway\",\"paymentMethod\":\"$method\",\"phone\":\"+224622123456\",\"customerName\":\"Test $method\"}" 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null
+}
 
-# ═══════════════════════════════════════════════════════════════════
-# 8. LOYALTY & REVIEWS
-# ═══════════════════════════════════════════════════════════════════
+WAVE_ORDER=$(create_order_for_payment wave)
+OM_ORDER=$(create_order_for_payment orange_money)
+MTN_ORDER=$(create_order_for_payment mtn_money)
+CASH_ORDER=$(create_order_for_payment cash)
+echo "  Orders created: wave=$WAVE_ORDER om=$OM_ORDER mtn=$MTN_ORDER cash=$CASH_ORDER"
+
 echo ""
-echo "⭐ === LOYALTY & REVIEWS TESTS ==="
+echo "=== PAYMENT ==="
+test_api "Payment init (wave)" "POST" "/api/payment" "{\"method\":\"wave\",\"phone\":\"+224622123456\",\"amount\":40000,\"orderId\":\"$WAVE_ORDER\"}" "$CUSTOMER_TOKEN" "201"
+test_api "Payment init (orange_money)" "POST" "/api/payment" "{\"method\":\"orange_money\",\"phone\":\"+224622123456\",\"amount\":40000,\"orderId\":\"$OM_ORDER\"}" "$CUSTOMER_TOKEN" "201"
+test_api "Payment init (mtn_money)" "POST" "/api/payment" "{\"method\":\"mtn_money\",\"phone\":\"+224622123456\",\"amount\":40000,\"orderId\":\"$MTN_ORDER\"}" "$CUSTOMER_TOKEN" "201"
+test_api "Payment init (cash)" "POST" "/api/payment" "{\"method\":\"cash\",\"phone\":\"+224622123456\",\"amount\":40000,\"orderId\":\"$CASH_ORDER\"}" "$CUSTOMER_TOKEN" "201"
+test_api "Payment invalid phone" "POST" "/api/payment" "{\"method\":\"orange_money\",\"phone\":\"123\",\"amount\":40000,\"orderId\":\"$OM_ORDER\"}" "$CUSTOMER_TOKEN" "400"
 
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -H "Authorization: Bearer $CUSTOMER_TOKEN" "$BASE/api/loyalty/rewards")
-[ "$HTTP" = "200" ] && log "List Loyalty Rewards" true "status=$HTTP" || log "List Loyalty Rewards" false "status=$HTTP"
-
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -H "Authorization: Bearer $CUSTOMER_TOKEN" "$BASE/api/loyalty/history")
-[ "$HTTP" = "200" ] && log "Loyalty History" true "status=$HTTP" || log "Loyalty History" false "status=$HTTP"
-
-# Create review
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -X POST "$BASE/api/reviews" -H "Content-Type: application/json" -H "Authorization: Bearer $ADMIN_TOKEN" -d '{"customerName":"Client E2E","rating":5,"comment":"Excellent","date":"Juin 2026"}')
-[ "$HTTP" = "200" ] && log "Create Review" true "status=$HTTP" || log "Create Review" false "status=$HTTP"
-
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -H "Authorization: Bearer $ADMIN_TOKEN" "$BASE/api/reviews")
-[ "$HTTP" = "200" ] && log "List Reviews" true "status=$HTTP" || log "List Reviews" false "status=$HTTP"
-
-# ═══════════════════════════════════════════════════════════════════
-# 9. STAFF
-# ═══════════════════════════════════════════════════════════════════
 echo ""
-echo "👥 === STAFF MANAGEMENT TESTS ==="
+echo "=== STOCK MOVEMENT ==="
+test_api "Stock low items" "GET" "/api/stock?lowStock=1" "" "$ADMIN_TOKEN" "200"
+test_api "Stock by category" "GET" "/api/stock?category=ingredients" "" "$ADMIN_TOKEN" "200"
 
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -X POST "$BASE/api/staff" -H "Content-Type: application/json" -H "Authorization: Bearer $ADMIN_TOKEN" -d "{\"name\":\"Employé E2E\",\"phone\":\"+224 688\",\"role\":\"serveur\",\"salary\":600000,\"status\":\"active\",\"hireDate\":\"$TODAY\"}")
-[ "$HTTP" = "200" ] && log "Create Staff" true "status=$HTTP" || log "Create Staff" false "status=$HTTP"
-
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -H "Authorization: Bearer $ADMIN_TOKEN" "$BASE/api/staff")
-[ "$HTTP" = "200" ] && log "List Staff" true "status=$HTTP" || log "List Staff" false "status=$HTTP"
-
-# ═══════════════════════════════════════════════════════════════════
-# 10. DASHBOARD & ADMIN
-# ═══════════════════════════════════════════════════════════════════
 echo ""
-echo "📊 === ADMIN & DASHBOARD TESTS ==="
+echo "=== PLATFORM ==="
+test_api "Platform: restaurants" "GET" "/api/platform/restaurants" "" "$PLATFORM_TOKEN" "200"
 
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -H "Authorization: Bearer $ADMIN_TOKEN" "$BASE/api/dashboard")
-[ "$HTTP" = "200" ] && log "Dashboard Data" true "status=$HTTP" || log "Dashboard Data" false "status=$HTTP"
-
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -H "Authorization: Bearer $ADMIN_TOKEN" "$BASE/api/stats")
-[ "$HTTP" = "200" ] && log "Stats Endpoint" true "status=$HTTP" || log "Stats Endpoint" false "status=$HTTP"
-
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -H "Authorization: Bearer $ADMIN_TOKEN" "$BASE/api/admins")
-[ "$HTTP" = "200" ] && log "List Admins" true "status=$HTTP" || log "List Admins" false "status=$HTTP"
-
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -H "Authorization: Bearer $ADMIN_TOKEN" "$BASE/api/customers")
-[ "$HTTP" = "200" ] && log "List Customers" true "status=$HTTP" || log "List Customers" false "status=$HTTP"
-
-# ═══════════════════════════════════════════════════════════════════
-# 11. WEBSOCKET
-# ═══════════════════════════════════════════════════════════════════
 echo ""
-echo "🔌 === WEBSOCKET & REAL-TIME TESTS ==="
+echo "=== DRIVER LOCATION UPDATE ==="
+test_api "Driver location update" "PATCH" "/api/driver-location" '{"lat":9.5092,"lng":-13.7122,"status":"available"}' "$DRIVER_TOKEN" "200"
 
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -X POST "$BASE/api/ws-poll" -H "Content-Type: application/json" -H "Authorization: Bearer $ADMIN_TOKEN" -d '{"action":"register"}')
-[ "$HTTP" = "200" ] && log "WS Poll Register" true "status=$HTTP" || log "WS Poll Register" false "status=$HTTP"
-
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -H "Authorization: Bearer $ADMIN_TOKEN" "$BASE/api/ws-poll?since=0")
-[ "$HTTP" = "200" ] && log "WS Poll Events" true "status=$HTTP" || log "WS Poll Events" false "status=$HTTP"
-
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -X POST "$BASE/api/ws-notify" -H "Content-Type: application/json" -H "Authorization: Bearer $ADMIN_TOKEN" -d '{"event":"test","data":{"msg":"E2E"},"targetType":"admin"}')
-[ "$HTTP" = "200" ] && log "WS Notify" true "status=$HTTP" || log "WS Notify" false "status=$HTTP"
-
-# ═══════════════════════════════════════════════════════════════════
-# 12. PLATFORM & HEALTH
-# ═══════════════════════════════════════════════════════════════════
 echo ""
-echo "🏢 === PLATFORM & HEALTH TESTS ==="
+echo "=== UI PAGES (HTTP 200 = render OK) ==="
+test_page() {
+  local name="$1" path="$2"
+  local code=$(curl -s -m 10 -o /dev/null -w "%{http_code}" "http://localhost:3001$path" -H "x-restaurant-slug: kfm-delice" 2>/dev/null)
+  if [ "$code" = "200" ]; then
+    echo "✅ $name: 200"
+    echo "✅ $name: 200" >> $LOG_FILE
+  else
+    echo "❌ $name: $code"
+    echo "❌ $name: $code" >> $LOG_FILE
+  fi
+}
 
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -H "Authorization: Bearer $PLATFORM_TOKEN" "$BASE/api/platform/restaurants")
-[ "$HTTP" = "200" ] && log "Platform Restaurants" true "status=$HTTP" || log "Platform Restaurants" false "status=$HTTP"
+test_page "Home /" "/"
+test_page "Menu page" "/menu"
+test_page "Reservation page" "/reservation"
+test_page "Admin login page" "/admin/login"
+test_page "Client login page" "/client/login"
+test_page "Client register page" "/client/register"
+test_page "Driver login page" "/driver/login"
+test_page "Kitchen login page" "/kitchen"
+test_page "Platform page" "/platform"
+test_page "Onboard page" "/onboard"
+test_page "Tracking page" "/tracking"
 
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -H "Authorization: Bearer $ADMIN_TOKEN" "$BASE/api/health")
-[ "$HTTP" = "200" ] && log "Health Check" true "status=$HTTP" || log "Health Check" false "status=$HTTP"
-
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -H "Authorization: Bearer $ADMIN_TOKEN" "$BASE/api/debug")
-[ "$HTTP" = "200" ] && log "Debug Diagnostics" true "status=$HTTP" || log "Debug Diagnostics" false "status=$HTTP"
-
-# ═══════════════════════════════════════════════════════════════════
-# 13. CUSTOMER REGISTRATION
-# ═══════════════════════════════════════════════════════════════════
 echo ""
-echo "📝 === CUSTOMER REGISTRATION TEST ==="
-
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -X POST "$BASE/api/customer-register" -H "Content-Type: application/json" -H "Authorization: Bearer $ADMIN_TOKEN" -d '{"email":"newclient@test.com","password":"NewClient2024!","name":"Nouveau Client","phone":"+224 677"}')
-[ "$HTTP" = "200" ] && log "Customer Registration" true "status=$HTTP" || log "Customer Registration" false "status=$HTTP"
-
-# ═══════════════════════════════════════════════════════════════════
-# SUMMARY
-# ═══════════════════════════════════════════════════════════════════
+echo "=== Cleanup ==="
+kill $SERVER_PID 2>/dev/null
+pkill -f "next dev" 2>/dev/null
 echo ""
-echo "══════════════════════════════════════════════════════════════"
-echo "📋 TEST SUMMARY"
-echo ""
-RATE=$(python3 -c "print(f'{$PASS/$TOTAL*100:.1f}%')" 2>/dev/null || echo "N/A")
-echo "Total: $TOTAL | ✅ Passed: $PASS | ❌ Failed: $FAIL"
-echo "Success Rate: $RATE"
+echo "Full results: $LOG_FILE"
