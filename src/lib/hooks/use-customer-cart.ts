@@ -12,9 +12,12 @@ export interface CartItem {
 }
 
 export interface CheckoutForm {
+  orderType: "dine_in" | "takeaway" | "delivery";
   address: string;
+  tableNumber: string;
   paymentMethod: string;
   note: string;
+  phone: string;
 }
 
 export function useCustomerCart(customer: CustomerUser, onOrderPlaced: () => void) {
@@ -24,9 +27,12 @@ export function useCustomerCart(customer: CustomerUser, onOrderPlaced: () => voi
   const [orderCategoryFilter, setOrderCategoryFilter] = useState("all");
   const [checkoutStep, setCheckoutStep] = useState<"menu" | "cart" | "checkout">("menu");
   const [checkoutForm, setCheckoutForm] = useState<CheckoutForm>({
+    orderType: "delivery",
     address: customer.address || "",
+    tableNumber: "",
     paymentMethod: "cash",
     note: "",
+    phone: customer.phone || "",
   });
   const [orderSubmitting, setOrderSubmitting] = useState(false);
   const [deliveryFee, setDeliveryFee] = useState(5000);
@@ -89,17 +95,22 @@ export function useCustomerCart(customer: CustomerUser, onOrderPlaced: () => voi
     setOrderSubmitting(true);
     try {
       const items = cart.map(c => ({ name: c.item.name, price: c.item.price, qty: c.qty }));
+      const isDelivery = checkoutForm.orderType === "delivery";
+      const isDineIn = checkoutForm.orderType === "dine_in";
+      const finalDeliveryFee = isDelivery ? deliveryFee : 0;
+      const finalTotal = cartTotal + finalDeliveryFee;
       const res = await apiFetch("/api/orders", {
         method: "POST",
         body: JSON.stringify({
           customerName: customer.name,
-          phone: customer.phone,
+          phone: checkoutForm.phone || customer.phone,
           items: JSON.stringify(items),
-          total: cartTotal,
-          orderType: "delivery",
+          total: finalTotal,
+          orderType: checkoutForm.orderType,
+          tableNumber: isDineIn ? Number(checkoutForm.tableNumber) || 0 : 0,
           paymentMethod: checkoutForm.paymentMethod,
-          deliveryAddress: checkoutForm.address,
-          deliveryFee,
+          deliveryAddress: isDelivery ? checkoutForm.address : "",
+          deliveryFee: finalDeliveryFee,
           discount: discountAmount,
           note: checkoutForm.note,
         }),
@@ -107,7 +118,7 @@ export function useCustomerCart(customer: CustomerUser, onOrderPlaced: () => voi
       if (res.ok) {
         setCart([]);
         setCheckoutStep("menu");
-        setCheckoutForm({ address: customer.address || "", paymentMethod: "cash", note: "" });
+        setCheckoutForm({ orderType: "delivery", address: customer.address || "", tableNumber: "", paymentMethod: "cash", note: "", phone: customer.phone || "" });
         onOrderPlaced();
         notify.success("Commande passée avec succès !");
       } else {

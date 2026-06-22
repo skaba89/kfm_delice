@@ -52,3 +52,15 @@ prompt
 server.log
 # Skills directory
 /skills/tool-results/
+/tool-results/
+/upload/
+/download/
+/worklog.md
+/skills/
+/datasphere-innovation-ia-plateform/
+/hotel-booking-pro/
+/kfm_delice/
+/mini-services/
+/examples/
+/.zscripts/
+/agent-ctx/

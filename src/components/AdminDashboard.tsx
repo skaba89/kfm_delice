@@ -5,7 +5,7 @@ import {
   UtensilsCrossed, CalendarCheck, Users, LayoutDashboard,
   ShoppingBag, Bike, Car, RefreshCw,
   FileText, Wallet, Receipt, UserCog, ClipboardList,
-  MessageSquare, CreditCard, Wifi, WifiOff,
+  MessageSquare, CreditCard, Wifi, WifiOff, Package,
 } from "lucide-react";
 import { OverviewTab } from "@/components/admin/OverviewTab";
 import { ReservationsTab } from "@/components/admin/ReservationsTab";
@@ -21,6 +21,7 @@ import { QuotesTab } from "@/components/admin/QuotesTab";
 import { ExpensesTab } from "@/components/admin/ExpensesTab";
 import { CustomersTab } from "@/components/admin/CustomersTab";
 import { PaymentsTab } from "@/components/admin/PaymentsTab";
+import { InventoryTab } from "@/components/admin/InventoryTab";
 import { PosTab } from "@/components/admin/PosTab";
 import { DashboardShell, type SidebarItem } from "@/components/layout/DashboardShell";
 import type { AdminDB, AdminUser, MenuItemDB, OrderDB, DriverDB, StaffDB, InvoiceDB, QuoteDB, ExpenseDB, CustomerDB } from "@/lib/types";
@@ -164,6 +165,7 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
     { id: "invoices", label: "Factures", icon: FileText, badge: safeStats.pendingInvoices || undefined },
     { id: "quotes", label: "Devis", icon: ClipboardList, badge: safeStats.sentQuotes || undefined },
     { id: "expenses", label: "Dépenses", icon: Wallet, badge: safeStats.expenseCount },
+    { id: "inventory", label: "Stock", icon: Package, badge: (safeStats as { lowStockCount?: number })?.lowStockCount || undefined },
     { id: "payments", label: "Paiements", icon: CreditCard, badge: safeStats.pendingPayments || undefined },
     { id: "pos", label: "Caisse POS", icon: Receipt },
   ];
@@ -182,6 +184,7 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
       invoices: ["admin", "manager"],
       quotes: ["admin", "manager"],
       expenses: ["admin", "manager"],
+      inventory: ["admin", "manager"],
       payments: ["admin", "manager"],
       pos: ["admin", "manager", "staff"],
     };
@@ -257,6 +260,7 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
         crud={expenseCrud}
         apiDelete={apiDelete}
       />}
+      {activeTab === "inventory" && <InventoryTab />}
       {activeTab === "payments" && <PaymentsTab payments={payments} apiPatch={apiPatch} />}
       {activeTab === "pos" && <PosTabWithState menuItems={menuItems} orders={orders} loadData={loadData} />}
     </DashboardShell>
@@ -272,6 +276,8 @@ function PosTabWithState({ menuItems, orders, loadData }: { menuItems: MenuItemD
     posCart={pos.posCart} setPosCart={pos.setPosCart}
     posTable={pos.posTable} setPosTable={pos.setPosTable}
     posOrderType={pos.posOrderType} setPosOrderType={pos.setPosOrderType}
+    posDeliveryAddress={pos.posDeliveryAddress} setPosDeliveryAddress={pos.setPosDeliveryAddress}
+    posDeliveryFee={pos.posDeliveryFee} setPosDeliveryFee={pos.setPosDeliveryFee}
     posPayment={pos.posPayment} setPosPayment={pos.setPosPayment}
     posDiscount={pos.posDiscount} setPosDiscount={pos.setPosDiscount}
     posCustomerName={pos.posCustomerName} setPosCustomerName={pos.setPosCustomerName}

@@ -67,6 +67,8 @@ model Restaurant {
   expenses      Expense[]
   payments      Payment[]
   loyaltyRewards LoyaltyReward[]
+  stockItems    StockItem[]
+  stockMovements StockMovement[]
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -206,6 +208,7 @@ model Order {
   tax           Int      @default(0)
   note          String   @default("")
   estimatedDeliveryTime String @default("") // ISO string of estimated delivery
+  driverEarning     Int      @default(0) // commission credited to driver on delivery (GNF)
   driverLat     Float    @default(0) // driver live latitude
   driverLng     Float    @default(0) // driver live longitude
   customerId    String?
@@ -241,6 +244,8 @@ model Driver {
   lastLocationUpdate DateTime @default(now()) // last GPS update
   currentOrderId    String   @default("") // current active order
   mustChangePassword Boolean @default(false) // force password change on first login
+  commissionRate    Float    @default(10) // % of order delivery fee earned per delivery (default 10%)
+  totalEarnings     Int      @default(0) // cumulative earnings in GNF
   restaurantId      String
   restaurant        Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   orders            Order[]
@@ -414,4 +419,46 @@ model PushSubscription {
   @@index([userKey])
   @@index([userId, userType])
   @@index([restaurantId])
+}
+
+// ────────────────────────────────────────────────────────────────
+// Stock / Inventory
+// ────────────────────────────────────────────────────────────────
+model StockItem {
+  id            String   @id @default(cuid())
+  name          String
+  sku           String   @default("") // Optional stock-keeping unit / barcode
+  category      String   @default("general") // e.g. ingredients, drinks, packaging, cleaning
+  quantity      Float    @default(0)
+  unit          String   @default("unité") // kg, L, unité, bouteille, sac, etc.
+  minThreshold  Float    @default(0) // Low-stock alert threshold
+  unitCost      Int      @default(0) // Purchase cost per unit (GNF)
+  supplier      String   @default("")
+  lastRestocked String   @default("") // ISO date string of last restock
+  notes         String   @default("")
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  movements     StockMovement[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([restaurantId, category])
+  @@index([restaurantId, quantity])
+}
+
+// Stock movements history (in/out adjustments)
+model StockMovement {
+  id            String   @id @default(cuid())
+  stockItemId   String
+  stockItem     StockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+  type          String   // "in" (restock), "out" (consumption), "adjust" (correction), "waste"
+  quantity      Float    // Positive number; direction is in `type`
+  reason        String   @default("") // e.g. "Réappro Fournisseur X", "Sortie cuisine", "Casse"
+  actor         String   @default("") // Who made the change (admin name, etc.)
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+
+  @@index([stockItemId])
+  @@index([restaurantId, createdAt])
 }

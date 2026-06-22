@@ -10,7 +10,7 @@ import {
   UtensilsCrossed, ShoppingBag, Search, Leaf, Flame, Fish, CakeSlice,
   Clock, User, CircleDot, Minus, Plus, X, DollarSign, Smartphone,
   CreditCard, RefreshCw, CheckCircle2, Trash2, Percent, StickyNote, Printer, Receipt,
-  CupSoda,
+  CupSoda, Bike,
 } from "lucide-react";
 import type { MenuItemDB, OrderDB } from "@/lib/types";
 import { RESTO, MENU_CATS, formatPrice, statusColors, statusLabels, orderTypeLabels, paymentLabels } from "@/lib/constants";
@@ -22,8 +22,12 @@ export interface PosTabProps {
   setPosCart: (v: { menuItem: MenuItemDB; qty: number; note: string }[] | ((prev: { menuItem: MenuItemDB; qty: number; note: string }[]) => { menuItem: MenuItemDB; qty: number; note: string }[])) => void;
   posTable: number;
   setPosTable: (v: number) => void;
-  posOrderType: "dine_in" | "takeaway";
-  setPosOrderType: (v: "dine_in" | "takeaway") => void;
+  posOrderType: "dine_in" | "takeaway" | "delivery";
+  setPosOrderType: (v: "dine_in" | "takeaway" | "delivery") => void;
+  posDeliveryAddress: string;
+  setPosDeliveryAddress: (v: string) => void;
+  posDeliveryFee: number;
+  setPosDeliveryFee: (v: number) => void;
   posPayment: string;
   setPosPayment: (v: string) => void;
   posDiscount: number;
@@ -49,8 +53,8 @@ export interface PosTabProps {
 
 export function PosTab({
   menuItems, posCart, setPosCart, posTable, setPosTable,
-  posOrderType, setPosOrderType, posPayment, setPosPayment,
-  posDiscount, setPosDiscount, posCustomerName, setPosCustomerName,
+  posOrderType, setPosOrderType, posDeliveryAddress, setPosDeliveryAddress, posDeliveryFee, setPosDeliveryFee,
+  posPayment, setPosPayment, posDiscount, setPosDiscount, posCustomerName, setPosCustomerName,
   posCustomerPhone, setPosCustomerPhone, posNote, setPosNote,
   posCategoryFilter, setPosCategoryFilter, posSearch, setPosSearch,
   posReceipt, setPosReceipt, posSubmitting, setPosSubmitting,
@@ -251,12 +255,15 @@ export function PosTab({
           <Card className="dark:bg-gray-800 dark:border-gray-700">
             <CardContent className="p-4">
               <h4 className="font-semibold text-gray-900 dark:text-gray-100 mb-3 flex items-center gap-2"><CircleDot className="w-4 h-4 text-orange-500" /> Type de commande</h4>
-              <div className="flex gap-2 mb-3">
-                <button onClick={() => setPosOrderType("dine_in")} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all ${posOrderType === "dine_in" ? "bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-md" : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600"}`}>
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                <button onClick={() => setPosOrderType("dine_in")} className={`flex flex-col items-center justify-center gap-1 py-2.5 rounded-xl text-xs font-medium transition-all ${posOrderType === "dine_in" ? "bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-md" : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600"}`}>
                   <UtensilsCrossed className="w-4 h-4" /> Sur place
                 </button>
-                <button onClick={() => setPosOrderType("takeaway")} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all ${posOrderType === "takeaway" ? "bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-md" : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600"}`}>
+                <button onClick={() => setPosOrderType("takeaway")} className={`flex flex-col items-center justify-center gap-1 py-2.5 rounded-xl text-xs font-medium transition-all ${posOrderType === "takeaway" ? "bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-md" : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600"}`}>
                   <ShoppingBag className="w-4 h-4" /> À emporter
+                </button>
+                <button onClick={() => setPosOrderType("delivery")} className={`flex flex-col items-center justify-center gap-1 py-2.5 rounded-xl text-xs font-medium transition-all ${posOrderType === "delivery" ? "bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-md" : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600"}`}>
+                  <Bike className="w-4 h-4" /> Moto-taxi
                 </button>
               </div>
               {posOrderType === "dine_in" && (
@@ -273,6 +280,18 @@ export function PosTab({
                     {[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20].map(t => (
                       <button key={t} onClick={() => setPosTable(t)} className={`w-8 h-8 rounded-lg text-xs font-medium transition-all ${posTable === t ? "bg-orange-500 text-white shadow-md" : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600"}`}>{t}</button>
                     ))}
+                  </div>
+                </div>
+              )}
+              {posOrderType === "delivery" && (
+                <div className="space-y-2">
+                  <div>
+                    <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5 block">Adresse de livraison *</label>
+                    <Input value={posDeliveryAddress} onChange={e => setPosDeliveryAddress(e.target.value)} placeholder="Adresse du client à Conakry..." className="rounded-xl text-sm dark:bg-gray-800 dark:border-gray-600" />
+                  </div>
+                  <div className="flex items-center justify-between bg-orange-50 dark:bg-orange-900/20 rounded-lg p-2">
+                    <label className="text-xs font-medium text-orange-700 dark:text-orange-400">Frais moto-taxi (GNF)</label>
+                    <Input type="number" value={posDeliveryFee} onChange={e => setPosDeliveryFee(Math.max(0, parseInt(e.target.value) || 0))} className="w-24 h-7 text-xs rounded-md dark:bg-gray-800 dark:border-gray-600" />
                   </div>
                 </div>
               )}
@@ -361,6 +380,7 @@ export function PosTab({
                       { id: "cash", label: "Espèces", icon: DollarSign },
                       { id: "orange_money", label: "Orange Money", icon: Smartphone },
                       { id: "mtn_money", label: "MTN Money", icon: Smartphone },
+                      { id: "wave", label: "Wave", icon: Smartphone },
                       { id: "card", label: "Carte", icon: CreditCard },
                     ].map(pm => (
                       <button key={pm.id} onClick={() => setPosPayment(pm.id)} className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium transition-all ${posPayment === pm.id ? "bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-md" : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600"}`}>
@@ -371,16 +391,17 @@ export function PosTab({
                 </div>
 
                 <div className="space-y-2">
-                  <Button disabled={posSubmitting || posCart.length === 0} onClick={async () => {
+                  <Button disabled={posSubmitting || posCart.length === 0 || (posOrderType === "delivery" && !posDeliveryAddress)} onClick={async () => {
                     setPosSubmitting(true);
                     try {
                       const subtotal = posCart.reduce((s, c) => s + c.menuItem.price * c.qty, 0);
-                      const total = Math.max(0, subtotal - posDiscount);
+                      const deliveryFee = posOrderType === "delivery" ? posDeliveryFee : 0;
+                      const total = Math.max(0, subtotal - posDiscount) + deliveryFee;
                       const items = posCart.map(c => ({ name: c.menuItem.name, price: c.menuItem.price, qty: c.qty, note: c.note }));
                       const res = await apiFetch("/api/orders", {
                         method: "POST",
                         body: JSON.stringify({
-                          customerName: posCustomerName || "Client sur place",
+                          customerName: posCustomerName || (posOrderType === "delivery" ? "Client livraison" : "Client sur place"),
                           phone: posCustomerPhone,
                           items: JSON.stringify(items),
                           total,
@@ -389,6 +410,8 @@ export function PosTab({
                           paymentMethod: posPayment,
                           tableNumber: posOrderType === "dine_in" ? posTable : 0,
                           discount: posDiscount,
+                          deliveryAddress: posOrderType === "delivery" ? posDeliveryAddress : "",
+                          deliveryFee,
                           tax: 0,
                           note: posNote,
                         }),
@@ -403,7 +426,7 @@ export function PosTab({
                     } catch (e) { console.error(e); }
                     finally { setPosSubmitting(false); }
                   }} className="w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white rounded-xl py-6 text-base font-bold shadow-lg shadow-orange-500/30">
-                    {posSubmitting ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : <><CheckCircle2 className="w-5 h-5 mr-2" /> Encaisser — {formatPrice(Math.max(0, posCart.reduce((s, c) => s + c.menuItem.price * c.qty, 0) - posDiscount))}</>}
+                    {posSubmitting ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : <><CheckCircle2 className="w-5 h-5 mr-2" /> Encaisser — {formatPrice(Math.max(0, posCart.reduce((s, c) => s + c.menuItem.price * c.qty, 0) - posDiscount) + (posOrderType === "delivery" ? posDeliveryFee : 0))}</>}
                   </Button>
 
                   <div className="flex gap-2">
@@ -411,12 +434,13 @@ export function PosTab({
                       setPosSubmitting(true);
                       try {
                         const subtotal = posCart.reduce((s, c) => s + c.menuItem.price * c.qty, 0);
-                        const total = Math.max(0, subtotal - posDiscount);
+                        const deliveryFee = posOrderType === "delivery" ? posDeliveryFee : 0;
+                        const total = Math.max(0, subtotal - posDiscount) + deliveryFee;
                         const items = posCart.map(c => ({ name: c.menuItem.name, price: c.menuItem.price, qty: c.qty, note: c.note }));
                         await apiFetch("/api/orders", {
                           method: "POST",
                           body: JSON.stringify({
-                            customerName: posCustomerName || "Client sur place",
+                            customerName: posCustomerName || (posOrderType === "delivery" ? "Client livraison" : "Client sur place"),
                             phone: posCustomerPhone,
                             items: JSON.stringify(items),
                             total,
@@ -425,16 +449,18 @@ export function PosTab({
                             paymentMethod: posPayment,
                             tableNumber: posOrderType === "dine_in" ? posTable : 0,
                             discount: posDiscount,
+                            deliveryAddress: posOrderType === "delivery" ? posDeliveryAddress : "",
+                            deliveryFee,
                             tax: 0,
                             note: posNote,
                           }),
                         });
-                        setPosCart([]); setPosDiscount(0); setPosCustomerName(""); setPosCustomerPhone(""); setPosNote("");
+                        setPosCart([]); setPosDiscount(0); setPosCustomerName(""); setPosCustomerPhone(""); setPosNote(""); setPosDeliveryAddress("");
                         loadData();
                         notify.posOrderSubmitted();
                       } catch (e) { console.error(e); }
                       finally { setPosSubmitting(false); }
-                    }} className="flex-1 rounded-xl text-sm dark:border-gray-600" disabled={posSubmitting}>
+                    }} className="flex-1 rounded-xl text-sm dark:border-gray-600" disabled={posSubmitting || (posOrderType === "delivery" && !posDeliveryAddress)}>
                       <Clock className="w-4 h-4 mr-1" /> Mettre en attente
                     </Button>
                     <Button variant="outline" onClick={() => { setPosCart([]); setPosDiscount(0); setPosNote(""); }} className="rounded-xl text-sm text-red-600 hover:bg-red-50 border-red-200 dark:text-red-400 dark:hover:bg-red-900/30 dark:border-red-800" disabled={posSubmitting}>

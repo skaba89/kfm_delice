@@ -13,6 +13,7 @@ import { DriverOrders } from "@/components/driver/DriverOrders";
 import { DriverMapTab } from "@/components/driver/DriverMapTab";
 import { DriverHistory } from "@/components/driver/DriverHistory";
 import { DriverProfile } from "@/components/driver/DriverProfile";
+import { DriverEarnings } from "@/components/driver/DriverEarnings";
 
 interface DriverDashboardProps {
   driver: DriverUser;
@@ -20,7 +21,7 @@ interface DriverDashboardProps {
 }
 
 export function DriverDashboard({ driver, onLogout }: DriverDashboardProps) {
-  const [activeTab, setActiveTab] = useState<"orders" | "map" | "history" | "profile">("orders");
+  const [activeTab, setActiveTab] = useState<"orders" | "map" | "history" | "earnings" | "profile">("orders");
   const {
     driverProfile, loading, updateStatus, acceptOrder, updateOrderStatus,
     availableOrders, activeOrder, completedOrders,
@@ -101,6 +102,7 @@ export function DriverDashboard({ driver, onLogout }: DriverDashboardProps) {
           { id: "orders" as const, label: "Commandes", count: availableOrders.length + (activeOrder ? 1 : 0) },
           { id: "map" as const, label: "Carte", count: 0 },
           { id: "history" as const, label: "Historique", count: 0 },
+          { id: "earnings" as const, label: "Gains", count: 0 },
           { id: "profile" as const, label: "Profil", count: 0 },
         ]).map(tab => (
           <button
@@ -138,6 +140,9 @@ export function DriverDashboard({ driver, onLogout }: DriverDashboardProps) {
         )}
         {activeTab === "history" && (
           <DriverHistory completedOrders={completedOrders} />
+        )}
+        {activeTab === "earnings" && (
+          <DriverEarnings />
         )}
         {activeTab === "profile" && (
           <DriverProfile driverProfile={driverProfile} />

@@ -258,7 +258,7 @@ export const statusLabels: Record<string, string> = {
   preparing: "En préparation", ready: "Prêt", picking_up: "En route vers le restaurant", delivering: "En livraison", delivered: "Livré",
 };
 export const paymentLabels: Record<string, string> = {
-  cash: "Espèces", orange_money: "Orange Money", mtn_money: "MTN Money", card: "Carte",
+  cash: "Espèces", orange_money: "Orange Money", mtn_money: "MTN Money", wave: "Wave", card: "Carte",
 };
 export const paymentStatusLabels: Record<string, string> = {
   pending: "En attente", processing: "En cours", paid: "Payé", failed: "Échoué", refunded: "Remboursé",
@@ -270,7 +270,7 @@ export const paymentStatusColors: Record<string, string> = {
 export const zoneLabels: Record<string, string> = {
   interieur: "Intérieur", terrasse: "Terrasse", vip: "VIP",
 };
-export const orderTypeLabels: Record<string, string> = { dine_in: "Sur place", takeaway: "À emporter", delivery: "Livraison" };
+export const orderTypeLabels: Record<string, string> = { dine_in: "Sur place", takeaway: "À emporter", delivery: "Moto-taxi" };
 export const vehicleLabels: Record<string, string> = { moto: "Moto", velo: "Vélo", voiture: "Voiture" };
 export const driverStatusColors: Record<string, string> = {
   available: "bg-green-100 text-green-700", busy: "bg-orange-100 text-orange-700", offline: "bg-gray-100 text-gray-700",

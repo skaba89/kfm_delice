@@ -34,6 +34,7 @@ export default function Home() {
         onAdminClick={() => router.push("/admin/login")}
         onCustomerClick={() => { if (customer) router.push("/client"); else router.push("/client/login"); }}
         onDriverClick={() => { if (driver) router.push("/driver"); else router.push("/driver/login"); }}
+        onKitchenClick={() => router.push("/kitchen")}
         customer={customer}
       />
       <HeroSection />

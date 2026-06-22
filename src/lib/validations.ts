@@ -47,7 +47,7 @@ export const orderSchema = z.object({
   total: z.number().min(0),
   status: z.string().optional(),
   orderType: z.string().optional(),
-  paymentMethod: z.enum(['cash', 'orange_money', 'mtn_money', 'card']).optional(),
+  paymentMethod: z.enum(['cash', 'orange_money', 'mtn_money', 'wave', 'card']).optional(),
   paymentStatus: z.enum(['pending', 'processing', 'paid', 'failed', 'refunded']).optional(),
   deliveryAddress: z.string().optional(),
   deliveryFee: z.number().optional(),
@@ -61,7 +61,7 @@ export const orderSchema = z.object({
 
 export const paymentSchema = z.object({
   orderId: z.string().min(1, 'ID commande requis'),
-  method: z.enum(['cash', 'orange_money', 'mtn_money', 'card'], { message: 'Méthode de paiement invalide' }),
+  method: z.enum(['cash', 'orange_money', 'mtn_money', 'wave', 'card'], { message: 'Méthode de paiement invalide' }),
   phone: z.string().optional(),
   customerName: z.string().optional(),
 });
@@ -205,7 +205,7 @@ export const orderPatchSchema = z.object({
   total: z.number().min(0).optional(),
   status: z.string().optional(),
   orderType: z.string().optional(),
-  paymentMethod: z.enum(['cash', 'orange_money', 'mtn_money', 'card']).optional(),
+  paymentMethod: z.enum(['cash', 'orange_money', 'mtn_money', 'wave', 'card']).optional(),
   paymentStatus: z.enum(['pending', 'processing', 'paid', 'failed', 'refunded']).optional(),
   deliveryAddress: z.string().optional(),
   deliveryFee: z.number().optional(),

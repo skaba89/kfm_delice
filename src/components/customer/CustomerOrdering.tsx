@@ -94,15 +94,36 @@ export function CustomerOrdering({
               .map(item => {
                 const inCart = cart.find(c => c.item.id === item.id);
                 return (
-                  <Card key={item.id} className="dark:bg-gray-800 dark:border-gray-700 hover:shadow-md transition-shadow">
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-gray-900 dark:text-gray-100 text-sm truncate">{item.name}</p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2">{item.description}</p>
+                  <Card key={item.id} className="dark:bg-gray-800 dark:border-gray-700 hover:shadow-md transition-shadow overflow-hidden">
+                    <CardContent className="p-0">
+                      {/* Photo du plat (si disponible) */}
+                      {item.image ? (
+                        <div className="relative h-32 w-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={item.image} alt={item.name} className="w-full h-full object-cover" loading="lazy" />
+                          {item.badge && (
+                            <Badge className="absolute top-2 right-2 bg-amber-500/90 text-white text-[10px] backdrop-blur-sm">{item.badge}</Badge>
+                          )}
+                          {item.popular && (
+                            <Badge className="absolute top-2 left-2 bg-orange-500/90 text-white text-[10px] backdrop-blur-sm">⭐ Populaire</Badge>
+                          )}
                         </div>
-                        {item.badge && <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-[10px] ml-2 shrink-0">{item.badge}</Badge>}
-                      </div>
+                      ) : (
+                        <div className="relative h-20 w-full bg-gradient-to-br from-orange-50 to-amber-50 dark:from-gray-700 dark:to-gray-800 flex items-center justify-center">
+                          <span className="text-3xl">🍽️</span>
+                          {item.badge && (
+                            <Badge className="absolute top-2 right-2 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-[10px]">{item.badge}</Badge>
+                          )}
+                        </div>
+                      )}
+                      <div className="p-4">
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-gray-900 dark:text-gray-100 text-sm truncate">{item.name}</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2">{item.description}</p>
+                          </div>
+                          {!item.image && item.badge && <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-[10px] ml-2 shrink-0">{item.badge}</Badge>}
+                        </div>
                       <div className="flex items-center justify-between mt-3">
                         <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{formatPrice(item.price)}</span>
                         {inCart ? (
@@ -116,6 +137,7 @@ export function CustomerOrdering({
                             <Plus className="w-3 h-3 mr-1" /> Ajouter
                           </Button>
                         )}
+                      </div>
                       </div>
                     </CardContent>
                   </Card>
@@ -181,17 +203,61 @@ export function CustomerOrdering({
       {checkoutStep === "checkout" && (
         <Card className="dark:bg-gray-800 dark:border-gray-700">
           <CardContent className="p-5">
-            <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2"><Navigation className="w-5 h-5 text-emerald-500" /> Détails de livraison</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2"><Navigation className="w-5 h-5 text-emerald-500" /> Commande</h3>
             <div className="space-y-4">
-              <div><label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">Adresse de livraison</label><Input value={checkoutForm.address} onChange={e => setCheckoutForm({ ...checkoutForm, address: e.target.value })} placeholder="Votre adresse à Conakry..." className="dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100" /></div>
-              <div><label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">Mode de paiement</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {(["cash", "orange_money", "mtn_money"] as const).map(m => (
-                    <button key={m} onClick={() => setCheckoutForm({ ...checkoutForm, paymentMethod: m })} className={`p-3 rounded-xl border text-sm font-medium transition-colors ${checkoutForm.paymentMethod === m ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-600 text-emerald-700 dark:text-emerald-400" : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:border-emerald-300"}`}>
-                      {paymentLabels[m]}
+              {/* Order type selector */}
+              <div>
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">Type de commande</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { id: "dine_in", label: "Sur place", icon: "🍽️" },
+                    { id: "takeaway", label: "À emporter", icon: "🥡" },
+                    { id: "delivery", label: "Moto-taxi", icon: "🛵" },
+                  ] as const).map(t => (
+                    <button key={t.id} onClick={() => setCheckoutForm({ ...checkoutForm, orderType: t.id })} className={`p-3 rounded-xl border text-sm font-medium transition-colors ${checkoutForm.orderType === t.id ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-600 text-emerald-700 dark:text-emerald-400" : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:border-emerald-300"}`}>
+                      <span className="block text-xl mb-1">{t.icon}</span>
+                      {t.label}
                     </button>
                   ))}
                 </div>
+                {checkoutForm.orderType === "delivery" && (
+                  <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                    <span>🛵</span> Livraison par moto-taxi — un livreur sera assigné rapidement.
+                  </p>
+                )}
+              </div>
+
+              {/* Conditional fields based on order type */}
+              {checkoutForm.orderType === "delivery" && (
+                <div>
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">Adresse de livraison *</label>
+                  <Input value={checkoutForm.address} onChange={e => setCheckoutForm({ ...checkoutForm, address: e.target.value })} placeholder="Votre adresse à Conakry..." className="dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100" />
+                </div>
+              )}
+              {checkoutForm.orderType === "dine_in" && (
+                <div><label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">Numéro de table *</label><Input type="number" min="1" value={checkoutForm.tableNumber} onChange={e => setCheckoutForm({ ...checkoutForm, tableNumber: e.target.value })} placeholder="Ex: 5" className="dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100" /></div>
+              )}
+              {checkoutForm.orderType === "takeaway" && (
+                <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 p-3 text-sm text-amber-700 dark:text-amber-300">
+                  🥡 À emporter — Votre commande sera prête à être récupérée au restaurant. Aucune adresse requise.
+                </div>
+              )}
+
+              <div><label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">Téléphone *</label><Input type="tel" value={checkoutForm.phone} onChange={e => setCheckoutForm({ ...checkoutForm, phone: e.target.value })} placeholder="+224 6XX XXX XXX" className="dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100" /></div>
+
+              <div><label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">Mode de paiement</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(["cash", "orange_money", "mtn_money", "wave"] as const).map(m => (
+                    <button key={m} onClick={() => setCheckoutForm({ ...checkoutForm, paymentMethod: m })} className={`p-3 rounded-xl border text-sm font-medium transition-colors flex items-center justify-center gap-2 ${checkoutForm.paymentMethod === m ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-600 text-emerald-700 dark:text-emerald-400" : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:border-emerald-300"}`}>
+                      {m === "cash" ? "💵" : m === "orange_money" ? "🟠" : m === "mtn_money" ? "🟡" : "🔵"} {paymentLabels[m]}
+                    </button>
+                  ))}
+                </div>
+                {(checkoutForm.paymentMethod === "orange_money" || checkoutForm.paymentMethod === "mtn_money" || checkoutForm.paymentMethod === "wave") && (
+                  <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                    📱 Vous recevrez une notification sur votre téléphone pour confirmer le paiement.
+                  </p>
+                )}
               </div>
               <div><label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">Notes (optionnel)</label><Textarea value={checkoutForm.note} onChange={e => setCheckoutForm({ ...checkoutForm, note: e.target.value })} placeholder="Instructions spéciales..." rows={2} className="dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100" /></div>
 
@@ -200,14 +266,16 @@ export function CustomerOrdering({
                 {discountAmount > 0 && (
                   <div className="flex justify-between text-sm"><span className="text-emerald-600 dark:text-emerald-400">Réduction fidélité ({discountPercent}%)</span><span className="text-emerald-600 dark:text-emerald-400">-{formatPrice(discountAmount)}</span></div>
                 )}
-                <div className="flex justify-between text-sm"><span className="text-gray-500 dark:text-gray-400">Livraison</span><span className="dark:text-gray-200">{formatPrice(deliveryFee)}</span></div>
+                {checkoutForm.orderType === "delivery" && (
+                  <div className="flex justify-between text-sm"><span className="text-gray-500 dark:text-gray-400">Livraison</span><span className="dark:text-gray-200">{formatPrice(deliveryFee)}</span></div>
+                )}
                 <Separator />
-                <div className="flex justify-between font-bold text-lg"><span className="dark:text-gray-100">Total</span><span className="text-emerald-600 dark:text-emerald-400">{formatPrice(cartTotal + deliveryFee)}</span></div>
+                <div className="flex justify-between font-bold text-lg"><span className="dark:text-gray-100">Total</span><span className="text-emerald-600 dark:text-emerald-400">{formatPrice(cartTotal + (checkoutForm.orderType === "delivery" ? deliveryFee : 0))}</span></div>
               </div>
 
               <div className="flex gap-3">
                 <Button variant="outline" onClick={() => setCheckoutStep("cart")} className="dark:border-gray-600">Retour</Button>
-                <Button onClick={submitOrder} disabled={orderSubmitting || !checkoutForm.address} className="flex-1 bg-gradient-to-r from-emerald-500 to-teal-500 text-white">
+                <Button onClick={submitOrder} disabled={orderSubmitting || (checkoutForm.orderType === "delivery" ? !checkoutForm.address : checkoutForm.orderType === "dine_in" ? !checkoutForm.tableNumber : false)} className="flex-1 bg-gradient-to-r from-emerald-500 to-teal-500 text-white">
                   {orderSubmitting ? <RefreshCw className="w-4 h-4 animate-spin mr-2" /> : <ShoppingBag className="w-4 h-4 mr-2" />} Confirmer la commande
                 </Button>
               </div>

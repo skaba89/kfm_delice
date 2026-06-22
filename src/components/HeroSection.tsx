@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { UtensilsCrossed, CalendarCheck, Star, ArrowRight } from "lucide-react";
+import { UtensilsCrossed, CalendarCheck, Star, ArrowRight, ShoppingCart } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { RESTO } from "@/lib/constants";
@@ -24,6 +24,7 @@ export function HeroSection() {
               <span className="text-gray-400">({RESTO.reviewCount} avis)</span>
             </motion.div>
             <motion.div initial={{ opacity: 0, y: 25 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.3 }} className="flex flex-col sm:flex-row gap-4">
+              <a href="/client/register"><Button size="lg" className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white rounded-full px-8 py-6 text-lg shadow-xl shadow-emerald-500/30"><ShoppingCart className="mr-2 w-5 h-5" />Commander en ligne</Button></a>
               <a href="#reservation"><Button size="lg" className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white rounded-full px-8 py-6 text-lg shadow-xl shadow-orange-500/30"><CalendarCheck className="mr-2 w-5 h-5" />Réserver une Table</Button></a>
               <a href="#menu"><Button size="lg" variant="outline" className="border-white/30 text-white hover:bg-white/10 rounded-full px-8 py-6 text-lg">Voir le Menu<ArrowRight className="ml-2 w-5 h-5" /></Button></a>
             </motion.div>

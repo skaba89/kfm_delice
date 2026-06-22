@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  User, LayoutDashboard,
+  User, LayoutDashboard, ChefHat,
   Menu, X, UserCheck, Bike,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -14,10 +14,11 @@ interface PublicNavbarProps {
   onAdminClick: () => void;
   onCustomerClick: () => void;
   onDriverClick: () => void;
+  onKitchenClick?: () => void;
   customer: CustomerUser | null;
 }
 
-export function PublicNavbar({ onAdminClick, onCustomerClick, onDriverClick, customer }: PublicNavbarProps) {
+export function PublicNavbar({ onAdminClick, onCustomerClick, onDriverClick, onKitchenClick, customer }: PublicNavbarProps) {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => { const h = () => setScrolled(window.scrollY > 20); window.addEventListener("scroll", h); return () => window.removeEventListener("scroll", h); }, []);
@@ -54,6 +55,9 @@ export function PublicNavbar({ onAdminClick, onCustomerClick, onDriverClick, cus
             </button>
             <ThemeToggle />
             <button onClick={onAdminClick} className={`p-2 rounded-lg transition-colors ${scrolled ? "text-gray-400 hover:text-orange-500 dark:text-gray-500 dark:hover:text-orange-400" : "text-white/50 hover:text-orange-400"}`} title="Admin"><LayoutDashboard className="w-5 h-5" /></button>
+            {onKitchenClick && (
+              <button onClick={onKitchenClick} className={`p-2 rounded-lg transition-colors ${scrolled ? "text-gray-400 hover:text-orange-500 dark:text-gray-500 dark:hover:text-orange-400" : "text-white/50 hover:text-orange-400"}`} title="Cuisine"><ChefHat className="w-5 h-5" /></button>
+            )}
           </div>
           <div className="lg:hidden flex items-center gap-2">
             <ThemeToggle />
@@ -73,6 +77,9 @@ export function PublicNavbar({ onAdminClick, onCustomerClick, onDriverClick, cus
             )}
             <button onClick={() => { setMenuOpen(false); onDriverClick(); }} className="w-full mt-2 py-3 px-4 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg text-sm flex items-center gap-2"><Bike className="w-4 h-4" /> Espace Livreur</button>
             <button onClick={() => { setMenuOpen(false); onAdminClick(); }} className="w-full mt-2 py-3 px-4 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg text-sm flex items-center gap-2"><LayoutDashboard className="w-4 h-4" /> Administration</button>
+            {onKitchenClick && (
+              <button onClick={() => { setMenuOpen(false); onKitchenClick(); }} className="w-full mt-2 py-3 px-4 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg text-sm flex items-center gap-2"><ChefHat className="w-4 h-4" /> Cuisine</button>
+            )}
           </motion.div>
         )}</AnimatePresence>
       </div>

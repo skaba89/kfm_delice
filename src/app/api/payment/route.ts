@@ -125,9 +125,45 @@ async function initiateMTNMoneyPayment(phone: string, amount: number, orderId: s
 }
 
 /**
+ * Simulate Wave Sénégal/Guinée payment initiation.
+ * In production, this would call the Wave Business API:
+ * POST https://api.wave.com/v1/checkout/sessions
+ */
+async function initiateWavePayment(phone: string, amount: number, orderId: string) {
+  if (PAYMENT_CONFIG.SIMULATED_DELAY > 0) {
+    await new Promise((r) => setTimeout(r, 500));
+  }
+
+  const cleanPhone = phone.replace(/\s/g, "");
+  if (!cleanPhone.startsWith("+224") && !cleanPhone.startsWith("224") && !cleanPhone.startsWith("6")) {
+    return {
+      success: false,
+      error: "Numéro Wave invalide. Format attendu : +224 6XX XXX XXX",
+    };
+  }
+
+  const isSuccess = Math.random() > 0.03; // Wave has slightly higher success rate
+
+  if (isSuccess) {
+    return {
+      success: true,
+      transactionRef: `WAVE_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+      status: "processing" as const,
+      message: "Paiement Wave initié. Confirmez via notification Wave sur votre téléphone.",
+      otpRequired: true,
+    };
+  }
+
+  return {
+    success: false,
+    error: "Solde insuffisant ou service Wave temporairement indisponible.",
+  };
+}
+
+/**
  * Process a payment based on the method.
  * Cash and card payments are marked as paid immediately.
- * Mobile money (Orange/MTN) initiates the payment flow.
+ * Mobile money (Orange/MTN/Wave) initiates the payment flow.
  */
 async function processPayment(method: string, amount: number, orderId: string, phone: string) {
   switch (method) {
@@ -155,6 +191,9 @@ async function processPayment(method: string, amount: number, orderId: string, p
     case "mtn_money":
       return initiateMTNMoneyPayment(phone, amount, orderId);
 
+    case "wave":
+      return initiateWavePayment(phone, amount, orderId);
+
     default:
       return { success: false, error: `Méthode de paiement non supportée : ${method}` };
   }
@@ -177,7 +216,7 @@ export async function GET(request: Request) {
     const { sortBy, sortOrder } = parseSorting(sp, ["createdAt", "amount", "method", "status"] as const, "createdAt");
     const search = parseSearch(sp);
     const statusFilter = parseStatusFilter(sp, ["pending", "processing", "paid", "failed", "refunded"]);
-    const methodFilter = parseStatusFilter(sp, ["cash", "orange_money", "mtn_money", "card"], "method");
+    const methodFilter = parseStatusFilter(sp, ["cash", "orange_money", "mtn_money", "wave", "card"], "method");
     const orderId = sp.get("orderId");
 
     const where = {
@@ -246,7 +285,7 @@ export async function POST(request: Request) {
     }
 
     // For mobile money, phone is required
-    if ((method === "orange_money" || method === "mtn_money") && !phone) {
+    if ((method === "orange_money" || method === "mtn_money" || method === "wave") && !phone) {
       return NextResponse.json(
         { error: "Numéro de téléphone requis pour le paiement mobile" },
         { status: 400 }

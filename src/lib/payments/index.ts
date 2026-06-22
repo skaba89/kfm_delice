@@ -18,7 +18,13 @@ import {
   verifyMTNMoMoTransaction,
 } from './mtn-momo';
 
-export type PaymentMethod = 'cash' | 'orange_money' | 'mtn_money' | 'card';
+import {
+  isWaveConfigured,
+  initiateWavePayment,
+  verifyWaveTransaction,
+} from './wave';
+
+export type PaymentMethod = 'cash' | 'orange_money' | 'mtn_money' | 'wave' | 'card';
 export type PaymentStatus = 'pending' | 'processing' | 'paid' | 'failed';
 
 export interface InitPaymentParams {
@@ -52,6 +58,7 @@ export interface VerifyPaymentResult {
 export function isProductionPayment(method: PaymentMethod): boolean {
   if (method === 'orange_money') return isOrangeMoneyConfigured();
   if (method === 'mtn_money') return isMTNMomoConfigured();
+  if (method === 'wave') return isWaveConfigured();
   return false; // cash and card don't need external APIs
 }
 
@@ -143,6 +150,38 @@ export async function initiatePayment(params: InitPaymentParams): Promise<InitPa
     return simulatePayment('mtn_money', phone, amount);
   }
 
+  // Wave — use real API if configured, otherwise simulate
+  if (method === 'wave') {
+    if (isWaveConfigured()) {
+      const result = await initiateWavePayment({
+        phone,
+        amount,
+        orderId,
+        currency,
+        payerMessage: `Paiement commande KFM-${orderId.slice(-8).toUpperCase()}`,
+      });
+
+      if (result.success) {
+        return {
+          success: true,
+          status: 'processing',
+          transactionRef: result.transactionRef,
+          paymentUrl: result.paymentUrl,
+          message: 'Paiement Wave initié. Confirmez sur votre application Wave.',
+          otpRequired: true,
+        };
+      }
+
+      return {
+        success: false,
+        error: result.error || 'Erreur Wave',
+      };
+    }
+
+    // Simulation fallback
+    return simulatePayment('wave', phone, amount);
+  }
+
   return { success: false, error: `Méthode de paiement non supportée : ${method}` };
 }
 
@@ -159,33 +198,40 @@ export async function verifyPayment(
     return verifyMTNMoMoTransaction(transactionRef);
   }
 
+  if (method === 'wave' && isWaveConfigured()) {
+    return verifyWaveTransaction(transactionRef);
+  }
+
   // For unconfigured methods or cash/card, just return paid
   return { status: 'paid', transactionRef };
 }
 
 /** Simulation fallback for development/demo */
 function simulatePayment(
-  method: 'orange_money' | 'mtn_money',
+  method: 'orange_money' | 'mtn_money' | 'wave',
   phone: string,
   _amount: number
 ): InitPaymentResult {
   // Validate phone format
   const cleanPhone = phone.replace(/\s/g, '');
   if (!cleanPhone.startsWith('+224') && !cleanPhone.startsWith('224') && !cleanPhone.startsWith('6')) {
+    const label = method === 'orange_money' ? 'Orange Money' : method === 'mtn_money' ? 'MTN Money' : 'Wave';
     return {
       success: false,
-      error: `Numéro ${method === 'orange_money' ? 'Orange Money' : 'MTN Money'} invalide. Format attendu : +224 6XX XXX XXX`,
+      error: `Numéro ${label} invalide. Format attendu : +224 6XX XXX XXX`,
     };
   }
 
   // Simulate success (95% rate)
   const isSuccess = Math.random() > 0.05;
   if (isSuccess) {
+    const prefix = method === 'orange_money' ? 'OM' : method === 'mtn_money' ? 'MTN' : 'WAVE';
+    const label = method === 'orange_money' ? 'Orange Money' : method === 'mtn_money' ? 'MTN Money' : 'Wave';
     return {
       success: true,
       status: 'processing',
-      transactionRef: `${method === 'orange_money' ? 'OM' : 'MTN'}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-      message: `Paiement ${method === 'orange_money' ? 'Orange Money' : 'MTN Money'} initié (MODE DÉMO). Confirmez sur votre téléphone.`,
+      transactionRef: `${prefix}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+      message: `Paiement ${label} initié (MODE DÉMO). Confirmez sur votre téléphone.`,
       otpRequired: true,
     };
   }

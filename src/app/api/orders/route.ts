@@ -202,12 +202,33 @@ export async function PATCH(request: Request) {
     if (driverId) {
       await db.driver.update({ where: { id: driverId }, data: { status: "busy" } });
     }
-    // If order delivered or cancelled, free up driver
+    // If order delivered or cancelled, free up driver + credit driver earnings on delivery
     if (data.status === "delivered" || data.status === "cancelled") {
       const existingOrder = await db.order.findUnique({ where: { id } });
       if (existingOrder?.driverId) {
-        await db.driver.update({ where: { id: existingOrder.driverId }, data: { status: "available" } });
-        await db.driver.update({ where: { id: existingOrder.driverId }, data: { totalDeliveries: { increment: 1 } } });
+        const driver = await db.driver.findUnique({ where: { id: existingOrder.driverId } });
+        await db.driver.update({
+          where: { id: existingOrder.driverId },
+          data: {
+            status: "available",
+            totalDeliveries: { increment: 1 },
+            // Credit earnings on delivery: commission % of order total (or delivery fee, whichever is higher)
+            ...(data.status === "delivered" && driver ? {
+              totalEarnings: { increment: Math.max(
+                Math.round(existingOrder.total * (driver.commissionRate / 100)),
+                existingOrder.deliveryFee
+              ) },
+            } : {}),
+          },
+        });
+        // Persist the earning on the order for history
+        if (data.status === "delivered" && driver) {
+          const earning = Math.max(
+            Math.round(existingOrder.total * (driver.commissionRate / 100)),
+            existingOrder.deliveryFee
+          );
+          await db.order.update({ where: { id }, data: { driverEarning: earning } });
+        }
       }
     }
 
