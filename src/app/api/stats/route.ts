@@ -143,8 +143,12 @@ export async function GET(request: Request) {
     const dishCounts: Record<string, number> = {};
     recentOrders.forEach((o) => {
       try {
-        const items = JSON.parse(o.items) as { name: string; price: number; qty: number }[];
-        items.forEach((item) => { dishCounts[item.name] = (dishCounts[item.name] || 0) + item.qty; });
+        // Accept both `qty` and `quantity` (see orders/route.ts for the same fix)
+        const items = JSON.parse(o.items) as { name: string; price: number; qty?: number; quantity?: number }[];
+        items.forEach((item) => {
+          const qty = item.qty ?? item.quantity ?? 1;
+          if (item.name) dishCounts[item.name] = (dishCounts[item.name] || 0) + qty;
+        });
       } catch { /* skip */ }
     });
     const popularDishes = Object.entries(dishCounts)
