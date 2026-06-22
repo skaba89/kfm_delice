@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  UtensilsCrossed, CalendarCheck, Star, User, LayoutDashboard,
+  User, LayoutDashboard,
   Menu, X, UserCheck, Bike,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -31,7 +31,7 @@ export function PublicNavbar({ onAdminClick, onCustomerClick, onDriverClick, cus
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 lg:h-20">
           <a href="#" className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center shadow-lg shadow-orange-500/30"><UtensilsCrossed className="w-5 h-5 text-white" /></div>
+            <img src="/images/icon-192.png" alt="KFM Delice" className="w-10 h-10 rounded-xl shadow-lg shadow-orange-500/30 object-cover" />
             <div className="leading-tight">
               <span className={`text-xl font-extrabold tracking-tight transition-colors ${scrolled ? "text-gray-900 dark:text-gray-100" : "text-white"}`}>KFM <span className="bg-gradient-to-r from-orange-500 to-red-500 bg-clip-text text-transparent">Delice</span></span>
               <p className={`text-[10px] font-medium tracking-widest uppercase ${scrolled ? "text-gray-400 dark:text-gray-500" : "text-white/60"}`}>Restaurant & Bar</p>

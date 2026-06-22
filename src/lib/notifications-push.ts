@@ -47,8 +47,8 @@ export async function showLocalNotification(title: string, body: string, url?: s
   if (registration) {
     registration.showNotification(title, {
       body,
-      icon: '/logo.svg',
-      badge: '/logo.svg',
+      icon: '/images/icon-192.png',
+      badge: '/images/favicon-32.png',
       vibrate: [100, 50, 100],
       data: { url: url || '/' },
       actions: [

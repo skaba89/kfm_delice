@@ -1,12 +1,17 @@
-const CACHE_NAME = 'kfm-delice-v2';
+const CACHE_NAME = 'kfm-delice-v3';
 const STATIC_ASSETS = [
   '/',
   '/menu',
   '/reservation',
   '/tracking',
   '/manifest.json',
+  '/favicon.ico',
+  '/logo.svg',
   '/images/icon-192.png',
   '/images/icon-512.png',
+  '/images/favicon-32.png',
+  '/images/apple-touch-icon.png',
+  '/images/logo-512.png',
 ];
 
 // API cache (short-lived, for menu/reviews data)
@@ -135,7 +140,7 @@ self.addEventListener('push', (event) => {
   const options = {
     body: data.body || 'Nouvelle notification',
     icon: '/images/icon-192.png',
-    badge: '/images/icon-192.png',
+    badge: '/images/favicon-32.png',
     vibrate: [200, 100, 200],
     data: data.data || {},
     actions: data.actions || [
