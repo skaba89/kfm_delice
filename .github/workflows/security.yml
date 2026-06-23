@@ -1,0 +1,86 @@
+# =============================================================================
+# KFM Delice — Security Scan Pipeline
+# =============================================================================
+# Runs on every push and PR. Uses gitleaks to scan for secrets.
+# Also runs nightly to catch secrets introduced in any commit.
+# =============================================================================
+
+name: Security Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Nightly at 03:00 UTC
+    - cron: '0 3 * * *'
+
+jobs:
+  gitleaks:
+    name: Gitleaks Secret Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for complete scan
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+      - name: Upload scan results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-report
+          path: |
+            results.sarif
+            *.json
+          retention-days: 30
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Job: Dependency vulnerability scan
+  # ─────────────────────────────────────────────────────────────────────────
+  audit:
+    name: npm audit (high+critical)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit
+        run: |
+          # Fail only on high and critical vulnerabilities
+          npm audit --audit-level=high --omit=dev || {
+            echo "::warning::High or critical vulnerabilities found. Run 'npm audit' for details."
+            exit 1
+          }
+
+      - name: Generate SBOM (Software Bill of Materials)
+        run: npm sbom --sbom-format cyclonedx > sbom.cyclonedx.json
+        continue-on-error: true
+
+      - name: Upload SBOM
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.cyclonedx.json
+          retention-days: 90

@@ -1,0 +1,93 @@
+# =============================================================================
+# KFM Delice — Pre-commit Hooks
+# =============================================================================
+# Install pre-commit framework: pip install pre-commit
+# Then activate: pre-commit install
+# Doc: https://pre-commit.com
+# =============================================================================
+
+repos:
+  # ────────────────────────────────────────────────────────────────────────
+  # Secret scanner — blocks commit if a secret is detected
+  # ────────────────────────────────────────────────────────────────────────
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.1
+    hooks:
+      - id: gitleaks
+        args: ["--config=.gitleaks.toml", "--redact"]
+        # Only scan staged files for speed
+        pass_filenames: false
+
+  # ────────────────────────────────────────────────────────────────────────
+  # Generic checks — whitespace, large files, merge conflict markers
+  # ────────────────────────────────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: '\.md$'
+      - id: end-of-file-fixer
+        exclude: '\.min\.(js|css)$'
+      - id: check-yaml
+        files: '\.(yml|yaml)$'
+      - id: check-json
+        files: '\.json$'
+      - id: check-toml
+        files: '\.toml$'
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+        exclude: |
+          (?x)^(
+            public/images/.*|
+            data/.*\.db
+          )$
+      - id: detect-private-key
+        exclude: |
+          (?x)^(
+            scripts/preflight-check\.sh|
+            \.gitleaks\.toml
+          )$
+      - id: check-case-conflict
+      - id: check-symlinks
+
+  # ────────────────────────────────────────────────────────────────────────
+  # .env files must NEVER be committed (defensive — also covered by .gitignore)
+  # ────────────────────────────────────────────────────────────────────────
+  - repo: local
+    hooks:
+      - id: no-env-files
+        name: prevent .env files from being committed
+        entry: bash -c 'if git diff --cached --name-only | grep -E "^\.env($|\.)" | grep -vE "\.example$"; then echo "ERROR: .env files are forbidden in git. Use .env.example instead."; exit 1; fi'
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: no-secrets-in-src
+        name: scan src/ for obvious secrets
+        entry: bash -c 'if grep -rE "(sk_live_|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36})" src/ 2>/dev/null; then echo "ERROR: Found live secrets in src/. Remove them before committing."; exit 1; fi'
+        language: system
+        pass_filenames: false
+        always_run: true
+
+# ────────────────────────────────────────────────────────────────────────────
+# Configuration
+# ────────────────────────────────────────────────────────────────────────────
+minimum_pre_commit_version: '3.0.0'
+
+# Skip these hooks during merge commits
+default_install_hook_types:
+  - pre-commit
+  - pre-push
+
+# Don't run hooks on these files
+exclude: |
+  (?x)^(
+    node_modules/.*|
+    \.next/.*|
+    build/.*|
+    coverage/.*|
+    data/.*\.db.*|
+    package-lock\.json|
+    yarn\.lock
+  )$

@@ -1,0 +1,136 @@
+# =============================================================================
+# KFM Delice — Gitleaks Configuration
+# =============================================================================
+# Custom rules to catch secrets specific to this project, on top of gitleaks
+# built-in rules (which cover AWS, Stripe, GitHub, Google, Slack, etc.)
+# Doc: https://github.com/gitleaks/gitleaks#configuration
+# =============================================================================
+
+title = "KFM Delice — Secret Scan Config"
+
+[extend]
+# Inherit all built-in rules (600+ patterns)
+useDefault = true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Global allowlist — patterns that should NEVER be flagged as secrets
+# ─────────────────────────────────────────────────────────────────────────────
+[allowlist]
+description = "Global allowlist for known-safe patterns"
+paths = [
+  '''node_modules/''',
+  '''.next/''',
+  '''build/''',
+  '''coverage/''',
+  '''\.git/''',
+  '''package-lock\.json''',
+  '''yarn\.lock''',
+  '''pnpm-lock\.yaml''',
+  '''scripts/preflight-check\.sh''',  # contains pattern literals, not real secrets
+  '''scripts/e2e-test\.sh''',         # test fixtures
+  '''scripts/seed-production\.ts''',  # generates random passwords at runtime
+  '''prisma/seed\.ts''',              # dev seed with placeholder passwords
+  '''src/lib/constants\.ts''',        # public constants
+]
+regexes = [
+  # Test/demo values
+  '''JWT_SECRET=["']?ci-test-''',
+  '''JWT_SECRET=["']?change-me-''',
+  '''JWT_SECRET=["']?test-''',
+  '''JWT_SECRET=["']?your-''',
+  '''JWT_SECRET=["']?placeholder-''',
+  # Env var references (not the values themselves)
+  '''process\.env\.[A-Z_]+''',
+  # Comments
+  '''#.*JWT_SECRET''',
+  '''//.*JWT_SECRET''',
+  '''<!--.*JWT_SECRET.*-->''',
+  # Markdown docs
+  '''JWT_SECRET=\.\.\.''',
+  '''JWT_SECRET=<.*>''',
+  # Public VAPID key (designed to be public)
+  '''VAPID_PUBLIC_KEY=["']?[A-Za-z0-9_-]{80,}''',
+  # E2E test passwords (matching patterns from scripts/e2e-test.sh)
+  '''password["']?\s*:\s*["']?(kfm2024|client123|driver123|platform2024|manager2024|staff2024)''',
+]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Custom rules — KFM Delice specific patterns
+# ─────────────────────────────────────────────────────────────────────────────
+
+[[rules]]
+id = "kfm-jwt-secret-assignment"
+description = "JWT_SECRET assigned a non-placeholder value"
+regex = '''JWT_SECRET\s*=\s*["']([a-f0-9]{32,}|[A-Za-z0-9_-]{40,})["']'''
+tags = ["jwt", "kfm"]
+keywords = ["JWT_SECRET"]
+
+[[rules]]
+id = "kfm-webhook-secret-assignment"
+description = "WEBHOOK_SECRET assigned a non-placeholder value"
+regex = '''WEBHOOK_SECRET\s*=\s*["']([a-f0-9]{32,}|[A-Za-z0-9_-]{40,})["']'''
+tags = ["webhook", "kfm"]
+keywords = ["WEBHOOK_SECRET"]
+
+[[rules]]
+id = "kfm-nextauth-secret-assignment"
+description = "NEXTAUTH_SECRET assigned a non-placeholder value"
+regex = '''NEXTAUTH_SECRET\s*=\s*["']([a-f0-9]{32,}|[A-Za-z0-9_-]{40,})["']'''
+tags = ["nextauth", "kfm"]
+keywords = ["NEXTAUTH_SECRET"]
+
+[[rules]]
+id = "kfm-mobile-money-keys"
+description = "Orange/MTN/Wave Mobile Money merchant keys"
+regex = '''(ORANGE_MERCHANT_KEY|MTN_API_KEY|MTN_SUBSCRIPTION_KEY|WAVE_SECRET_KEY|WAVE_API_KEY)\s*=\s*["']([A-Za-z0-9_-]{20,})["']'''
+tags = ["mobile-money", "kfm"]
+keywords = [
+  "ORANGE_MERCHANT_KEY",
+  "MTN_API_KEY",
+  "MTN_SUBSCRIPTION_KEY",
+  "WAVE_SECRET_KEY",
+  "WAVE_API_KEY",
+]
+
+[[rules]]
+id = "kfm-smtp-credentials"
+description = "SMTP credentials in source code"
+regex = '''(SMTP_USER|SMTP_PASS)\s*=\s*["']([^"']{8,})["']'''
+tags = ["smtp", "email", "kfm"]
+keywords = ["SMTP_USER", "SMTP_PASS"]
+
+[[rules]]
+id = "kfm-bcrypt-hash-in-code"
+description = "Pre-computed bcrypt hash hardcoded in source (should be computed at runtime)"
+regex = '''\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}'''
+tags = ["bcrypt", "kfm"]
+# Allow in seed files (they intentionally contain test hashes for dev)
+path = '''(?!.*seed)(?!.*test)(?!.*spec).*\.(ts|js|tsx|jsx)$'''
+
+[[rules]]
+id = "kfm-private-key-pem"
+description = "PEM private key in source code"
+regex = '''-----BEGIN [A-Z ]*PRIVATE KEY-----'''
+tags = ["pem", "private-key", "kfm"]
+
+[[rules]]
+id = "kfm-database-url-credentials"
+description = "Database URL with embedded credentials (non-placeholder)"
+regex = '''DATABASE_URL\s*=\s*["']?(postgresql|postgres)://[^:]+:([^@{]{4,})@'''
+tags = ["database", "kfm"]
+keywords = ["DATABASE_URL"]
+# Allow placeholder passwords
+[rules.allowlist]
+regexes = [
+  '''DATABASE_URL.*:password@''',
+  '''DATABASE_URL.*:PASSWORD@''',
+  '''DATABASE_URL.*:your-pass@''',
+  '''DATABASE_URL.*:xxx@''',
+  '''DATABASE_URL.*<.*>''',
+]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Capabilities — limit CPU/memory usage
+# ─────────────────────────────────────────────────────────────────────────────
+[allowlist]
+commits = []
