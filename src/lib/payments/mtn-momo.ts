@@ -1,8 +1,8 @@
 /**
  * MTN Mobile Money (MoMo) API Integration
- * 
+ *
  * Production API docs: https://momodeveloper.mtn.com/
- * 
+ *
  * To activate:
  * 1. Register at https://momodeveloper.mtn.com/
  * 2. Get your subscription_key, api_user, api_key
@@ -12,7 +12,7 @@
  *    - MTN_MOMO_API_KEY
  *    - MTN_MOMO_API_URL (default: https://momodeveloper.mtn.com)
  *    - MTN_MOMO_CALLBACK_URL
- * 
+ *
  * Flow:
  * 1. Frontend calls POST /api/payment → initPayment()
  * 2. We call MTN MoMo Collection API → request to pay

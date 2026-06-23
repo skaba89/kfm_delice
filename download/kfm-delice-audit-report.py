@@ -8,7 +8,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm, cm
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_JUSTIFY
 from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, 
+    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
     PageBreak, KeepTogether, HRFlowable
 )
 from reportlab.platypus.flowables import Flowable
@@ -137,10 +137,10 @@ def make_table(headers, rows, col_widths=None):
     data = [header_paras]
     for row in rows:
         data.append([Paragraph(str(c), styles['TableCell']) for c in row])
-    
+
     if not col_widths:
         col_widths = [PAGE_W / len(headers)] * len(headers)
-    
+
     t = Table(data, colWidths=col_widths, repeatRows=1)
     style_cmds = [
         ('BACKGROUND', (0, 0), (-1, 0), TABLE_HEADER_COLOR),

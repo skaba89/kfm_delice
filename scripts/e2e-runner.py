@@ -41,11 +41,11 @@ def http_request(method, path, data=None, token=None, slug=None, timeout=90):
         headers["Authorization"] = f"Bearer {token}"
     if slug:
         headers["x-restaurant-slug"] = slug
-    
+
     body = None
     if data is not None:
         body = json.dumps(data).encode("utf-8")
-    
+
     req = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -110,7 +110,7 @@ def run_tests():
     """Run all E2E tests and return results."""
     results = []
     tokens = {}
-    
+
     def test(name, expected, actual_status, detail=""):
         ok = actual_status == expected
         results.append({
@@ -122,51 +122,51 @@ def run_tests():
         })
         marker = "✓" if ok else "✗"
         log(f"  {marker} {name}: {actual_status} (expected {expected}) {detail}")
-    
+
     # ============= AUTH =============
     log("\n--- AUTH ---")
-    
+
     s, r = http_request("POST", "/api/login", ACCOUNTS["admin"])
     tokens["admin"] = get_token(r)
     test("Admin Login", 200, s, f"token={'yes' if tokens['admin'] else 'NO'}")
-    
+
     s, r = http_request("POST", "/api/customer-login", ACCOUNTS["customer"])
     tokens["customer"] = get_token(r)
     test("Customer Login", 200, s, f"token={'yes' if tokens['customer'] else 'NO'}")
-    
+
     s, r = http_request("POST", "/api/driver-login", ACCOUNTS["driver"])
     tokens["driver"] = get_token(r)
     test("Driver Login", 200, s, f"token={'yes' if tokens['driver'] else 'NO'}")
-    
+
     s, r = http_request("POST", "/api/platform-login", ACCOUNTS["platform"])
     tokens["platform"] = get_token(r)
     test("Platform Login", 200, s, f"token={'yes' if tokens['platform'] else 'NO'}")
-    
+
     s, r = http_request("POST", "/api/login", {"email": "bad@test.com", "password": "bad"})
     # Accept either 401 (correct rejection) or 429 (rate-limited from prior attempts)
     if s == 429:
         test("Invalid Login Rejected (rate-limited)", 429, s, "rate limited")
     else:
         test("Invalid Login Rejected", 401, s, "")
-    
+
     s, r = http_request("GET", "/api/dashboard")
     test("Unauth Dashboard Blocked", 401, s, "")
-    
+
     # ============= PUBLIC =============
     log("\n--- PUBLIC ---")
-    
+
     s, r = http_request("GET", "/api/restaurant", slug=SLUG)
     name = get_field(r, "name")
     test("Get Restaurant Info", 200, s, f"name={name}")
-    
+
     s, r = http_request("GET", "/api/restaurants")
     count = get_count(r)
     test("List Restaurants", 200, s, f"count={count}")
-    
+
     s, r = http_request("GET", "/api/menu", slug=SLUG)
     count = get_count(r)
     test("List Menu Items", 200, s, f"count={count}")
-    
+
     s, r = http_request("GET", "/api/health")
     # Health endpoint should return 200 in dev mode (public), may return 500 if DB issue
     if s == 200:
@@ -175,10 +175,10 @@ def run_tests():
         test("Health Endpoint (db warning)", 200, s, "db issue but reachable")
     else:
         test("Health Endpoint", 200, s, f"unexpected: {r}")
-    
+
     # ============= MENU CRUD =============
     log("\n--- MENU CRUD ---")
-    
+
     s, r = http_request("POST", "/api/menu", {
         "name": "Test Item E2E",
         "description": "Created by E2E",
@@ -190,10 +190,10 @@ def run_tests():
     }, token=tokens["admin"], slug=SLUG)
     menu_id = get_field(r, "id")
     test("Create Menu Item", 201, s, f"id={menu_id}")
-    
+
     # ============= ORDERS =============
     log("\n--- ORDERS ---")
-    
+
     s, r = http_request("POST", "/api/orders", {
         "customerName": "E2E Client",
         "phone": "+224600000000",
@@ -205,17 +205,17 @@ def run_tests():
     }, slug=SLUG)
     order_id = get_field(r, "id")
     test("Create Order", 201, s, f"id={order_id}")
-    
+
     s, r = http_request("GET", "/api/orders", token=tokens["admin"], slug=SLUG)
     count = get_count(r)
     test("List Orders", 200, s, f"count={count}")
-    
+
     # ============= RESERVATIONS =============
     log("\n--- RESERVATIONS ---")
-    
+
     from datetime import datetime, timedelta
     tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-    
+
     s, r = http_request("POST", "/api/reservations", {
         "customerName": "E2E Test",
         "phone": "+224600000000",
@@ -226,24 +226,24 @@ def run_tests():
     }, slug=SLUG)
     res_id = get_field(r, "id")
     test("Create Reservation", 201, s, f"id={res_id}")
-    
+
     s, r = http_request("GET", "/api/reservations", token=tokens["admin"], slug=SLUG)
     count = get_count(r)
     test("List Reservations", 200, s, f"count={count}")
-    
+
     # ============= DRIVERS =============
     log("\n--- DRIVERS ---")
-    
+
     s, r = http_request("GET", "/api/drivers", token=tokens["admin"], slug=SLUG)
     count = get_count(r)
     test("List Drivers", 200, s, f"count={count}")
-    
+
     s, r = http_request("GET", "/api/driver-me", token=tokens["driver"])
     test("Driver Profile (me)", 200, s, "")
-    
+
     # ============= INVOICES =============
     log("\n--- INVOICES ---")
-    
+
     s, r = http_request("POST", "/api/invoices", {
         "number": "INV-E2E-001",
         "customerName": "E2E Client",
@@ -256,13 +256,13 @@ def run_tests():
     }, token=tokens["admin"], slug=SLUG)
     inv_id = get_field(r, "id")
     test("Create Invoice", 201, s, f"id={inv_id}")
-    
+
     s, r = http_request("GET", "/api/invoices", token=tokens["admin"], slug=SLUG)
     test("List Invoices", 200, s, f"count={get_count(r)}")
-    
+
     # ============= QUOTES =============
     log("\n--- QUOTES ---")
-    
+
     s, r = http_request("POST", "/api/quotes", {
         "number": "QT-E2E-001",
         "customerName": "E2E Quote",
@@ -275,13 +275,13 @@ def run_tests():
     }, token=tokens["admin"], slug=SLUG)
     qt_id = get_field(r, "id")
     test("Create Quote", 201, s, f"id={qt_id}")
-    
+
     s, r = http_request("GET", "/api/quotes", token=tokens["admin"], slug=SLUG)
     test("List Quotes", 200, s, f"count={get_count(r)}")
-    
+
     # ============= EXPENSES =============
     log("\n--- EXPENSES ---")
-    
+
     s, r = http_request("POST", "/api/expenses", {
         "description": "E2E Test Expense",
         "amount": 25000,
@@ -290,23 +290,23 @@ def run_tests():
     }, token=tokens["admin"], slug=SLUG)
     ex_id = get_field(r, "id")
     test("Create Expense", 201, s, f"id={ex_id}")
-    
+
     s, r = http_request("GET", "/api/expenses", token=tokens["admin"], slug=SLUG)
     test("List Expenses", 200, s, f"count={get_count(r)}")
-    
+
     # ============= PAYMENTS =============
     log("\n--- PAYMENTS ---")
-    
+
     s, r = http_request("POST", "/api/payment", {
         "method": "cash",
         "orderId": order_id,
         "customerName": "E2E Client",
     }, token=tokens["admin"], slug=SLUG)
     test("Create Payment", 201, s, f"id={get_field(r, 'payment', 'id')}")
-    
+
     # ============= REVIEWS =============
     log("\n--- REVIEWS ---")
-    
+
     # Create review as authenticated customer
     s, r = http_request("POST", "/api/reviews", {
         "customerName": "E2E Client",
@@ -316,84 +316,84 @@ def run_tests():
         "status": "pending",
     }, token=tokens["customer"], slug=SLUG)
     test("Create Review (customer auth)", 201, s, f"id={get_field(r, 'id')}")
-    
+
     s, r = http_request("GET", "/api/reviews", slug=SLUG)
     test("List Reviews", 200, s, f"count={get_count(r)}")
-    
+
     # ============= LOYALTY =============
     log("\n--- LOYALTY ---")
-    
+
     s, r = http_request("GET", "/api/loyalty/rewards", slug=SLUG)
     test("List Loyalty Rewards (public)", 200, s, f"count={get_count(r)}")
-    
+
     s, r = http_request("GET", "/api/loyalty/history", token=tokens["customer"], slug=SLUG)
     # Loyalty history may be 200 or 401 depending on auth setup
     test("Loyalty History (auth)", 200, s, "")
-    
+
     # ============= STAFF =============
     log("\n--- STAFF ---")
-    
+
     s, r = http_request("GET", "/api/staff", token=tokens["admin"], slug=SLUG)
     test("List Staff", 200, s, f"count={get_count(r)}")
-    
+
     # ============= CUSTOMERS =============
     log("\n--- CUSTOMERS ---")
-    
+
     s, r = http_request("GET", "/api/customers", token=tokens["admin"], slug=SLUG)
     test("List Customers", 200, s, f"count={get_count(r)}")
-    
+
     # ============= DASHBOARD / ANALYTICS / STATS =============
     log("\n--- DASHBOARD/STATS ---")
-    
+
     s, r = http_request("GET", "/api/dashboard", token=tokens["admin"], slug=SLUG)
     test("Dashboard Stats", 200, s, "")
-    
+
     s, r = http_request("GET", "/api/analytics", token=tokens["admin"], slug=SLUG)
     test("Analytics", 200, s, "")
-    
+
     s, r = http_request("GET", "/api/stats", token=tokens["admin"], slug=SLUG)
     test("Stats", 200, s, "")
-    
+
     # ============= PLATFORM =============
     log("\n--- PLATFORM ---")
-    
+
     s, r = http_request("GET", "/api/platform/restaurants", token=tokens["platform"])
     test("Platform List Restaurants", 200, s, f"count={get_count(r)}")
-    
+
     # ============= ADMINS =============
     log("\n--- ADMINS ---")
-    
+
     s, r = http_request("GET", "/api/admins", token=tokens["admin"], slug=SLUG)
     test("List Admins", 200, s, f"count={get_count(r)}")
-    
+
     # ============= WEBSOCKET =============
     log("\n--- WEBSOCKET ---")
-    
+
     s, r = http_request("GET", "/api/ws-poll?since=0", token=tokens["admin"], slug=SLUG)
     test("WS Poll Events", 200, s, "")
-    
+
     # ============= DRIVER ORDERS =============
     log("\n--- DRIVER ORDERS ---")
-    
+
     s, r = http_request("GET", "/api/driver-orders", token=tokens["driver"])
     test("Driver Orders List", 200, s, f"count={get_count(r)}")
-    
+
     # ============= TRACKING =============
     log("\n--- TRACKING ---")
-    
+
     s, r = http_request("GET", "/api/tracking", slug=SLUG)
     test("Public Tracking", 200, s, "")
-    
+
     # ============= CHANGE PASSWORD =============
     log("\n--- CHANGE PASSWORD ---")
-    
+
     s, r = http_request("POST", "/api/change-password", {
         "currentPassword": "Admin2024!",
         "newPassword": "Admin2024!",
         "confirmPassword": "Admin2024!",
     }, token=tokens["admin"], slug=SLUG)
     test("Change Password (same)", 200, s, "")
-    
+
     return results
 
 
@@ -401,26 +401,26 @@ def main():
     log("=" * 60)
     log("KFM Delice — E2E Test Runner")
     log("=" * 60)
-    
+
     # Verify DB exists
     db_file = PROJECT_ROOT / "data" / "kfm-delice.db"
     if not db_file.exists():
         log(f"[FATAL] DB not found: {db_file}")
         return 1
-    
+
     # Kill any existing next dev
     log("\n[1/4] Cleaning up any existing server...")
     subprocess.run(["pkill", "-9", "-f", "next dev"], capture_output=True)
     subprocess.run(["pkill", "-9", "-f", "next-server"], capture_output=True)
     time.sleep(2)
-    
+
     # Start Next.js dev server
     log("[2/4] Starting Next.js dev server...")
     env = os.environ.copy()
     env["DATABASE_URL"] = DB_PATH
     env["NODE_ENV"] = "development"
     env["NODE_OPTIONS"] = "--max-old-space-size=1024"
-    
+
     server_proc = subprocess.Popen(
         ["npx", "next", "dev", "-p", "3000", "-H", "127.0.0.1"],
         cwd=str(PROJECT_ROOT),
@@ -430,9 +430,9 @@ def main():
         stderr=subprocess.STDOUT,
         start_new_session=True,  # Detach from this process group
     )
-    
+
     log(f"  Server PID: {server_proc.pid}")
-    
+
     try:
         # Wait for server to be ready (up to 90s)
         ready = False
@@ -444,7 +444,7 @@ def main():
                 output = server_proc.stdout.read().decode("utf-8", errors="replace") if server_proc.stdout else ""
                 log(f"  Output:\n{output[:2000]}")
                 return 1
-            
+
             try:
                 with urllib.request.urlopen(f"{BASE_URL}/api/health", timeout=2) as resp:
                     # Any HTTP response means server is up
@@ -459,7 +459,7 @@ def main():
             except Exception:
                 pass
             time.sleep(1)
-        
+
         if not ready:
             log("  [FAIL] Server not ready in 90s")
             return 1
@@ -478,34 +478,34 @@ def main():
                 log(f"    warmup {method} {path}: OK")
             except Exception as e:
                 log(f"    warmup {method} {path}: {e}")
-        
+
         # Run tests
         log("\n[3/4] Running E2E tests...")
         log("=" * 60)
         results = run_tests()
-        
+
         # Summary
         log("\n" + "=" * 60)
         log("[4/4] Results Summary")
         log("=" * 60)
-        
+
         total = len(results)
         passed = sum(1 for r in results if r["status"] == "PASS")
         failed = total - passed
         rate = (passed / total * 100) if total > 0 else 0
-        
+
         log(f"TOTAL: {total}")
         log(f"PASSED: {passed}")
         log(f"FAILED: {failed}")
         log(f"SUCCESS RATE: {rate:.1f}%")
-        
+
         # List failures in detail
         if failed > 0:
             log("\nFailures detail:")
             for r in results:
                 if r["status"] == "FAIL":
                     log(f"  - {r['name']}: expected={r['expected']} actual={r['actual']} {r['detail']}")
-        
+
         # Save JSON report
         report = {
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -520,9 +520,9 @@ def main():
         with open(report_path, "w") as f:
             json.dump(report, f, indent=2)
         log(f"\nReport saved to: {report_path}")
-        
+
         return 0 if failed == 0 else 2
-    
+
     finally:
         # Cleanup server
         log("\nCleaning up server...")

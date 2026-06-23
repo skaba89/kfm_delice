@@ -127,7 +127,7 @@ export class UpstashRateLimitStore implements RateLimitStore {
       ['INCR', redisKey],
       // Only set expiry on a brand-new key (count will be 1 after INCR)
       // We use a Lua script for atomicity: if count == 1 then expire
-      ['EVAL', 
+      ['EVAL',
         'if redis.call("GET", KEYS[1]) == "1" then return redis.call("EXPIRE", KEYS[1], ARGV[1]) else return 0 end',
         '1',
         redisKey,

@@ -55,11 +55,11 @@ call() {
   local data="$3"
   local auth="$4"
   local slug="$5"
-  
+
   local headers="-H 'Content-Type: application/json'"
   [ -n "$auth" ] && headers="$headers -H 'Authorization: Bearer $auth'"
   [ -n "$slug" ] && headers="$headers -H 'x-restaurant-slug: $slug'"
-  
+
   if [ -n "$data" ]; then
     eval curl -s -o /tmp/resp.json -w '%{http_code}' -X "$method" "$headers" -d "'$data'" "$BASE$path"
   else

@@ -15,7 +15,6 @@ repos:
     hooks:
       - id: gitleaks
         args: ["--config=.gitleaks.toml", "--redact"]
-        # Only scan staged files for speed
         pass_filenames: false
 
   # ────────────────────────────────────────────────────────────────────────
@@ -58,14 +57,14 @@ repos:
     hooks:
       - id: no-env-files
         name: prevent .env files from being committed
-        entry: bash -c 'if git diff --cached --name-only | grep -E "^\.env($|\.)" | grep -vE "\.example$"; then echo "ERROR: .env files are forbidden in git. Use .env.example instead."; exit 1; fi'
+        entry: ./scripts/precommit-no-env-files.sh
         language: system
         pass_filenames: false
         always_run: true
 
       - id: no-secrets-in-src
         name: scan src/ for obvious secrets
-        entry: bash -c 'if grep -rE "(sk_live_|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36})" src/ 2>/dev/null; then echo "ERROR: Found live secrets in src/. Remove them before committing."; exit 1; fi'
+        entry: ./scripts/precommit-no-secrets-in-src.sh
         language: system
         pass_filenames: false
         always_run: true
@@ -75,12 +74,10 @@ repos:
 # ────────────────────────────────────────────────────────────────────────────
 minimum_pre_commit_version: '3.0.0'
 
-# Skip these hooks during merge commits
 default_install_hook_types:
   - pre-commit
   - pre-push
 
-# Don't run hooks on these files
 exclude: |
   (?x)^(
     node_modules/.*|
@@ -89,5 +86,6 @@ exclude: |
     coverage/.*|
     data/.*\.db.*|
     package-lock\.json|
-    yarn\.lock
+    yarn\.lock|
+    bun\.lock
   )$

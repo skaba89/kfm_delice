@@ -1,6 +1,6 @@
 /**
  * Payment Gateway Abstraction Layer
- * 
+ *
  * Routes payment requests to the appropriate provider (Orange Money, MTN MoMo, or simulation).
  * When real API credentials are configured, production payments are used.
  * Otherwise, falls back to simulation mode for development/demo.

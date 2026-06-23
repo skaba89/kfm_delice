@@ -24,7 +24,7 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
 export async function subscribeToPush(): Promise<PushSubscription | null> {
   const registration = await navigator.serviceWorker.ready;
   if (!registration) return null;
-  
+
   try {
     const subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
@@ -39,10 +39,10 @@ export async function subscribeToPush(): Promise<PushSubscription | null> {
 
 export async function showLocalNotification(title: string, body: string, url?: string): Promise<void> {
   if (!isPushNotificationSupported()) return;
-  
+
   const permission = await requestNotificationPermission();
   if (permission !== 'granted') return;
-  
+
   const registration = await navigator.serviceWorker.ready;
   if (registration) {
     registration.showNotification(title, {

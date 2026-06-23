@@ -29,8 +29,15 @@ paths = [
   '''scripts/preflight-check\.sh''',  # contains pattern literals, not real secrets
   '''scripts/e2e-test\.sh''',         # test fixtures
   '''scripts/seed-production\.ts''',  # generates random passwords at runtime
+  '''scripts/backup-postgres\.sh''',  # contains example placeholder URLs
+  '''scripts/restore-postgres\.sh''', # contains example placeholder URLs
+  '''scripts/switch-schema\.sh''',    # contains example placeholder URLs
   '''prisma/seed\.ts''',              # dev seed with placeholder passwords
   '''src/lib/constants\.ts''',        # public constants
+  '''skills/''',                      # design templates (HTML/CSS samples, no real secrets)
+  '''docs/''',                        # documentation with example placeholders
+  '''\.env\.production\.example''',   # env template with placeholders
+  '''\.env\.example''',
 ]
 regexes = [
   # Test/demo values
@@ -52,6 +59,14 @@ regexes = [
   '''VAPID_PUBLIC_KEY=["']?[A-Za-z0-9_-]{80,}''',
   # E2E test passwords (matching patterns from scripts/e2e-test.sh)
   '''password["']?\s*:\s*["']?(kfm2024|client123|driver123|platform2024|manager2024|staff2024)''',
+  # Placeholder DB URLs in scripts/docs (not real credentials)
+  '''(postgresql|postgres)://(user|USER|username|postgres):[^@]*@(localhost|HOST|host|DB_HOST)''',
+  '''DATABASE_URL.*:password@''',
+  '''DATABASE_URL.*:PASSWORD@''',
+  '''DATABASE_URL.*:pass@''',
+  '''DATABASE_URL.*:your-pass@''',
+  '''DATABASE_URL.*:xxx@''',
+  '''DATABASE_URL.*<.*>''',
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -105,7 +120,13 @@ description = "Pre-computed bcrypt hash hardcoded in source (should be computed 
 regex = '''\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}'''
 tags = ["bcrypt", "kfm"]
 # Allow in seed files (they intentionally contain test hashes for dev)
-path = '''(?!.*seed)(?!.*test)(?!.*spec).*\.(ts|js|tsx|jsx)$'''
+path = '''\.(ts|js|tsx|jsx)$'''
+[rules.allowlist]
+paths = [
+  '''seed''',
+  '''test''',
+  '''spec''',
+]
 
 [[rules]]
 id = "kfm-private-key-pem"
@@ -130,7 +151,7 @@ regexes = [
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Capabilities — limit CPU/memory usage
+# Allowlist commits (empty = no full-commit allowlist)
 # ─────────────────────────────────────────────────────────────────────────────
-[allowlist]
+# (merged into the global [allowlist] table above)
 commits = []

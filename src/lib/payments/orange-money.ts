@@ -1,8 +1,8 @@
 /**
  * Orange Money API Integration
- * 
+ *
  * Production API docs: https://developer.orange.com/apis/orange-money-webpay
- * 
+ *
  * To activate:
  * 1. Register at https://developer.orange.com
  * 2. Get your client_id, client_secret, merchant_id
@@ -11,7 +11,7 @@
  *    - ORANGE_MONEY_CLIENT_SECRET
  *    - ORANGE_MONEY_MERCHANT_ID
  *    - ORANGE_MONEY_API_URL (default: https://api.orange.com)
- * 
+ *
  * Flow:
  * 1. Frontend calls POST /api/payment → initPayment()
  * 2. We call Orange Money WebPay API → get payment_url + pay_token
@@ -34,7 +34,7 @@ export function isOrangeMoneyConfigured(): boolean {
 /** Get OAuth token from Orange Money API */
 async function getOrangeToken(): Promise<string> {
   const credentials = Buffer.from(`${ORANGE_CLIENT_ID}:${ORANGE_CLIENT_SECRET}`).toString('base64');
-  
+
   const response = await fetch(`${ORANGE_API_URL}/oauth/v3/token`, {
     method: 'POST',
     headers: {
