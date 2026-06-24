@@ -5,7 +5,7 @@ import {
   UtensilsCrossed, CalendarCheck, Users, LayoutDashboard,
   ShoppingBag, Bike, Car, RefreshCw,
   FileText, Wallet, Receipt, UserCog, ClipboardList,
-  MessageSquare, CreditCard, Wifi, WifiOff, Package,
+  MessageSquare, CreditCard, Wifi, WifiOff, Package, Settings,
 } from "lucide-react";
 import { OverviewTab } from "@/components/admin/OverviewTab";
 import { ReservationsTab } from "@/components/admin/ReservationsTab";
@@ -23,6 +23,7 @@ import { CustomersTab } from "@/components/admin/CustomersTab";
 import { PaymentsTab } from "@/components/admin/PaymentsTab";
 import { InventoryTab } from "@/components/admin/InventoryTab";
 import { PosTab } from "@/components/admin/PosTab";
+import { SettingsTab } from "@/components/admin/SettingsTab";
 import { DashboardShell, type SidebarItem } from "@/components/layout/DashboardShell";
 import type { AdminDB, AdminUser, MenuItemDB, OrderDB, DriverDB, StaffDB, InvoiceDB, QuoteDB, ExpenseDB, CustomerDB } from "@/lib/types";
 import { useAdminData } from "@/lib/hooks/use-admin-data";
@@ -168,6 +169,7 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
     { id: "inventory", label: "Stock", icon: Package, badge: (safeStats as { lowStockCount?: number })?.lowStockCount || undefined },
     { id: "payments", label: "Paiements", icon: CreditCard, badge: safeStats.pendingPayments || undefined },
     { id: "pos", label: "Caisse POS", icon: Receipt },
+    { id: "settings", label: "Paramètres", icon: Settings },
   ];
   const sidebarItems = allSidebarItems.filter(item => {
     // Sidebar visibility per admin role — 8 roles supported.
@@ -196,6 +198,7 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
       inventory: ["admin", "manager", "kitchen"],
       payments: ["admin", "manager", "cashier", "accountant"],
       pos: ["admin", "manager", "staff", "cashier"],
+      settings: ["admin", "manager"],
     };
     return rolesMap[item.id]?.includes(admin.role) ?? false;
   });
@@ -272,6 +275,19 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
       {activeTab === "inventory" && <InventoryTab />}
       {activeTab === "payments" && <PaymentsTab payments={payments} apiPatch={apiPatch} />}
       {activeTab === "pos" && <PosTabWithState menuItems={menuItems} orders={orders} loadData={loadData} />}
+      {activeTab === "settings" && <SettingsTab
+        apiFetch={apiFetch}
+        apiPatch={async (url, body) => {
+          try { await apiPatch(url, body); return { success: true }; }
+          catch (e) { return { success: false, error: e instanceof Error ? e.message : "Erreur" }; }
+        }}
+        apiPut={async (url, body) => {
+          try { await apiPatch(url, body); return { success: true }; }
+          catch (e) { return { success: false, error: e instanceof Error ? e.message : "Erreur" }; }
+        }}
+        adminRole={admin.role}
+        admins={admins}
+      />}
     </DashboardShell>
   );
 }
