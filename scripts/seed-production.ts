@@ -1,14 +1,22 @@
 /**
- * KFM Delice — Production Re-Seed Script
- * ---------------------------------------
- * Purges ALL transactional/test data and inserts clean, production-ready data.
+ * KFM Delice — Production Re-Seed Script (Slim Version)
+ * ------------------------------------------------------
+ * Behavior (as requested 2026-06-24):
+ *   1. PURGES every table EXCEPT:
+ *        - Restaurant            (tenant container, kept idempotent)
+ *        - RestaurantConfig      (per-tenant branding, kept idempotent)
+ *        - MenuItem              (the menu — explicitly preserved)
+ *   2. After purge, exactly ONE user remains in the whole DB:
+ *        - Admin { role: "admin", status: "active", mustChangePassword: true }
+ *   This single Admin is the "super admin" of the restaurant. From the
+ *   dashboard UI (Users / Équipe pages), they can create every other
+ *   role: admin, manager, staff, customer, driver. The existing
+ *   /api/admins, /api/customers, /api/drivers, /api/staff routes all
+ *   authorize on role="admin" so this single account is enough to
+ *   bootstrap the entire team.
  *
- * Key differences from prisma/seed.ts:
- *   - Forces random 16-char passwords for every account (admin, customer, driver)
- *   - Sets `mustChangePassword = true` on every account (forced reset at first login)
- *   - Removes ALL test orders, reservations, reviews, invoices, quotes, expenses
- *   - Keeps reference data only: restaurant config, menu, staff, drivers, customers
- *   - Prints a credential report at the end (save it securely!)
+ *   3. PlatformAdmin table is also purged. The platform dashboard is
+ *      not used in single-restaurant deployments on Render free tier.
  *
  * Usage:
  *   # Local dev (SQLite)
@@ -20,9 +28,16 @@
  *   bunx tsx scripts/seed-production.ts
  *
  * Flags:
- *   --keep-orders    : do not delete existing orders (rare, only if you have real orders already)
  *   --dry-run        : print what would happen, do not write
  *   --yes            : skip the interactive confirmation prompt
+ *   --keep-menu      : (default) keep MenuItem rows
+ *   --purge-menu     : ALSO wipe MenuItem rows (rare — full reset)
+ *
+ * Environment overrides:
+ *   SUPER_ADMIN_EMAIL     (default: admin@kfm-delice.com)
+ *   SUPER_ADMIN_PASSWORD  (default: auto-generated 24-char random)
+ *   SUPER_ADMIN_NAME      (default: Super Admin)
+ *   RESTAURANT_SLUG       (default: kfm-delice)
  */
 
 import { PrismaClient } from "@prisma/client";
@@ -33,16 +48,16 @@ import { createInterface } from "readline";
 const prisma = new PrismaClient();
 
 const FLAGS = {
-  keepOrders: process.argv.includes("--keep-orders"),
   dryRun: process.argv.includes("--dry-run"),
   yes: process.argv.includes("--yes"),
+  keepMenu: !process.argv.includes("--purge-menu"),
 };
 
 // ------------------------------------------------------------
 // Helpers
 // ------------------------------------------------------------
 function genPassword(): string {
-  // 12 bytes → 24 hex chars; ensure complexity by injecting markers
+  // 12 bytes → 24 hex chars; ensure complexity markers
   const raw = randomBytes(12).toString("hex");
   return `Kfm-${raw}-2026`;
 }
@@ -73,11 +88,12 @@ async function confirm(prompt: string): Promise<boolean> {
 // ------------------------------------------------------------
 async function main() {
   console.log("\n╔══════════════════════════════════════════════════════════╗");
-  console.log("║   KFM DELICE — PRODUCTION RE-SEED                        ║");
+  console.log("║   KFM DELICE — PRODUCTION RE-SEED (SLIM)                 ║");
+  console.log("║   Purge everything EXCEPT menus + 1 super admin          ║");
   console.log("╚══════════════════════════════════════════════════════════╝");
   console.log(`  Mode        : ${FLAGS.dryRun ? "DRY-RUN (no writes)" : "LIVE"}`);
   console.log(`  Database    : ${process.env.DATABASE_URL ? "via DATABASE_URL" : "default (prisma)"}`);
-  console.log(`  Keep orders : ${FLAGS.keepOrders ? "YES" : "NO (will purge)"}`);
+  console.log(`  Keep menu   : ${FLAGS.keepMenu ? "YES" : "NO (will purge)"}`);
   console.log(`  Started     : ${now()}`);
 
   if (process.env.NODE_ENV !== "production") {
@@ -94,7 +110,10 @@ async function main() {
   // ---- Safety confirmation ----
   if (!FLAGS.dryRun) {
     const ok = await confirm(
-      "\n  This will PURGE all transactional data and reset all account passwords.\n  Type 'yes' to continue, anything else to abort: "
+      "\n  ⚠️  DESTRUCTIVE OPERATION\n" +
+        "  This will PURGE every table EXCEPT Restaurant, RestaurantConfig and MenuItem.\n" +
+        "  After this run, exactly ONE user will remain (super admin).\n" +
+        "  Type 'yes' to continue, anything else to abort: "
     );
     if (!ok) {
       console.log("Aborted. No changes made.");
@@ -103,13 +122,16 @@ async function main() {
   }
 
   // ============================================================
-  // 1. PURGE TRANSACTIONAL DATA
+  // 1. PURGE EVERYTHING EXCEPT Restaurant / RestaurantConfig / MenuItem
   // ============================================================
-  section("1. Purging transactional & test data");
+  section("1. Purging all transactional & user data (menus preserved)");
 
+  // Order matters: children first, parents last.
+  // deleteMany() returns PrismaPromise<BatchPayload> where BatchPayload = { count: number }.
   const purgeOrder: Array<[string, () => Promise<{ count: number }>]> = [
     ["PushSubscription", () => prisma.pushSubscription.deleteMany()],
     ["StockMovement", () => prisma.stockMovement.deleteMany()],
+    ["StockItem", () => prisma.stockItem.deleteMany()],
     ["LoyaltyPointsHistory", () => prisma.loyaltyPointsHistory.deleteMany()],
     ["LoyaltyReward", () => prisma.loyaltyReward.deleteMany()],
     ["Payment", () => prisma.payment.deleteMany()],
@@ -118,50 +140,36 @@ async function main() {
     ["Invoice", () => prisma.invoice.deleteMany()],
     ["Review", () => prisma.review.deleteMany()],
     ["Reservation", () => prisma.reservation.deleteMany()],
-    ...(FLAGS.keepOrders ? [] : ([["Order", () => prisma.order.deleteMany()]] as Array<[string, () => Promise<{ count: number }>]>)),
-    ["StockItem", () => prisma.stockItem.deleteMany()],
-    ["Staff", () => prisma.staff.deleteMany()],
+    ["Order", () => prisma.order.deleteMany()],
     ["Driver", () => prisma.driver.deleteMany()],
+    ["Staff", () => prisma.staff.deleteMany()],
     ["Customer", () => prisma.customer.deleteMany()],
     ["Admin", () => prisma.admin.deleteMany()],
+    ["PlatformAdmin", () => prisma.platformAdmin.deleteMany()],
+    ...(FLAGS.keepMenu
+      ? []
+      : ([["MenuItem", () => prisma.menuItem.deleteMany()]] as Array<[string, () => Promise<{ count: number }>]>)),
   ];
 
+  let totalDeleted = 0;
   for (const [name, fn] of purgeOrder) {
     if (FLAGS.dryRun) {
       console.log(`  [dry-run] would DELETE from ${name}`);
       continue;
     }
     const r = await fn();
-    console.log(`  ✓ ${name}: ${r.count} rows deleted`);
+    totalDeleted += r.count;
+    console.log(`  ✓ ${name.padEnd(22)} : ${r.count} rows deleted`);
   }
-
-  // ============================================================
-  // 2. PLATFORM ADMIN (single super-admin)
-  // ============================================================
-  section("2. Creating platform admin");
-
-  const platformPw = genPassword();
-  const platformAdminEmail = process.env.PLATFORM_ADMIN_EMAIL || "admin@restaurantpro.com";
   if (!FLAGS.dryRun) {
-    await prisma.platformAdmin.upsert({
-      where: { email: platformAdminEmail },
-      update: { password: await hash(platformPw, 10), status: "active" },
-      create: {
-        email: platformAdminEmail,
-        password: await hash(platformPw, 10),
-        name: "Super Admin",
-        role: "super_admin",
-        status: "active",
-      },
-    });
+    console.log(`  ───────────────────────────────────────────`);
+    console.log(`  Total rows purged: ${totalDeleted}`);
   }
-  console.log(`  ✓ Platform admin: ${platformAdminEmail}`);
-  console.log(`    Password: ${platformPw}  ⚠️ SAVE THIS SECURELY`);
 
   // ============================================================
-  // 3. RESTAURANT + CONFIG (idempotent)
+  // 2. ENSURE RESTAURANT + CONFIG (idempotent, no user data)
   // ============================================================
-  section("3. Ensuring restaurant entity");
+  section("2. Ensuring restaurant entity (config only, no users)");
 
   const restaurantSlug = process.env.RESTAURANT_SLUG || "kfm-delice";
   const restaurantData = {
@@ -184,9 +192,9 @@ async function main() {
     status: "active",
     currency: "GNF",
     locale: "fr",
-    ownerEmail: "admin@kfm-delice.com",
-    ownerName: "Admin KFM Delice",
-    ownerPhone: "+224 622 34 56 78",
+    ownerEmail: process.env.SUPER_ADMIN_EMAIL || "admin@kfm-delice.com",
+    ownerName: process.env.SUPER_ADMIN_NAME || "Super Admin",
+    ownerPhone: process.env.RESTAURANT_PHONE || "+224 622 34 56 78",
   };
 
   let restaurantId: string;
@@ -244,133 +252,15 @@ async function main() {
   }
 
   // ============================================================
-  // 4. ADMINS (3 — forced random passwords)
+  // 3. MENU ITEMS — keep existing, only seed if menu is empty
   // ============================================================
-  section("4. Creating admin accounts");
-
-  const adminSpecs = [
-    { email: "admin@kfm-delice.com", name: "Admin KFM Delice", role: "admin" as const },
-    { email: "manager@kfm-delice.com", name: "Aminata Diallo", role: "manager" as const },
-    { email: "staff@kfm-delice.com", name: "Ibrahima Touré", role: "staff" as const },
-  ];
-  const adminCreds: Array<{ email: string; password: string; role: string }> = [];
-
-  for (const a of adminSpecs) {
-    const pw = genPassword();
-    adminCreds.push({ email: a.email, password: pw, role: a.role });
-    if (!FLAGS.dryRun) {
-      await prisma.admin.upsert({
-        where: { email: a.email },
-        update: { password: await hash(pw, 10), name: a.name, role: a.role, status: "active", mustChangePassword: true, restaurantId },
-        create: {
-          email: a.email,
-          password: await hash(pw, 10),
-          name: a.name,
-          role: a.role,
-          status: "active",
-          mustChangePassword: true,
-          restaurantId,
-        },
-      });
-    }
-    console.log(`  ✓ ${a.role.padEnd(8)} | ${a.email} | password: ${pw}`);
-  }
-
-  // ============================================================
-  // 5. CUSTOMERS (real Guinean names, no test garbage)
-  // ============================================================
-  section("5. Creating customer accounts");
-
-  const customerSpecs = [
-    { email: "aminata.camara@gmail.com", name: "Aminata Camara", phone: "+224 620 11 22 33", address: "Kaloum, Conakry" },
-    { email: "mamadou.bah@gmail.com", name: "Mamadou Bah", phone: "+224 628 44 55 66", address: "Dixinn, Conakry" },
-    { email: "fatoumata.diallo@gmail.com", name: "Fatoumata Diallo", phone: "+224 622 77 88 99", address: "Matam, Conakry" },
-    { email: "ibrahim.toure@gmail.com", name: "Ibrahim Touré", phone: "+224 621 22 33 44", address: "Matoto, Conakry" },
-    { email: "kadiatou.sylla@gmail.com", name: "Kadiatou Sylla", phone: "+224 625 55 66 77", address: "Corniche Nord, Conakry" },
-  ];
-  const customerCreds: Array<{ email: string; password: string }> = [];
-
-  for (const c of customerSpecs) {
-    const pw = genPassword();
-    customerCreds.push({ email: c.email, password: pw });
-    if (!FLAGS.dryRun) {
-      // Composite unique key (email + restaurantId) — must do findFirst then create/update
-      const existing = await prisma.customer.findFirst({
-        where: { email: c.email, restaurantId },
-      });
-      const base = {
-        name: c.name,
-        phone: c.phone,
-        address: c.address,
-        loyaltyPoints: 0,
-        totalOrders: 0,
-        totalSpent: 0,
-        status: "active" as const,
-        password: await hash(pw, 10),
-        mustChangePassword: true,
-        restaurantId,
-      };
-      if (existing) {
-        await prisma.customer.update({ where: { id: existing.id }, data: base });
-      } else {
-        await prisma.customer.create({ data: { email: c.email, ...base } });
-      }
-    }
-    console.log(`  ✓ ${c.email} | password: ${pw}`);
-  }
-
-  // ============================================================
-  // 6. DRIVERS (moto-taxi delivery team)
-  // ============================================================
-  section("6. Creating driver accounts");
-
-  const driverSpecs = [
-    { email: "moussa.conde@kfm-delice.com", name: "Moussa Condé", phone: "+224 620 11 22 33", vehicle: "moto" as const, zone: "Kaloum" },
-    { email: "ibrahima.sow@kfm-delice.com", name: "Ibrahima Sow", phone: "+224 628 44 55 66", vehicle: "moto" as const, zone: "Dixinn" },
-    { email: "abdoulaye.diallo@kfm-delice.com", name: "Abdoulaye Diallo", phone: "+224 622 77 88 99", vehicle: "velo" as const, zone: "Matam" },
-    { email: "ousmane.camara@kfm-delice.com", name: "Ousmane Camara", phone: "+224 625 55 66 77", vehicle: "moto" as const, zone: "Matoto" },
-    { email: "mamadou.driver@kfm-delice.com", name: "Mamadou Bah", phone: "+224 621 22 33 44", vehicle: "voiture" as const, zone: "Conakry" },
-  ];
-  const driverCreds: Array<{ email: string; password: string }> = [];
-
-  for (const d of driverSpecs) {
-    const pw = genPassword();
-    driverCreds.push({ email: d.email, password: pw });
-    if (!FLAGS.dryRun) {
-      const existing = await prisma.driver.findFirst({
-        where: { email: d.email, restaurantId },
-      });
-      const base = {
-        name: d.name,
-        phone: d.phone,
-        vehicle: d.vehicle,
-        zone: d.zone,
-        status: "available" as const,
-        rating: 0,
-        totalDeliveries: 0,
-        password: await hash(pw, 10),
-        mustChangePassword: true,
-        restaurantId,
-      };
-      if (existing) {
-        await prisma.driver.update({ where: { id: existing.id }, data: base });
-      } else {
-        await prisma.driver.create({ data: { email: d.email, ...base } });
-      }
-    }
-    console.log(`  ✓ ${d.email} (${d.vehicle}/${d.zone}) | password: ${pw}`);
-  }
-
-  // ============================================================
-  // 7. MENU ITEMS (full menu — idempotent via count check)
-  // ============================================================
-  section("7. Ensuring menu items");
+  section("3. Verifying menu items");
 
   const menuCount = await prisma.menuItem.count({ where: { restaurantId } });
   if (menuCount > 0) {
-    console.log(`  ✓ Menu already populated (${menuCount} items), keeping existing`);
+    console.log(`  ✓ Menu preserved (${menuCount} items)`);
   } else if (FLAGS.dryRun) {
-    console.log("  [dry-run] would insert 21 menu items");
+    console.log("  [dry-run] would insert 21 default menu items");
   } else {
     const menuItems = [
       { name: "Salade KFM", description: "Salade fraîche aux légumes de saison, avocat, mangue verte", price: 15000, category: "entrees", image: "/images/kfm-dish-3.png", badge: "Végétarien", popular: true, order: 1, restaurantId },
@@ -396,72 +286,78 @@ async function main() {
       { name: "Eau Minérale", description: "Eau minérale gazeuse ou plate 50cl", price: 3000, category: "boissons", image: "/images/kfm-dish-12.png", badge: "", popular: false, order: 21, restaurantId },
     ];
     await prisma.menuItem.createMany({ data: menuItems });
-    console.log(`  ✓ ${menuItems.length} menu items created`);
+    console.log(`  ✓ ${menuItems.length} default menu items created (menu was empty)`);
   }
 
   // ============================================================
-  // 8. STAFF (real team — no test entries)
+  // 4. SINGLE SUPER ADMIN
   // ============================================================
-  section("8. Creating staff records (no login)");
+  section("4. Creating the unique super admin");
 
-  const staffSpecs = [
-    { name: "Mamadou Chef", phone: "+224 620 99 88 77", role: "cuisinier", salary: 1500000, hireDate: "2023-03-15", notes: "Chef principal, 10 ans d'expérience" },
-    { name: "Fatoumata Camara", phone: "+224 621 55 44 33", role: "serveur", salary: 600000, hireDate: "2023-06-01", notes: "Service en salle" },
-    { name: "Ibrahima Diallo", phone: "+224 622 33 22 11", role: "barman", salary: 700000, hireDate: "2023-08-20", notes: "Spécialiste cocktails" },
-    { name: "Aissatou Bah", phone: "+224 623 44 55 66", role: "serveur", salary: 600000, hireDate: "2024-01-10", notes: "Congé maternité jusqu'en juillet" },
-    { name: "Moussa Sylla", phone: "+224 624 77 88 99", role: "plongeur", salary: 400000, hireDate: "2024-02-01", notes: "" },
-    { name: "Ousmane Touré", phone: "+224 625 11 22 33", role: "securite", salary: 500000, hireDate: "2023-11-15", notes: "Agent de sécurité nocturne" },
-    { name: "Mariama Condé", phone: "+224 626 55 66 77", role: "caissier", salary: 650000, hireDate: "2023-05-01", notes: "Gestion caisse et Orange Money" },
-    { name: "Alpha Sow", phone: "+224 627 88 99 00", role: "gerant", salary: 1200000, hireDate: "2022-01-15", notes: "Gérant adjoint" },
-  ];
+  const superAdminEmail = process.env.SUPER_ADMIN_EMAIL || "admin@kfm-delice.com";
+  const superAdminName = process.env.SUPER_ADMIN_NAME || "Super Admin";
+  const superAdminPw = process.env.SUPER_ADMIN_PASSWORD || genPassword();
 
   if (FLAGS.dryRun) {
-    console.log(`  [dry-run] would insert ${staffSpecs.length} staff`);
+    console.log(`  [dry-run] would upsert Admin { email: ${superAdminEmail}, role: "admin" }`);
   } else {
-    await prisma.staff.createMany({
-      data: staffSpecs.map((s) => ({ ...s, status: "active" as const, restaurantId })),
+    await prisma.admin.upsert({
+      where: { email: superAdminEmail },
+      update: {
+        password: await hash(superAdminPw, 10),
+        name: superAdminName,
+        role: "admin", // highest role in the Admin model → full dashboard access
+        status: "active",
+        mustChangePassword: true,
+        restaurantId,
+      },
+      create: {
+        email: superAdminEmail,
+        password: await hash(superAdminPw, 10),
+        name: superAdminName,
+        role: "admin",
+        status: "active",
+        mustChangePassword: true,
+        restaurantId,
+      },
     });
-    console.log(`  ✓ ${staffSpecs.length} staff created`);
   }
+  console.log(`  ✓ Super admin: ${superAdminEmail}`);
+  console.log(`    Password   : ${superAdminPw}  ⚠️ SAVE THIS SECURELY`);
+  console.log(`    Role       : admin  (highest restaurant role)`);
+  console.log(`    Restaurant : ${restaurantSlug}`);
 
   // ============================================================
-  // 9. FINAL REPORT
+  // 5. FINAL REPORT
   // ============================================================
-  section("9. Credential report");
+  section("5. Credential report & next steps");
 
   console.log("\n  ╔══════════════════════════════════════════════════════════╗");
   console.log("  ║  ⚠️  SAVE THESE CREDENTIALS IN A SECURE VAULT           ║");
-  console.log("  ║  All accounts must change password at first login       ║");
+  console.log("  ║  Password must be changed at first login                ║");
   console.log("  ╚══════════════════════════════════════════════════════════╝\n");
 
-  console.log("  ── Platform Admin ──");
-  console.log(`    Email    : ${platformAdminEmail}`);
-  console.log(`    Password : ${platformPw}\n`);
+  console.log("  ── Super Admin (only user in DB) ──");
+  console.log(`    Login URL : https://<your-render-url>/login`);
+  console.log(`    Email     : ${superAdminEmail}`);
+  console.log(`    Password  : ${superAdminPw}`);
+  console.log(`    Role      : admin\n`);
 
-  console.log("  ── Restaurant Admins ──");
-  for (const a of adminCreds) {
-    console.log(`    [${a.role.padEnd(8)}] ${a.email}`);
-    console.log(`             password: ${a.password}\n`);
-  }
+  console.log("  ── What this super admin can do ──");
+  console.log("    From the dashboard, open the Users / Équipe section:");
+  console.log("      • /admin/admins    → create admin / manager / staff accounts");
+  console.log("      • /admin/customers → create customer accounts");
+  console.log("      • /admin/drivers   → create driver accounts");
+  console.log("      • /admin/staff     → create staff records (no login)");
+  console.log("    Every new account will be created with role-based");
+  console.log("    permissions enforced by /api/admins, /api/customers, etc.\n");
 
-  console.log("  ── Customers ──");
-  for (const c of customerCreds) {
-    console.log(`    ${c.email}`);
-    console.log(`      password: ${c.password}`);
-  }
-
-  console.log("\n  ── Drivers ──");
-  for (const d of driverCreds) {
-    console.log(`    ${d.email}`);
-    console.log(`      password: ${d.password}`);
-  }
-
-  console.log("\n  ── Post-seed checklist ──");
+  console.log("  ── Post-seed checklist ──");
   console.log("    [ ] Set JWT_SECRET env var on Render (32+ random chars)");
   console.log("    [ ] Set DATABASE_URL on Render (PostgreSQL connection string)");
   console.log("    [ ] Set NODE_ENV=production");
-  console.log("    [ ] Revoke the 4 leaked GitHub tokens (P0)");
-  console.log("    [ ] Distribute the credentials above to each user via a secure channel");
+  console.log("    [ ] Distribute the credentials above via a secure channel");
+  console.log("    [ ] Force a password reset on first login (mustChangePassword=true)");
   console.log("    [ ] Rotate these credentials again in 90 days");
 
   console.log(`\n  Completed at: ${now()}`);
