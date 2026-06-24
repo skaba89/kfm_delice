@@ -291,6 +291,7 @@ export const PERMISSION_GROUPS = {
 
   // Operational management (manager-level)
   MENU_MANAGE: ["admin", "manager"],
+  MENU_READ: ["admin", "manager", "kitchen", "staff"],
   STAFF_MANAGE: ["admin", "manager"],
   DRIVERS_MANAGE: ["admin", "manager", "delivery_manager"],
   DRIVERS_LOCATION: ["admin", "manager", "delivery_manager"],

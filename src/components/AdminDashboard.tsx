@@ -185,7 +185,7 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
       overview: ["admin", "manager", "accountant"],
       reservations: ["admin", "manager", "staff", "host"],
       orders: ["admin", "manager", "staff", "cashier", "kitchen", "delivery_manager"],
-      menu: ["admin", "manager"],
+      menu: ["admin", "manager", "kitchen"],
       deliveries: ["admin", "manager", "staff", "delivery_manager"],
       drivers: ["admin", "manager", "delivery_manager"],
       reviews: ["admin", "manager", "staff"],
@@ -234,6 +234,7 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
         crud={menuCrud}
         apiPatch={apiPatch} apiDelete={apiDelete}
         apiFetch={apiFetch}
+        readOnly={admin.role === "kitchen"}
       />}
       {activeTab === "deliveries" && <DeliveriesTab orders={orders} drivers={drivers} apiPatch={apiPatch} apiFetch={apiFetch} assigningOrderId={assigningOrderId} setAssigningOrderId={setAssigningOrderId} loadData={loadData} />}
       {activeTab === "drivers" && <DriversTab

@@ -25,11 +25,13 @@ export interface MenuTabProps {
   apiPatch: (url: string, body: object) => Promise<void>;
   apiDelete: (url: string, body: object) => Promise<void>;
   apiFetch: (url: string, options?: RequestInit) => Promise<Response>;
+  /** When true, hides add/edit/delete buttons — used for kitchen role (read-only recipe view). */
+  readOnly?: boolean;
 }
 
 export function MenuTab({
   menuItems, menuFilter, setMenuFilter,
-  crud, apiPatch, apiDelete, apiFetch,
+  crud, apiPatch, apiDelete, apiFetch, readOnly = false,
 }: MenuTabProps) {
   const filteredMenuItems = menuFilter === "all" ? menuItems : menuItems.filter(m => m.category === menuFilter);
   const { currentPage, setCurrentPage, totalPages, paginatedItems, totalItems, itemsPerPage } = usePagination(filteredMenuItems, 12);
@@ -71,9 +73,14 @@ export function MenuTab({
             {MENU_CATS.map(c => <button key={c.id} onClick={() => setMenuFilter(c.id)} className={`text-xs px-2 py-1 rounded-lg ${menuFilter === c.id ? "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" : "bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600"}`}>{c.name}</button>)}
           </div>
         </div>
-        <button onClick={() => crud.openAdd()} className="bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl text-sm px-4 py-2 flex items-center gap-1">
-          <span className="text-lg leading-none">+</span> Ajouter
-        </button>
+        {!readOnly && (
+          <button onClick={() => crud.openAdd()} className="bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl text-sm px-4 py-2 flex items-center gap-1">
+            <span className="text-lg leading-none">+</span> Ajouter
+          </button>
+        )}
+        {readOnly && (
+          <span className="text-xs text-gray-500 dark:text-gray-400 italic">Lecture seule — recettes visibles en consultation</span>
+        )}
       </div>
 
       <AdminFormCard
@@ -156,22 +163,30 @@ export function MenuTab({
                 <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1">{item.description}</p>
                 <p className="text-sm font-bold text-orange-600 dark:text-orange-400 mt-1">{formatPrice(item.price)}</p>
                 <div className="flex items-center gap-1 mt-1.5 flex-wrap">
-                  <button onClick={() => apiPatch("/api/menu", { id: item.id, available: !item.available })}
-                    className={`text-xs px-2 py-0.5 rounded-full ${item.available ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}`}>
-                    {item.available ? "Disponible" : "Indisponible"}
-                  </button>
+                  {readOnly ? (
+                    <Badge className={`text-[10px] ${item.available ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}`}>
+                      {item.available ? "Disponible" : "Indisponible"}
+                    </Badge>
+                  ) : (
+                    <button onClick={() => apiPatch("/api/menu", { id: item.id, available: !item.available })}
+                      className={`text-xs px-2 py-0.5 rounded-full ${item.available ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}`}>
+                      {item.available ? "Disponible" : "Indisponible"}
+                    </button>
+                  )}
                   {item.badge && <Badge className="bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 text-[10px]">{item.badge}</Badge>}
                   <Badge variant="outline" className="text-[10px] dark:border-gray-600 dark:text-gray-400">{MENU_CATS.find(c => c.id === item.category)?.name || item.category}</Badge>
                 </div>
-                <div className="flex items-center gap-1 mt-2">
-                  <EditButton onClick={() => crud.openEdit(item)} />
-                  <DeleteConfirmButton
-                    confirming={crud.deleteConfirm === item.id}
-                    onConfirm={() => handleDelete(item)}
-                    onRequestConfirm={() => crud.setDeleteConfirm(item.id)}
-                    onCancel={() => crud.setDeleteConfirm(null)}
-                  />
-                </div>
+                {!readOnly && (
+                  <div className="flex items-center gap-1 mt-2">
+                    <EditButton onClick={() => crud.openEdit(item)} />
+                    <DeleteConfirmButton
+                      confirming={crud.deleteConfirm === item.id}
+                      onConfirm={() => handleDelete(item)}
+                      onRequestConfirm={() => crud.setDeleteConfirm(item.id)}
+                      onCancel={() => crud.setDeleteConfirm(null)}
+                    />
+                  </div>
+                )}
               </div>
             </div>
           </Card>

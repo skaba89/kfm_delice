@@ -197,6 +197,33 @@ export async function PATCH(request: Request) {
         }
         newStatus = "preparing";
         break;
+      case "serve": // ready → delivered (dine_in: served at table)
+        if (existing.status !== "ready") {
+          return NextResponse.json({ error: "La commande n'est pas prête" }, { status: 400 });
+        }
+        if (existing.orderType !== "dine_in") {
+          return NextResponse.json({ error: "Action réservée aux commandes sur place" }, { status: 400 });
+        }
+        newStatus = "delivered";
+        break;
+      case "pickup": // ready → delivered (takeaway: customer picked up)
+        if (existing.status !== "ready") {
+          return NextResponse.json({ error: "La commande n'est pas prête" }, { status: 400 });
+        }
+        if (existing.orderType !== "takeaway") {
+          return NextResponse.json({ error: "Action réservée aux commandes à emporter" }, { status: 400 });
+        }
+        newStatus = "delivered";
+        break;
+      case "handover": // ready → delivering (delivery: handed over to driver)
+        if (existing.status !== "ready") {
+          return NextResponse.json({ error: "La commande n'est pas prête" }, { status: 400 });
+        }
+        if (existing.orderType !== "delivery") {
+          return NextResponse.json({ error: "Action réservée aux commandes en livraison" }, { status: 400 });
+        }
+        newStatus = "delivering";
+        break;
       default:
         return NextResponse.json({ error: "Action inconnue" }, { status: 400 });
     }
