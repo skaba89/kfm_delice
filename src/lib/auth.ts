@@ -242,7 +242,95 @@ export async function authenticatePlatformAdmin(request: Request): Promise<Authe
   }
 }
 
-// Check if admin has required role
-export function hasRole(adminRole: string, requiredRoles: string[]): boolean {
-  return requiredRoles.includes(adminRole);
+// ────────────────────────────────────────────────────────────────
+// Admin role registry & permission matrix
+// ────────────────────────────────────────────────────────────────
+
+/**
+ * Canonical list of admin roles recognized by the platform.
+ * Order matters — dropdowns display roles in this order.
+ *
+ *   admin              — Super Admin restaurant (full access)
+ *   manager            — Gérant adjoint (operational management)
+ *   staff              — Personnel polyvalent (orders, reservations, kitchen view)
+ *   cashier            — Caissier (POS, payments, invoices, customer list)
+ *   kitchen            — Chef Cuisine (kitchen display, stock view, order status)
+ *   delivery_manager   — Responsable Livraison (drivers, deliveries)
+ *   host               — Hôte d'Accueil (reservations only)
+ *   accountant         — Comptable (invoices, expenses, quotes, analytics — no ops)
+ */
+export const ADMIN_ROLES = [
+  "admin",
+  "manager",
+  "staff",
+  "cashier",
+  "kitchen",
+  "delivery_manager",
+  "host",
+  "accountant",
+] as const;
+
+export type AdminRole = (typeof ADMIN_ROLES)[number];
+
+/**
+ * Permission groups for API routes. Each group is a list of roles
+ * allowed to call a given endpoint family. Add new roles to existing
+ * groups here, then reference the group in the API route via
+ * `hasRole(admin.role, PERMISSION_GROUPS.ORDERS_WRITE)`.
+ *
+ * Groups are intentionally more granular than the previous ad-hoc
+ * `["admin", "manager"]` arrays — this lets us grant scoped access
+ * to the new specialist roles (cashier, kitchen, etc.) without
+ * copy-pasting role lists everywhere.
+ */
+export const PERMISSION_GROUPS = {
+  // User management — admin only (super-admin of the restaurant)
+  ADMINS_MANAGE: ["admin"],
+  CUSTOMERS_MANAGE: ["admin"],
+  CUSTOMERS_READ: ["admin", "manager", "cashier"],
+
+  // Operational management (manager-level)
+  MENU_MANAGE: ["admin", "manager"],
+  STAFF_MANAGE: ["admin", "manager"],
+  DRIVERS_MANAGE: ["admin", "manager", "delivery_manager"],
+  DRIVERS_LOCATION: ["admin", "manager", "delivery_manager"],
+  STOCK_MANAGE: ["admin", "manager"],
+  STOCK_READ: ["admin", "manager", "staff", "kitchen"],
+  LOYALTY_MANAGE: ["admin", "manager"],
+  LOYALTY_DELETE: ["admin"],
+
+  // Finance & invoicing
+  INVOICES_MANAGE: ["admin", "manager", "cashier", "accountant"],
+  QUOTES_MANAGE: ["admin", "manager", "accountant"],
+  EXPENSES_MANAGE: ["admin", "manager", "accountant"],
+  PAYMENTS_MANAGE: ["admin", "manager", "cashier", "accountant"],
+  ANALYTICS_READ: ["admin", "manager", "accountant"],
+  STATS_READ: ["admin", "manager", "accountant"],
+
+  // Operations
+  ORDERS_WRITE: ["admin", "manager", "staff", "cashier", "kitchen", "delivery_manager"],
+  ORDERS_READ: ["admin", "manager", "staff", "cashier", "kitchen", "delivery_manager", "host"],
+  RESERVATIONS_WRITE: ["admin", "manager", "staff", "host"],
+  RESERVATIONS_READ: ["admin", "manager", "staff", "host"],
+  KITCHEN_DISPLAY: ["admin", "manager", "staff", "kitchen"],
+  REVIEWS_MANAGE: ["admin", "manager"],
+
+  // Communications
+  EMAIL_SEND: ["admin", "manager"],
+  PUSH_SEND: ["admin", "manager"],
+  WS_NOTIFY: ["admin", "manager"],
+
+  // Platform
+  DASHBOARD_VIEW: ["admin", "manager"],
+  SEED_RUN: ["admin"],
+} as const;
+
+/**
+ * Check if admin has any of the required roles.
+ * Kept as a simple `includes` for backwards compatibility —
+ * any new role must appear in the relevant PERMISSION_GROUPS
+ * entry to be granted access.
+ */
+export function hasRole(adminRole: string, requiredRoles: readonly string[]): boolean {
+  return (requiredRoles as readonly string[]).includes(adminRole);
 }

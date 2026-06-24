@@ -134,7 +134,7 @@ export async function GET(
     if (!admin) {
       return NextResponse.json({ error: "Non autorise" }, { status: 401 });
     }
-    if (!hasRole(admin.role, ["admin", "manager"])) {
+    if (!hasRole(admin.role, ["admin", "manager", "accountant"])) {
       return NextResponse.json({ error: "Acces refuse" }, { status: 403 });
     }
 

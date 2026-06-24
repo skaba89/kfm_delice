@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatPrice, MENU_CATS, isRestaurantOpen, RESTO_HOURS, statusColors, statusLabels, paymentLabels, vehicleLabels, driverStatusLabels, staffRoleLabels, invoiceStatusLabels, quoteStatusLabels, expenseCategoryLabels } from "@/lib/constants";
+import { formatPrice, MENU_CATS, isRestaurantOpen, RESTO_HOURS, statusColors, statusLabels, paymentLabels, vehicleLabels, driverStatusLabels, staffRoleLabels, adminRoleLabels, adminRoleOrder, invoiceStatusLabels, quoteStatusLabels, expenseCategoryLabels } from "@/lib/constants";
 
 describe("formatPrice", () => {
   it("should format price in GNF with French locale", () => {
@@ -102,6 +102,37 @@ describe("Status labels and colors", () => {
     expect(staffRoleLabels.serveur).toBe("Serveur");
     expect(staffRoleLabels.barman).toBe("Barman");
     expect(staffRoleLabels.gerant).toBe("Gérant");
+  });
+
+  it("should expose all 15 staff roles with labels", () => {
+    const expectedStaffRoles = [
+      "cuisinier", "commis", "patissier",
+      "serveur", "barman", "sommelier", "receptionniste",
+      "gerant", "caissier",
+      "plongeur", "securite", "voiturier", "maintenance",
+      "dj", "animateur",
+    ];
+    for (const role of expectedStaffRoles) {
+      expect(staffRoleLabels[role]).toBeTruthy();
+      expect(typeof staffRoleLabels[role]).toBe("string");
+    }
+    // Compare as SETS — order does not matter
+    expect(Object.keys(staffRoleLabels).sort()).toEqual([...expectedStaffRoles].sort());
+  });
+
+  it("should expose all 8 admin login roles with labels", () => {
+    const expectedAdminRoles = [
+      "admin", "manager", "staff", "cashier",
+      "kitchen", "delivery_manager", "host", "accountant",
+    ];
+    for (const role of expectedAdminRoles) {
+      expect(adminRoleLabels[role]).toBeTruthy();
+      expect(typeof adminRoleLabels[role]).toBe("string");
+    }
+    // Compare as SETS — order does not matter for the labels map
+    expect(Object.keys(adminRoleLabels).sort()).toEqual([...expectedAdminRoles].sort());
+    // adminRoleOrder is the ordered canonical list — compare directly (no sort)
+    expect(adminRoleOrder).toEqual(expectedAdminRoles);
   });
 
   it("should have invoice status labels", () => {

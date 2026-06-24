@@ -181,7 +181,7 @@ export async function PATCH(request: Request) {
     if (!admin) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
-    if (!hasRole(admin.role, ["admin", "manager", "staff"])) {
+    if (!hasRole(admin.role, ["admin", "manager", "staff", "cashier", "kitchen", "delivery_manager"])) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 

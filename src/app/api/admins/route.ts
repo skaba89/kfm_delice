@@ -1,6 +1,6 @@
 import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
-import { authenticateAdmin, hasRole, hashPassword, verifyPassword } from "@/lib/auth";
+import { authenticateAdmin, hasRole, hashPassword, verifyPassword, ADMIN_ROLES } from "@/lib/auth";
 import { adminSchema, adminPatchSchema } from "@/lib/validations";
 import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, parseStatusFilter, buildSearchWhere } from "@/lib/pagination";
 
@@ -20,7 +20,7 @@ export async function GET(request: Request) {
     const { page, limit } = parsePagination(sp);
     const { sortBy, sortOrder } = parseSorting(sp, ['createdAt', 'name', 'role'] as const, 'createdAt');
     const search = parseSearch(sp);
-    const roleFilter = parseStatusFilter(sp, ['admin', 'manager', 'staff'], 'role');
+    const roleFilter = parseStatusFilter(sp, ADMIN_ROLES as unknown as string[], 'role');
     const statusFilter = parseStatusFilter(sp, ['active', 'inactive']);
 
     const restaurantId = admin.restaurantId;

@@ -170,23 +170,32 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
     { id: "pos", label: "Caisse POS", icon: Receipt },
   ];
   const sidebarItems = allSidebarItems.filter(item => {
+    // Sidebar visibility per admin role — 8 roles supported.
+    // admin             → everything
+    // manager           → everything except user management (admins)
+    // staff             → operations only (reservations, orders, deliveries, reviews, POS)
+    // cashier           → POS, payments, invoices, customers
+    // kitchen           → kitchen display, orders, inventory
+    // delivery_manager  → drivers, deliveries, orders
+    // host              → reservations only
+    // accountant        → invoices, quotes, expenses, payments, analytics (no ops)
     const rolesMap: Record<string, string[]> = {
-      overview: ["admin", "manager"],
-      reservations: ["admin", "manager", "staff"],
-      orders: ["admin", "manager", "staff"],
+      overview: ["admin", "manager", "accountant"],
+      reservations: ["admin", "manager", "staff", "host"],
+      orders: ["admin", "manager", "staff", "cashier", "kitchen", "delivery_manager"],
       menu: ["admin", "manager"],
-      deliveries: ["admin", "manager", "staff"],
-      drivers: ["admin", "manager"],
+      deliveries: ["admin", "manager", "staff", "delivery_manager"],
+      drivers: ["admin", "manager", "delivery_manager"],
       reviews: ["admin", "manager", "staff"],
       staff: ["admin", "manager"],
-      customers: ["admin", "manager"],
+      customers: ["admin", "manager", "cashier"],
       admins: ["admin"],
-      invoices: ["admin", "manager"],
-      quotes: ["admin", "manager"],
-      expenses: ["admin", "manager"],
-      inventory: ["admin", "manager"],
-      payments: ["admin", "manager"],
-      pos: ["admin", "manager", "staff"],
+      invoices: ["admin", "manager", "cashier", "accountant"],
+      quotes: ["admin", "manager", "accountant"],
+      expenses: ["admin", "manager", "accountant"],
+      inventory: ["admin", "manager", "kitchen"],
+      payments: ["admin", "manager", "cashier", "accountant"],
+      pos: ["admin", "manager", "staff", "cashier"],
     };
     return rolesMap[item.id]?.includes(admin.role) ?? false;
   });

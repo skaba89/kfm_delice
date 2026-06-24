@@ -13,7 +13,7 @@ export async function PATCH(request: Request) {
     if (!admin && !driverAuth) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
-    if (admin && !hasRole(admin.role, ["admin", "manager"])) {
+    if (admin && !hasRole(admin.role, ["admin", "manager", "delivery_manager"])) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 
@@ -60,7 +60,7 @@ export async function GET(request: Request) {
     if (!admin && !driverAuth) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
-    if (admin && !hasRole(admin.role, ["admin", "manager"])) {
+    if (admin && !hasRole(admin.role, ["admin", "manager", "delivery_manager"])) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 

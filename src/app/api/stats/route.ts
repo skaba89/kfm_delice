@@ -45,7 +45,7 @@ export async function GET(request: Request) {
     if (!admin) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
-    if (!hasRole(admin.role, ["admin", "manager"])) {
+    if (!hasRole(admin.role, ["admin", "manager", "accountant"])) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 

@@ -8,7 +8,7 @@ export async function GET(request: Request) {
   try {
     const admin = await authenticateAdmin(request);
     if (!admin) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
-    if (!hasRole(admin.role, ["admin", "manager", "staff"]))
+    if (!hasRole(admin.role, ["admin", "manager", "staff", "kitchen"]))
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
 
     const restaurantId = admin.restaurantId;

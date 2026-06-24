@@ -3,7 +3,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import type { StaffDB } from "@/lib/types";
-import { formatPrice, staffRoleLabels, staffStatusColors, staffStatusLabels, expenseCategoryColors } from "@/lib/constants";
+import { formatPrice, staffRoleLabels, staffRoleColors, staffStatusColors, staffStatusLabels } from "@/lib/constants";
 import { usePagination } from "@/lib/use-pagination";
 import { Pagination } from "@/components/Pagination";
 import { notify } from "@/lib/notifications";
@@ -34,7 +34,7 @@ export function StaffTab({ staffList, crud, apiDelete }: StaffTabProps) {
 
   const columns: DataTableColumn<StaffDB>[] = [
     { header: "Nom", cell: (s) => (<><p className="text-sm font-medium text-gray-900 dark:text-gray-100">{s.name}</p><p className="text-xs text-gray-500 dark:text-gray-400">Depuis {s.hireDate || "-"}</p></>) },
-    { header: "Rôle", cell: (s) => <Badge className={`${expenseCategoryColors[s.role] || "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300"} text-xs`}>{staffRoleLabels[s.role] || s.role}</Badge> },
+    { header: "Rôle", cell: (s) => <Badge className={`${staffRoleColors[s.role] || "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300"} text-xs`}>{staffRoleLabels[s.role] || s.role}</Badge> },
     { header: "Téléphone", cell: (s) => <span className="text-sm text-gray-700 dark:text-gray-300">{s.phone || "-"}</span> },
     { header: "Salaire", cell: (s) => <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{formatPrice(s.salary)}</span> },
     { header: "Statut", cell: (s) => <Badge className={`${staffStatusColors[s.status] || ""} text-xs`}>{staffStatusLabels[s.status] || s.status}</Badge> },

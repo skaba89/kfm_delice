@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { AdminDB, AdminUser } from "@/lib/types";
-import { adminRoleLabels } from "@/lib/constants";
+import { adminRoleLabels, adminRoleColors } from "@/lib/constants";
 import { usePagination } from "@/lib/use-pagination";
 import { Pagination } from "@/components/Pagination";
 import { notify } from "@/lib/notifications";
@@ -58,6 +58,16 @@ export function AdminsTab({ admins, admin, crud, apiPatch, apiDelete }: AdminsTa
         <FormField label="Email" value={crud.form.email} onChange={v => crud.setForm({ ...crud.form, email: v })} placeholder="email@exemple.com" type="email" required />
         <FormField label={`Mot de passe${!crud.editing ? " *" : ""}`} value={crud.form.password} onChange={v => crud.setForm({ ...crud.form, password: v })} placeholder={crud.editing ? "Laisser vide pour ne pas changer" : "Mot de passe"} type="password" />
         <FormSelect label="Rôle" value={crud.form.role} onChange={v => crud.setForm({ ...crud.form, role: v })} options={Object.entries(adminRoleLabels).map(([k, v]) => ({ value: k, label: v }))} required />
+        <p className="col-span-full text-xs text-gray-500 dark:text-gray-400 -mt-2">
+          {crud.form.role === "admin" && "Accès complet — gestion des utilisateurs, menu, finances, opérations."}
+          {crud.form.role === "manager" && "Gestion opérationnelle — sauf gestion des utilisateurs."}
+          {crud.form.role === "staff" && "Opérations — commandes, réservations, cuisine, caisse POS."}
+          {crud.form.role === "cashier" && "Caisse — POS, paiements, factures, liste clients."}
+          {crud.form.role === "kitchen" && "Cuisine — affichage cuisine, stock (lecture), statut commandes."}
+          {crud.form.role === "delivery_manager" && "Livraison — livreurs, livraisons, commandes."}
+          {crud.form.role === "host" && "Accueil — réservations uniquement."}
+          {crud.form.role === "accountant" && "Comptabilité — factures, devis, dépenses, paiements, analytique."}
+        </p>
         <FormSelect label="Statut" value={crud.form.status} onChange={v => crud.setForm({ ...crud.form, status: v })} options={[{ value: "active", label: "Actif" }, { value: "inactive", label: "Inactif" }]} />
       </AdminFormCard>
 
@@ -74,7 +84,7 @@ export function AdminsTab({ admins, admin, crud, apiPatch, apiDelete }: AdminsTa
                 <Badge className={`${a.status === "active" ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"} text-xs`}>{a.status === "active" ? "Actif" : "Inactif"}</Badge>
               </div>
               <div className="flex items-center gap-2 mb-2">
-                <Badge variant="outline" className="text-xs dark:border-gray-600 dark:text-gray-300">{adminRoleLabels[a.role] || a.role}</Badge>
+                <Badge variant="outline" className={`text-xs ${adminRoleColors[a.role] || "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300"}`}>{adminRoleLabels[a.role] || a.role}</Badge>
               </div>
               <div className="flex items-center gap-1">
                 <Button size="sm" variant="outline" onClick={() => apiPatch("/api/admins", { id: a.id, status: a.status === "active" ? "inactive" : "active" })} className={`flex-1 text-xs rounded-lg ${a.status === "active" ? "text-red-500 border-red-200 dark:border-red-800" : "text-green-500 border-green-200 dark:border-green-800"}`}>

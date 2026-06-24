@@ -102,14 +102,27 @@ model RestaurantConfig {
 }
 
 // ────────────────────────────────────────────────────────────────
-// Admin — scoped to a restaurant
+// Admin — scoped to a restaurant (login account)
+//
+// role can be one of 8 values (see src/lib/auth.ts → ADMIN_ROLES):
+//   admin              — Super Admin restaurant (full access)
+//   manager            — Gérant adjoint (operational management)
+//   staff              — Personnel polyvalent (orders, reservations, kitchen view)
+//   cashier            — Caissier (POS, payments, invoices, customer list)
+//   kitchen            — Chef Cuisine (kitchen display, stock view, order status)
+//   delivery_manager   — Responsable Livraison (drivers, deliveries)
+//   host               — Hôte d'Accueil (reservations only)
+//   accountant         — Comptable (invoices, expenses, quotes, analytics — no ops)
+//
+// Permission matrix lives in src/lib/auth.ts → PERMISSION_GROUPS.
+// Sidebar visibility lives in src/components/AdminDashboard.tsx → rolesMap.
 // ────────────────────────────────────────────────────────────────
 model Admin {
   id                String   @id @default(cuid())
   email             String   @unique
   password          String
   name              String
-  role              String   @default("admin") // admin, manager, staff
+  role              String   @default("admin") // see ADMIN_ROLES in src/lib/auth.ts
   status            String   @default("active") // active, inactive
   mustChangePassword Boolean @default(false) // force password change on first login
   restaurantId      String
@@ -276,7 +289,7 @@ model Staff {
   id           String   @id @default(cuid())
   name         String
   phone        String   @default("")
-  role         String   // cuisinier, serveur, barman, gerant, plongeur, securite, caissier
+  role         String   // see staffRoleLabels in src/lib/constants.ts — 15 kitchen/service roles
   salary       Int      @default(0)
   status       String   @default("active") // active, inactive, on_leave
   hireDate     String   @default("")

@@ -20,7 +20,7 @@ export async function GET(request: Request) {
     const { page, limit } = parsePagination(sp);
     const { sortBy, sortOrder } = parseSorting(sp, ['createdAt', 'name', 'role', 'status'] as const, 'createdAt');
     const search = parseSearch(sp);
-    const roleFilter = parseStatusFilter(sp, ['cuisinier', 'serveur', 'barman', 'gerant', 'plongeur', 'securite', 'caissier'], 'role');
+    const roleFilter = parseStatusFilter(sp, ['cuisinier', 'commis', 'patissier', 'serveur', 'barman', 'sommelier', 'receptionniste', 'gerant', 'caissier', 'plongeur', 'securite', 'voiturier', 'maintenance', 'dj', 'animateur'], 'role');
     const statusFilter = parseStatusFilter(sp, ['active', 'inactive', 'on_leave']);
 
     const restaurantId = admin.restaurantId;

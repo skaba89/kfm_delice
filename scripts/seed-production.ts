@@ -10,10 +10,25 @@
  *        - Admin { role: "admin", status: "active", mustChangePassword: true }
  *   This single Admin is the "super admin" of the restaurant. From the
  *   dashboard UI (Users / Équipe pages), they can create every other
- *   role: admin, manager, staff, customer, driver. The existing
- *   /api/admins, /api/customers, /api/drivers, /api/staff routes all
- *   authorize on role="admin" so this single account is enough to
- *   bootstrap the entire team.
+ *   role. The platform now supports 8 admin login roles:
+ *
+ *     admin              — Super Admin restaurant (full access)
+ *     manager            — Gérant adjoint (operational management)
+ *     staff              — Personnel polyvalent (orders, reservations, kitchen view)
+ *     cashier            — Caissier (POS, payments, invoices, customer list)
+ *     kitchen            — Chef Cuisine (kitchen display, stock view, order status)
+ *     delivery_manager   — Responsable Livraison (drivers, deliveries)
+ *     host               — Hôte d'Accueil (reservations only)
+ *     accountant         — Comptable (invoices, expenses, quotes, analytics — no ops)
+ *
+ *   And 15 staff (no-login) roles for HR records:
+ *     cuisinier, commis, patissier, serveur, barman, sommelier,
+ *     receptionniste, gerant, caissier, plongeur, securite,
+ *     voiturier, maintenance, dj, animateur
+ *
+ *   The /api/admins, /api/customers, /api/drivers, /api/staff routes
+ *   all authorize on role="admin" so this single super-admin account
+ *   is enough to bootstrap the entire team.
  *
  *   3. PlatformAdmin table is also purged. The platform dashboard is
  *      not used in single-restaurant deployments on Render free tier.
@@ -345,12 +360,18 @@ async function main() {
 
   console.log("  ── What this super admin can do ──");
   console.log("    From the dashboard, open the Users / Équipe section:");
-  console.log("      • /admin/admins    → create admin / manager / staff accounts");
+  console.log("      • /admin/admins    → create 8 admin login roles:");
+  console.log("                            admin, manager, staff, cashier,");
+  console.log("                            kitchen, delivery_manager, host, accountant");
   console.log("      • /admin/customers → create customer accounts");
   console.log("      • /admin/drivers   → create driver accounts");
-  console.log("      • /admin/staff     → create staff records (no login)");
-  console.log("    Every new account will be created with role-based");
-  console.log("    permissions enforced by /api/admins, /api/customers, etc.\n");
+  console.log("      • /admin/staff     → create 15 staff (no-login) roles:");
+  console.log("                            cuisinier, commis, patissier, serveur,");
+  console.log("                            barman, sommelier, receptionniste,");
+  console.log("                            gerant, caissier, plongeur, securite,");
+  console.log("                            voiturier, maintenance, dj, animateur");
+  console.log("    Every new account gets role-based permissions enforced");
+  console.log("    by /api/* routes (see PERMISSION_GROUPS in src/lib/auth.ts).\n");
 
   console.log("  ── Post-seed checklist ──");
   console.log("    [ ] Set JWT_SECRET env var on Render (32+ random chars)");

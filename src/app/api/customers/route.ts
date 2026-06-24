@@ -12,7 +12,7 @@ export async function GET(request: Request) {
     if (!admin) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
-    if (!hasRole(admin.role, ["admin"])) {
+    if (!hasRole(admin.role, ["admin", "manager", "cashier"])) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 
