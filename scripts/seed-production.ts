@@ -107,7 +107,7 @@ async function main() {
   // ============================================================
   section("1. Purging transactional & test data");
 
-  const purgeOrder: Array<[string, () => Promise<number>]> = [
+  const purgeOrder: Array<[string, () => Promise<{ count: number }>]> = [
     ["PushSubscription", () => prisma.pushSubscription.deleteMany()],
     ["StockMovement", () => prisma.stockMovement.deleteMany()],
     ["LoyaltyPointsHistory", () => prisma.loyaltyPointsHistory.deleteMany()],
@@ -118,7 +118,7 @@ async function main() {
     ["Invoice", () => prisma.invoice.deleteMany()],
     ["Review", () => prisma.review.deleteMany()],
     ["Reservation", () => prisma.reservation.deleteMany()],
-    ...(FLAGS.keepOrders ? [] : ([["Order", () => prisma.order.deleteMany()]] as Array<[string, () => Promise<number>]>)),
+    ...(FLAGS.keepOrders ? [] : ([["Order", () => prisma.order.deleteMany()]] as Array<[string, () => Promise<{ count: number }>]>)),
     ["StockItem", () => prisma.stockItem.deleteMany()],
     ["Staff", () => prisma.staff.deleteMany()],
     ["Driver", () => prisma.driver.deleteMany()],

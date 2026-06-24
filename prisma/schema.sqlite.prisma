@@ -67,6 +67,8 @@ model Restaurant {
   expenses      Expense[]
   payments      Payment[]
   loyaltyRewards LoyaltyReward[]
+  stockItems        StockItem[]
+  stockMovements    StockMovement[]
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -414,4 +416,42 @@ model PushSubscription {
   @@index([userKey])
   @@index([userId, userType])
   @@index([restaurantId])
+}
+
+model StockItem {
+  id            String   @id @default(cuid())
+  name          String
+  sku           String   @default("") // Optional stock-keeping unit / barcode
+  category      String   @default("general") // e.g. ingredients, drinks, packaging, cleaning
+  quantity      Float    @default(0)
+  unit          String   @default("unité") // kg, L, unité, bouteille, sac, etc.
+  minThreshold  Float    @default(0) // Low-stock alert threshold
+  unitCost      Int      @default(0) // Purchase cost per unit (GNF)
+  supplier      String   @default("")
+  lastRestocked String   @default("") // ISO date string of last restock
+  notes         String   @default("")
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  movements     StockMovement[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([restaurantId, category])
+  @@index([restaurantId, quantity])
+}
+
+model StockMovement {
+  id            String   @id @default(cuid())
+  stockItemId   String
+  stockItem     StockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+  type          String   // "in" (restock), "out" (consumption), "adjust" (correction), "waste"
+  quantity      Float    // Positive number; direction is in `type`
+  reason        String   @default("") // e.g. "Réappro Fournisseur X", "Sortie cuisine", "Casse"
+  actor         String   @default("") // Who made the change (admin name, etc.)
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+
+  @@index([stockItemId])
+  @@index([restaurantId, createdAt])
 }
