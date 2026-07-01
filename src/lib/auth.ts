@@ -4,6 +4,21 @@ import { db } from './db';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'kfm-delice-dev-secret-change-in-prod';
 const _JWT_SECRET: string = JWT_SECRET;
+
+// Warn at startup if the insecure fallback is being used
+if (!process.env.JWT_SECRET) {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      '[AUTH] FATAL: JWT_SECRET environment variable is not set. ' +
+      'Refusing to start with an insecure fallback in production.'
+    );
+  }
+  console.warn(
+    '[AUTH] WARNING: JWT_SECRET is not set — using insecure dev fallback. ' +
+    'Set JWT_SECRET in your .env file before deploying to production.'
+  );
+}
+
 const JWT_EXPIRES_IN = '24h';
 
 // Hash a password

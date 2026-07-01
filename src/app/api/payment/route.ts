@@ -4,24 +4,10 @@ import { authenticateAdmin, authenticateAny, hasRole } from "@/lib/auth";
 import { paymentSchema, paymentStatusSchema, webhookSignatureSchema } from "@/lib/validations";
 import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, parseStatusFilter } from "@/lib/pagination";
 import { createHmac, timingSafeEqual } from "crypto";
+import { initiatePayment, type PaymentMethod } from "@/lib/payments";
 
-// ============================================================
-// Orange Money & MTN Money Payment Integration
-// ============================================================
-// This implements a payment flow simulation that mirrors the real
-// Orange Money / MTN Money API structure. In production, you would
-// replace the simulate* functions with actual API calls to:
-//   - Orange Money API: https://api.orange.com/om/sandbox/
-//   - MTN MoMo API: https://momodeveloper.mtn.com/
-// ============================================================
-
-const PAYMENT_CONFIG = {
-  // In production, these would be environment variables
-  ORANGE_MONEY_MERCHANT_CODE: process.env.ORANGE_MONEY_MERCHANT_CODE || "KFM_DELICE",
-  MTN_MONEY_SUBSCRIPTION_KEY: process.env.MTN_MONEY_SUBSCRIPTION_KEY || "demo_key",
-  // Simulated processing delay (ms) — set to 0 in production
-  SIMULATED_DELAY: process.env.NODE_ENV === "production" ? 0 : 2000,
-};
+// Simulated processing delay (ms) — set to 0 in production
+const SIMULATED_DELAY = process.env.NODE_ENV === "production" ? 0 : 2000;
 
 // Webhook secret for HMAC signature verification
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "";
@@ -46,156 +32,6 @@ function verifyWebhookSignature(paymentId: string, signature: string): boolean {
     return timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
   } catch {
     return false;
-  }
-}
-
-/**
- * Simulate Orange Money payment initiation.
- * In production, this would call the Orange Money Web Payment API:
- * POST https://api.orange.com/orange-money-webpay/dev/v1/webpay
- */
-async function initiateOrangeMoneyPayment(phone: string, amount: number, orderId: string) {
-  // Simulate API call delay
-  if (PAYMENT_CONFIG.SIMULATED_DELAY > 0) {
-    await new Promise((r) => setTimeout(r, 500));
-  }
-
-  // Validate phone format (Guinea: starts with +224 6XX)
-  const cleanPhone = phone.replace(/\s/g, "");
-  if (!cleanPhone.startsWith("+224") && !cleanPhone.startsWith("224") && !cleanPhone.startsWith("6")) {
-    return {
-      success: false,
-      error: "Numéro Orange Money invalide. Format attendu : +224 6XX XXX XXX",
-    };
-  }
-
-  // Simulate success (95% success rate in demo)
-  const isSuccess = Math.random() > 0.05;
-
-  if (isSuccess) {
-    return {
-      success: true,
-      transactionRef: `OM_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-      status: "processing" as const,
-      message: "Paiement Orange Money initié. Confirmez sur votre téléphone.",
-      otpRequired: true,
-    };
-  }
-
-  return {
-    success: false,
-    error: "Solde insuffisant ou service Orange Money temporairement indisponible.",
-  };
-}
-
-/**
- * Simulate MTN Mobile Money payment initiation.
- * In production, this would call the MTN MoMo API:
- * POST https://sandbox.momodeveloper.mtn.com/collection/v1_0/requesttopay
- */
-async function initiateMTNMoneyPayment(phone: string, amount: number, orderId: string) {
-  if (PAYMENT_CONFIG.SIMULATED_DELAY > 0) {
-    await new Promise((r) => setTimeout(r, 500));
-  }
-
-  const cleanPhone = phone.replace(/\s/g, "");
-  if (!cleanPhone.startsWith("+224") && !cleanPhone.startsWith("224") && !cleanPhone.startsWith("6")) {
-    return {
-      success: false,
-      error: "Numéro MTN Money invalide. Format attendu : +224 6XX XXX XXX",
-    };
-  }
-
-  const isSuccess = Math.random() > 0.05;
-
-  if (isSuccess) {
-    return {
-      success: true,
-      transactionRef: `MTN_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-      status: "processing" as const,
-      message: "Paiement MTN Money initié. Confirmez sur votre téléphone.",
-      otpRequired: true,
-    };
-  }
-
-  return {
-    success: false,
-    error: "Solde insuffisant ou service MTN Money temporairement indisponible.",
-  };
-}
-
-/**
- * Simulate Wave Sénégal/Guinée payment initiation.
- * In production, this would call the Wave Business API:
- * POST https://api.wave.com/v1/checkout/sessions
- */
-async function initiateWavePayment(phone: string, amount: number, orderId: string) {
-  if (PAYMENT_CONFIG.SIMULATED_DELAY > 0) {
-    await new Promise((r) => setTimeout(r, 500));
-  }
-
-  const cleanPhone = phone.replace(/\s/g, "");
-  if (!cleanPhone.startsWith("+224") && !cleanPhone.startsWith("224") && !cleanPhone.startsWith("6")) {
-    return {
-      success: false,
-      error: "Numéro Wave invalide. Format attendu : +224 6XX XXX XXX",
-    };
-  }
-
-  const isSuccess = Math.random() > 0.03; // Wave has slightly higher success rate
-
-  if (isSuccess) {
-    return {
-      success: true,
-      transactionRef: `WAVE_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-      status: "processing" as const,
-      message: "Paiement Wave initié. Confirmez via notification Wave sur votre téléphone.",
-      otpRequired: true,
-    };
-  }
-
-  return {
-    success: false,
-    error: "Solde insuffisant ou service Wave temporairement indisponible.",
-  };
-}
-
-/**
- * Process a payment based on the method.
- * Cash and card payments are marked as paid immediately.
- * Mobile money (Orange/MTN/Wave) initiates the payment flow.
- */
-async function processPayment(method: string, amount: number, orderId: string, phone: string) {
-  switch (method) {
-    case "cash":
-      return {
-        success: true,
-        transactionRef: `CASH_${Date.now()}`,
-        status: "paid" as const,
-        message: "Paiement en espèces enregistré.",
-        otpRequired: false,
-      };
-
-    case "card":
-      return {
-        success: true,
-        transactionRef: `CARD_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-        status: "paid" as const,
-        message: "Paiement par carte enregistré.",
-        otpRequired: false,
-      };
-
-    case "orange_money":
-      return initiateOrangeMoneyPayment(phone, amount, orderId);
-
-    case "mtn_money":
-      return initiateMTNMoneyPayment(phone, amount, orderId);
-
-    case "wave":
-      return initiateWavePayment(phone, amount, orderId);
-
-    default:
-      return { success: false, error: `Méthode de paiement non supportée : ${method}` };
   }
 }
 
@@ -292,8 +128,13 @@ export async function POST(request: Request) {
       );
     }
 
-    // Process the payment
-    const result = await processPayment(method, order.total, orderId, phone || "");
+    // Process the payment via the payment gateway abstraction
+    const result = await initiatePayment({
+      method: method as PaymentMethod,
+      phone: phone || "",
+      amount: order.total,
+      orderId,
+    });
 
     if (!result.success) {
       // Create failed payment record
@@ -305,12 +146,12 @@ export async function POST(request: Request) {
           status: "failed",
           phone: phone || "",
           customerName: customerName || order.customerName,
-          failedReason: ('error' in result ? result.error : null) || "Échec du paiement",
+          failedReason: result.error || "Échec du paiement",
           restaurantId: order.restaurantId,
         },
       });
 
-      return NextResponse.json({ error: ('error' in result ? result.error : "Échec du paiement") }, { status: 400 });
+      return NextResponse.json({ error: result.error || "Échec du paiement" }, { status: 400 });
     }
 
     // Create payment record
@@ -319,7 +160,7 @@ export async function POST(request: Request) {
         orderId,
         amount: order.total,
         method,
-        status: result.status,
+        status: result.status || "processing",
         transactionRef: result.transactionRef || "",
         phone: phone || "",
         customerName: customerName || order.customerName,
@@ -339,8 +180,8 @@ export async function POST(request: Request) {
       },
     });
 
-    // For mobile money, simulate async confirmation after a delay
-    if (result.status === "processing" && PAYMENT_CONFIG.SIMULATED_DELAY > 0) {
+    // For mobile money, simulate async confirmation after a delay (dev only)
+    if (result.status === "processing" && SIMULATED_DELAY > 0) {
       // Simulate payment confirmation callback (in production, this would be a real webhook)
       // Generate the HMAC signature for the simulated webhook call
       const webhookSignature = generateWebhookSignature(payment.id);
@@ -379,7 +220,7 @@ export async function POST(request: Request) {
         } catch (e) {
           console.error("[Payment] Async confirmation error:", e);
         }
-      }, PAYMENT_CONFIG.SIMULATED_DELAY);
+      }, SIMULATED_DELAY);
     }
 
     // WebSocket: notify admin of new payment

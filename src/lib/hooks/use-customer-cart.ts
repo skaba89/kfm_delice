@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type { MenuItemDB, CustomerUser } from "@/lib/types";
 import { useAuth } from "@/lib/auth-context";
 import { notify } from "@/lib/notifications";
@@ -68,27 +68,20 @@ export function useCustomerCart(customer: CustomerUser, onOrderPlaced: () => voi
   // Fetch delivery fee from restaurant settings
   const fetchDeliveryFee = useCallback(async () => {
     try {
-      const res = await fetch("/api/menu?limit=1");
-      if (res.ok) {
-        // The menu API returns restaurant data that includes deliveryFee
-        // We can also fetch it from the stats endpoint
-        const token = localStorage.getItem('kfm_delice_token');
-        if (token) {
-          const statsRes = await fetch("/api/stats", {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          if (statsRes.ok) {
-            const statsData = await statsRes.json();
-            if (statsData.deliveryFee) {
-              setDeliveryFee(statsData.deliveryFee);
-            }
-          }
+      const statsRes = await apiFetch("/api/stats");
+      if (statsRes.ok) {
+        const statsData = await statsRes.json();
+        if (statsData.deliveryFee) {
+          setDeliveryFee(statsData.deliveryFee);
         }
       }
     } catch {
       // Keep default fee
     }
-  }, []);
+  }, [apiFetch]);
+
+  // Load delivery fee on mount
+  useEffect(() => { fetchDeliveryFee(); }, [fetchDeliveryFee]);
 
   const submitOrder = useCallback(async () => {
     if (cart.length === 0) return;

@@ -83,7 +83,7 @@ export async function subscribeAndSave(userId: string, userType: string): Promis
 
     // Save subscription to server
     if (subscription) {
-      const token = localStorage.getItem('kfm_delice_token');
+      const token = localStorage.getItem('restaurantpro_token');
       await fetch('/api/push', {
         method: 'POST',
         headers: {
