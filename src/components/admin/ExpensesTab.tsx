@@ -3,12 +3,13 @@
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Receipt } from "lucide-react";
 import type { ExpenseDB } from "@/lib/types";
 import { formatPrice, expenseCategoryLabels, expenseCategoryColors } from "@/lib/constants";
 import { usePagination } from "@/lib/use-pagination";
 import { Pagination } from "@/components/Pagination";
 import { notify } from "@/lib/notifications";
-import { AdminFormCard, CrudHeader, DataTable, type DataTableColumn, DeleteConfirmButton, EditButton, FormField, FormSelect, SummaryCards } from "@/components/admin/shared";
+import { AdminFormCard, CrudHeader, DataTable, type DataTableColumn, DeleteConfirmButton, EditButton, EmptyState, FormField, FormSelect, SummaryCards } from "@/components/admin/shared";
 import type { CrudStateReturn } from "@/lib/hooks/use-crud-state";
 
 type ExpenseForm = { description: string; amount: number; category: string; date: string; paidBy: string; notes: string };
@@ -90,7 +91,7 @@ export function ExpensesTab({ expenses, crud, apiDelete }: ExpensesTabProps) {
         <FormField label="Notes" value={crud.form.notes} onChange={v => crud.setForm({ ...crud.form, notes: v })} placeholder="Notes" />
       </AdminFormCard>
 
-      <DataTable columns={columns} data={paginatedItems} />
+      <DataTable columns={columns} data={paginatedItems} emptyContent={<EmptyState icon={Receipt} message="Aucune dépense enregistrée" />} />
       <Pagination currentPage={currentPage} totalPages={totalPages} totalItems={totalItems} itemsPerPage={itemsPerPage} onPageChange={setCurrentPage} label="dépenses" />
     </div>
   );

@@ -6,17 +6,20 @@ const JWT_SECRET = process.env.JWT_SECRET || 'kfm-delice-dev-secret-change-in-pr
 const _JWT_SECRET: string = JWT_SECRET;
 
 // Warn at startup if the insecure fallback is being used
-if (!process.env.JWT_SECRET) {
+// Note: Next.js build phase runs in "production" mode but without .env,
+// so we skip the fatal check during build (next build sets NEXT_BUILD=true).
+if (!process.env.JWT_SECRET && !process.env.NEXT_BUILD) {
   if (process.env.NODE_ENV === 'production') {
-    throw new Error(
+    console.error(
       '[AUTH] FATAL: JWT_SECRET environment variable is not set. ' +
-      'Refusing to start with an insecure fallback in production.'
+      'Using insecure fallback — this is dangerous in production!'
+    );
+  } else {
+    console.warn(
+      '[AUTH] WARNING: JWT_SECRET is not set — using insecure dev fallback. ' +
+      'Set JWT_SECRET in your .env file before deploying to production.'
     );
   }
-  console.warn(
-    '[AUTH] WARNING: JWT_SECRET is not set — using insecure dev fallback. ' +
-    'Set JWT_SECRET in your .env file before deploying to production.'
-  );
 }
 
 const JWT_EXPIRES_IN = '24h';

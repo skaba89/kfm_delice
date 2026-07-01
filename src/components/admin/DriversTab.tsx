@@ -3,12 +3,13 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { VehicleIcon } from "@/components/VehicleIcon";
+import { Bike } from "lucide-react";
 import type { DriverDB } from "@/lib/types";
 import { vehicleLabels, driverStatusColors, driverStatusLabels } from "@/lib/constants";
 import { usePagination } from "@/lib/use-pagination";
 import { Pagination } from "@/components/Pagination";
 import { notify } from "@/lib/notifications";
-import { AdminFormCard, CrudHeader, DeleteConfirmButton, EditButton, FormField, FormSelect } from "@/components/admin/shared";
+import { AdminFormCard, CrudHeader, DeleteConfirmButton, EditButton, EmptyState, FormField, FormSelect } from "@/components/admin/shared";
 import type { CrudStateReturn } from "@/lib/hooks/use-crud-state";
 
 type DriverForm = { name: string; phone: string; vehicle: string; zone: string };
@@ -61,6 +62,11 @@ export function DriversTab({ drivers, crud, apiPatch, apiDelete }: DriversTabPro
       </AdminFormCard>
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {drivers.length === 0 && (
+          <div className="sm:col-span-2 lg:col-span-3">
+            <EmptyState icon={Bike} message="Aucun livreur enregistré" />
+          </div>
+        )}
         {paginatedItems.map(d => (
           <Card key={d.id} className="hover:shadow-md transition-shadow dark:bg-gray-800 dark:border-gray-700">
             <CardContent className="p-4">

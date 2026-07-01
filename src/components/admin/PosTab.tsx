@@ -188,6 +188,17 @@ export function PosTab({
               .filter(m => m.available)
               .filter(m => posCategoryFilter === "all" || m.category === posCategoryFilter)
               .filter(m => !posSearch || m.name.toLowerCase().includes(posSearch.toLowerCase()))
+              .length === 0 && (
+                <div className="col-span-full text-center py-12">
+                  <UtensilsCrossed className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+                  <p className="text-gray-500 dark:text-gray-400">Aucun plat disponible</p>
+                  <p className="text-sm text-gray-400 dark:text-gray-500">Ajoutez des plats depuis l&apos;onglet Menu pour utiliser le POS</p>
+                </div>
+              )}
+            {menuItems
+              .filter(m => m.available)
+              .filter(m => posCategoryFilter === "all" || m.category === posCategoryFilter)
+              .filter(m => !posSearch || m.name.toLowerCase().includes(posSearch.toLowerCase()))
               .map(item => {
                 const inCart = posCart.find(c => c.menuItem.id === item.id);
                 return (

@@ -2,12 +2,13 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Users } from "lucide-react";
 import type { StaffDB } from "@/lib/types";
 import { formatPrice, staffRoleLabels, staffRoleColors, staffStatusColors, staffStatusLabels } from "@/lib/constants";
 import { usePagination } from "@/lib/use-pagination";
 import { Pagination } from "@/components/Pagination";
 import { notify } from "@/lib/notifications";
-import { AdminFormCard, CrudHeader, DataTable, type DataTableColumn, DeleteConfirmButton, EditButton, FormField, FormSelect } from "@/components/admin/shared";
+import { AdminFormCard, CrudHeader, DataTable, type DataTableColumn, DeleteConfirmButton, EditButton, EmptyState, FormField, FormSelect } from "@/components/admin/shared";
 import type { CrudStateReturn } from "@/lib/hooks/use-crud-state";
 
 type StaffForm = { name: string; phone: string; role: string; salary: number; status: string; hireDate: string; notes: string };
@@ -80,7 +81,7 @@ export function StaffTab({ staffList, crud, apiDelete }: StaffTabProps) {
         </div>
       </AdminFormCard>
 
-      <DataTable columns={columns} data={paginatedItems} />
+      <DataTable columns={columns} data={paginatedItems} emptyContent={<EmptyState icon={Users} message="Aucun membre du personnel" />} />
       <Pagination currentPage={currentPage} totalPages={totalPages} totalItems={totalItems} itemsPerPage={itemsPerPage} onPageChange={setCurrentPage} label="personnel" />
     </div>
   );

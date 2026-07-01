@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { XCircle, MapPin, Bike } from "lucide-react";
+import { XCircle, MapPin, Bike, ShoppingBag } from "lucide-react";
 import { OrderTypeIcon } from "@/components/OrderTypeIcon";
 import type { OrderDB } from "@/lib/types";
 import { formatPrice, statusColors, statusLabels, orderTypeLabels, paymentLabels } from "@/lib/constants";
@@ -34,6 +34,13 @@ export function OrdersTab({ orders, apiPatch }: OrdersTabProps) {
         <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">{orders.filter(o => o.status === "delivering").length} En livraison</Badge>
       </div>
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {orders.length === 0 && (
+          <div className="sm:col-span-2 lg:col-span-3 text-center py-12">
+            <ShoppingBag className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+            <p className="text-gray-500 dark:text-gray-400">Aucune commande</p>
+            <p className="text-sm text-gray-400 dark:text-gray-500">Les nouvelles commandes apparaîtront ici</p>
+          </div>
+        )}
         {paginatedItems.map((o) => {
           let items: { name: string; price: number; qty: number }[] = [];
           try { items = JSON.parse(o.items); } catch { /* */ }

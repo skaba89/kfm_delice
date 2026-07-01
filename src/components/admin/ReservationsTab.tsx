@@ -1,13 +1,13 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, XCircle } from "lucide-react";
+import { CheckCircle2, XCircle, CalendarCheck } from "lucide-react";
 import type { Reservation } from "@/lib/types";
 import { statusColors, statusLabels, zoneLabels } from "@/lib/constants";
 import { usePagination } from "@/lib/use-pagination";
 import { Pagination } from "@/components/Pagination";
 import { notify } from "@/lib/notifications";
-import { CrudHeader, DataTable, type DataTableColumn, StatusBadgeBar } from "@/components/admin/shared";
+import { CrudHeader, DataTable, type DataTableColumn, EmptyState, StatusBadgeBar } from "@/components/admin/shared";
 
 export interface ReservationsTabProps {
   reservations: Reservation[];
@@ -52,7 +52,7 @@ export function ReservationsTab({ reservations, apiPatch }: ReservationsTabProps
           { count: reservations.filter(r => r.status === "completed").length, label: "Terminées", color: "blue" },
         ]}
       />
-      <DataTable columns={columns} data={paginatedItems} />
+      <DataTable columns={columns} data={paginatedItems} emptyContent={<EmptyState icon={CalendarCheck} message="Aucune réservation" />} />
       <Pagination currentPage={currentPage} totalPages={totalPages} totalItems={totalItems} itemsPerPage={itemsPerPage} onPageChange={setCurrentPage} label="réservations" />
     </div>
   );

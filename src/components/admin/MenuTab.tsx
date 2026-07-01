@@ -12,7 +12,7 @@ import { MENU_CATS, formatPrice } from "@/lib/constants";
 import { usePagination } from "@/lib/use-pagination";
 import { Pagination } from "@/components/Pagination";
 import { notify } from "@/lib/notifications";
-import { AdminFormCard, DeleteConfirmButton, EditButton, FormSelect } from "@/components/admin/shared";
+import { AdminFormCard, DeleteConfirmButton, EditButton, EmptyState, FormSelect } from "@/components/admin/shared";
 import type { CrudStateReturn } from "@/lib/hooks/use-crud-state";
 
 type MenuForm = { name: string; description: string; price: number; category: string; image: string; badge: string; popular: boolean; available: boolean };
@@ -147,6 +147,11 @@ export function MenuTab({
       </AdminFormCard>
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {filteredMenuItems.length === 0 && (
+          <div className="sm:col-span-2 lg:col-span-3">
+            <EmptyState icon={UtensilsCrossed} message={menuItems.length === 0 ? "Aucun plat au menu. Cliquez sur Ajouter pour commencer." : "Aucun plat dans cette catégorie"} />
+          </div>
+        )}
         {paginatedItems.map((item) => (
           <Card key={item.id} className={`overflow-hidden ${!item.available ? "opacity-60" : ""} hover:shadow-md transition-shadow dark:bg-gray-800 dark:border-gray-700`}>
             <div className="flex">

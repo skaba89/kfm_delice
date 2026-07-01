@@ -65,6 +65,9 @@ export function OverviewTab({ stats, orders, apiFetch }: OverviewTabProps) {
           <CardContent className="p-5">
             <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2"><Flame className="w-5 h-5 text-orange-500" /> Plats Populaires</h3>
             <div className="space-y-3">
+              {stats.popularDishes.length === 0 && (
+                <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">Aucun plat populaire pour le moment</p>
+              )}
               {stats.popularDishes.map((dish, i) => (
                 <div key={i} className="flex items-center gap-3">
                   <span className="w-6 h-6 rounded-full bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 text-xs font-bold flex items-center justify-center">{i + 1}</span>
@@ -79,6 +82,9 @@ export function OverviewTab({ stats, orders, apiFetch }: OverviewTabProps) {
           <CardContent className="p-5">
             <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2"><CalendarCheck className="w-5 h-5 text-green-500" /> Dernières Réservations</h3>
             <div className="space-y-3">
+              {stats.recentReservations.length === 0 && (
+                <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">Aucune réservation récente</p>
+              )}
               {stats.recentReservations.map((r, i) => (
                 <div key={i} className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-xs font-bold text-gray-600 dark:text-gray-300">{r.customerName.split(" ").map(n => n[0]).join("")}</div>
