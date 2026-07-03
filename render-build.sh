@@ -4,6 +4,9 @@ set -e
 echo "[render-build] Starting build..."
 
 # ── Detect database provider from DATABASE_URL ─────────────────
+# Render injects DATABASE_URL at build time when a database resource is
+# attached. If it's missing in production, fail loudly rather than
+# silently switching to SQLite (which would produce a broken build).
 detect_provider() {
   case "$DATABASE_URL" in
     postgresql://*|postgres://*)
@@ -12,20 +15,30 @@ detect_provider() {
     file:*)
       echo "sqlite"
       ;;
-    "")
-      echo "sqlite"
-      export DATABASE_URL="file:./data/kfm-delice.db"
-      ;;
     *)
-      echo "sqlite"
-      export DATABASE_URL="file:./data/kfm-delice.db"
+      echo "unknown"
       ;;
   esac
 }
 
+if [ -z "$DATABASE_URL" ]; then
+  if [ "$NODE_ENV" = "production" ]; then
+    echo "[render-build] FATAL: DATABASE_URL is not set. Attach a PostgreSQL resource in Render."
+    exit 1
+  fi
+  echo "[render-build] DATABASE_URL missing in dev — defaulting to SQLite."
+  export DATABASE_URL="file:./data/kfm-delice.db"
+fi
+
 PROVIDER=$(detect_provider)
 echo "[render-build] Detected provider: $PROVIDER"
-echo "[render-build] DATABASE_URL=${DATABASE_URL:0:40}..."
+# Log only the provider + first 40 chars (no credentials leaked in build logs).
+echo "[render-build] DATABASE_URL prefix: ${DATABASE_URL:0:40}..."
+
+if [ "$PROVIDER" = "unknown" ]; then
+  echo "[render-build] FATAL: DATABASE_URL must start with 'file:', 'postgresql://' or 'postgres://'."
+  exit 1
+fi
 
 # ── Switch schema based on provider ────────────────────────────
 if [ "$PROVIDER" = "postgres" ]; then

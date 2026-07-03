@@ -1,10 +1,11 @@
-import { db, dbReady, bigIntToNumber } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, authenticateAny, hasRole, hashPassword, verifyPassword } from "@/lib/auth";
 import { customerUpdateSchema, customerCreateSchema } from "@/lib/validations";
 import { parsePagination, parseSorting, parseSearch, parseStatusFilter } from "@/lib/pagination";
+import { Prisma } from "@prisma/client";
 
-// GET: Admin auth required (list all customers) — uses raw SQL to avoid schema mismatch
+// GET: Admin auth required (list all customers for the admin's restaurant)
 export async function GET(request: Request) {
   try {
     await dbReady;
@@ -24,42 +25,33 @@ export async function GET(request: Request) {
 
     const restaurantId = admin.restaurantId;
 
-    // Build WHERE clause for raw SQL
-    const conditions: string[] = ['c.restaurantId = ?'];
-    const params: unknown[] = [restaurantId];
-    if (statusFilter) { conditions.push('c.status = ?'); params.push(statusFilter); }
+    // Build WHERE clause via Prisma (cross-database compatible).
+    // Raw SQL `FROM Customer` fails on PostgreSQL because unquoted
+    // identifiers are folded to lowercase.
+    const where: Prisma.CustomerWhereInput = { restaurantId };
+    if (statusFilter) where.status = statusFilter;
     if (search) {
-      conditions.push('(c.name LIKE ? OR c.email LIKE ? OR c.phone LIKE ?)');
-      const likeSearch = `%${search}%`;
-      params.push(likeSearch, likeSearch, likeSearch);
+      where.OR = [
+        { name: { contains: search } },
+        { email: { contains: search } },
+        { phone: { contains: search } },
+      ];
     }
-    const whereClause = conditions.join(' AND ');
 
-    // Validate sort column
-    const validSortCols = ['createdAt', 'name', 'email', 'totalSpent', 'loyaltyPoints'];
-    const safeSortBy = validSortCols.includes(sortBy) ? sortBy : 'createdAt';
-    const safeSortOrder = sortOrder === 'asc' ? 'ASC' : 'DESC';
-
-    // Count
-    const countResult = await db.$queryRawUnsafe<Array<{ count: bigint }>>(
-      `SELECT COUNT(*) as count FROM Customer c WHERE ${whereClause}`,
-      ...params
-    );
-    const total = countResult[0] ? Number(countResult[0].count) : 0;
-
-    // Fetch data — explicit column list to avoid missing column errors
-    const offset = (page - 1) * limit;
-    const rawCustomers = await db.$queryRawUnsafe<Array<Record<string, unknown>>>(
-      `SELECT c.id, c.email, c.name, c.phone, c.address,
-        c.loyaltyPoints, c.totalOrders, c.totalSpent, c.status,
-        COALESCE(c.mustChangePassword, 0) as mustChangePassword,
-        c.restaurantId, c.createdAt, c.updatedAt
-      FROM Customer c WHERE ${whereClause}
-      ORDER BY c.${safeSortBy} ${safeSortOrder}
-      LIMIT ? OFFSET ?`,
-      ...params, limit, offset
-    );
-    const customers = rawCustomers.map(r => bigIntToNumber(r));
+    const [customers, total] = await Promise.all([
+      db.customer.findMany({
+        where,
+        orderBy: { [sortBy]: sortOrder },
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true, email: true, name: true, phone: true, address: true,
+          loyaltyPoints: true, totalOrders: true, totalSpent: true, status: true,
+          mustChangePassword: true, restaurantId: true, createdAt: true, updatedAt: true,
+        },
+      }),
+      db.customer.count({ where }),
+    ]);
 
     const totalPages = Math.ceil(total / limit);
     return NextResponse.json({
@@ -92,12 +84,12 @@ export async function POST(request: Request) {
     }
 
     const data = validation.data;
-    // Check existing via raw SQL
-    const existing = bigIntToNumber(await db.$queryRawUnsafe<Array<{ id: string }>>(
-      'SELECT id FROM Customer WHERE email = ? AND restaurantId = ?',
-      data.email, admin.restaurantId
-    )) as Array<{ id: string }>;
-    if (existing.length > 0) {
+    // Check existing — Customer has @@unique([email, restaurantId])
+    const existing = await db.customer.findFirst({
+      where: { email: data.email, restaurantId: admin.restaurantId },
+      select: { id: true },
+    });
+    if (existing) {
       return NextResponse.json({ error: "Cet email est déjà utilisé" }, { status: 400 });
     }
 
@@ -145,9 +137,23 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 
-    // If admin, check role
+    // If admin, check role + multi-tenant isolation
     if (auth.type === "admin" && !hasRole(auth.role, ["admin"])) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+    }
+
+    // ── Multi-tenant isolation: verify the customer belongs to the
+    // admin's restaurant before any update. For customer self-update,
+    // the JWT already proves ownership, but we still verify the customer
+    // record exists and matches.
+    const tenantRestaurantId =
+      auth.type === "admin" ? auth.restaurantId : auth.restaurantId;
+    const existingCustomer = await db.customer.findFirst({
+      where: { id, restaurantId: tenantRestaurantId },
+      select: { id: true, password: true },
+    });
+    if (!existingCustomer) {
+      return NextResponse.json({ error: "Client introuvable" }, { status: 404 });
     }
 
     const updateData: Record<string, unknown> = { ...rest };
@@ -158,14 +164,7 @@ export async function PATCH(request: Request) {
         if (!currentPassword) {
           return NextResponse.json({ error: "Mot de passe actuel requis" }, { status: 400 });
         }
-        // Use raw SQL to get password (avoid schema mismatch)
-        const rows = bigIntToNumber(await db.$queryRawUnsafe<Array<{ password: string }>>(
-          'SELECT password FROM Customer WHERE id = ?', id
-        )) as Array<{ password: string }>;
-        if (!rows[0]) {
-          return NextResponse.json({ error: "Client introuvable" }, { status: 404 });
-        }
-        const isValid = await verifyPassword(currentPassword, rows[0].password);
+        const isValid = await verifyPassword(currentPassword, existingCustomer.password);
         if (!isValid) {
           return NextResponse.json({ error: "Mot de passe actuel incorrect" }, { status: 400 });
         }
@@ -173,33 +172,21 @@ export async function PATCH(request: Request) {
       updateData.password = await hashPassword(password);
     }
 
-    // Use raw SQL for update to avoid schema mismatch
-    const setClauses: string[] = [];
-    const values: unknown[] = [];
-    for (const [key, value] of Object.entries(updateData)) {
-      setClauses.push(`${key} = ?`);
-      values.push(value);
-    }
-    if (setClauses.length === 0) {
+    if (Object.keys(updateData).length === 0) {
       return NextResponse.json({ error: "Aucune donnée à mettre à jour" }, { status: 400 });
     }
-    values.push(id);
-    await db.$executeRawUnsafe(
-      `UPDATE Customer SET ${setClauses.join(', ')}, updatedAt = CURRENT_TIMESTAMP WHERE id = ?`,
-      ...values
-    );
 
-    // Fetch updated customer via raw SQL
-    const updated = bigIntToNumber(await db.$queryRawUnsafe<Array<{
-      id: string; email: string; name: string; phone: string; address: string;
-      loyaltyPoints: number; totalOrders: number; totalSpent: number;
-      status: string; restaurantId: string;
-    }>>(
-      `SELECT id, email, name, phone, address, loyaltyPoints, totalOrders, totalSpent,
-        status, restaurantId FROM Customer WHERE id = ?`, id
-    )) as Array<Record<string, unknown>>;
+    const updated = await db.customer.update({
+      where: { id },
+      data: updateData,
+      select: {
+        id: true, email: true, name: true, phone: true, address: true,
+        loyaltyPoints: true, totalOrders: true, totalSpent: true,
+        status: true, restaurantId: true,
+      },
+    });
 
-    return NextResponse.json(updated[0] || { id });
+    return NextResponse.json(updated);
   } catch (error) {
     console.error("[customers] PATCH error:", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
@@ -229,10 +216,20 @@ export async function DELETE(request: Request) {
     if (!id) {
       return NextResponse.json({ error: "ID requis" }, { status: 400 });
     }
-    await db.$executeRawUnsafe(
-      'DELETE FROM Customer WHERE id = ? AND restaurantId = ?',
-      id, admin.restaurantId
-    );
+
+    // ── Multi-tenant isolation: findFirst by id + restaurantId before
+    // delete. The previous raw SQL `DELETE FROM Customer WHERE id = ? AND
+    // restaurantId = ?` was correct logically but failed on PostgreSQL
+    // due to identifier case-folding.
+    const existing = await db.customer.findFirst({
+      where: { id, restaurantId: admin.restaurantId },
+      select: { id: true },
+    });
+    if (!existing) {
+      return NextResponse.json({ error: "Client introuvable" }, { status: 404 });
+    }
+
+    await db.customer.delete({ where: { id } });
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("[customers] DELETE error:", error);

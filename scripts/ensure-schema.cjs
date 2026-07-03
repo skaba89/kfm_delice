@@ -7,12 +7,42 @@
  *
  * Idempotent: safe to run multiple times.
  * Must succeed: exits with code 1 on failure (blocks server start).
+ *
+ * IMPORTANT: This script is SQLite-only. If DATABASE_URL points to
+ * PostgreSQL, it logs a notice and exits successfully without touching
+ * the schema (PostgreSQL schema is managed by `prisma migrate deploy`).
  */
 
-// Fix DATABASE_URL if it doesn't start with 'file:'
-if (!process.env.DATABASE_URL || !process.env.DATABASE_URL.startsWith('file:')) {
+// ─── Database URL resolution (mirror of src/lib/db.ts) ───────────
+// Only default to SQLite in non-production. In production, a missing
+// DATABASE_URL is a fatal misconfiguration — fail loudly.
+if (!process.env.DATABASE_URL) {
+  if (process.env.NODE_ENV === 'production') {
+    console.error('[ensure-schema] FATAL: DATABASE_URL is not set in production.');
+    process.exit(1);
+  }
   process.env.DATABASE_URL = 'file:./data/kfm-delice.db';
   console.log('[ensure-schema] DATABASE_URL defaulted to: file:./data/kfm-delice.db');
+}
+
+const _url = process.env.DATABASE_URL || '';
+const _isPostgres = _url.startsWith('postgresql://') || _url.startsWith('postgres://');
+const _isValid = _url.startsWith('file:') || _isPostgres;
+
+if (!_isValid) {
+  console.error(
+    '[ensure-schema] FATAL: Invalid DATABASE_URL. Expected file:, postgresql:// or postgres://'
+  );
+  process.exit(1);
+}
+
+if (_isPostgres) {
+  // PostgreSQL schema is managed by prisma migrate deploy in render-start.sh.
+  // This script is a no-op on PostgreSQL to avoid running SQLite-specific
+  // ALTER TABLE / CREATE TABLE statements against a PostgreSQL database.
+  console.log('[ensure-schema] PostgreSQL detected — skipping SQLite schema patch.');
+  console.log('[ensure-schema] Schema is managed by `prisma migrate deploy`.');
+  process.exit(0);
 }
 
 const { PrismaClient } = require('@prisma/client');
@@ -362,7 +392,8 @@ const MISSING_COLUMNS = [
 
 async function ensureSchema() {
   console.log('[ensure-schema] Starting schema verification...');
-  console.log('[ensure-schema] DATABASE_URL:', process.env.DATABASE_URL);
+  // Don't log full DATABASE_URL — it contains credentials. Provider is
+  // already logged at the top of this script.
 
   // Ensure the data directory exists
   const dbPath = process.env.DATABASE_URL.replace('file:', '');

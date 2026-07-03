@@ -35,7 +35,12 @@ export async function PATCH(
       return NextResponse.json({ error: firstError }, { status: 400 });
     }
 
-    const existingReward = await db.loyaltyReward.findUnique({ where: { id } });
+    // ── Multi-tenant isolation ──────────────────────────────────
+    // Verify the reward belongs to the admin's restaurant BEFORE updating.
+    const existingReward = await db.loyaltyReward.findFirst({
+      where: { id, restaurantId: admin.restaurantId },
+      select: { id: true },
+    });
     if (!existingReward) {
       return NextResponse.json({ error: "Récompense introuvable" }, { status: 404 });
     }
@@ -68,7 +73,11 @@ export async function DELETE(
 
     const { id } = await params;
 
-    const existingReward = await db.loyaltyReward.findUnique({ where: { id } });
+    // ── Multi-tenant isolation ──────────────────────────────────
+    const existingReward = await db.loyaltyReward.findFirst({
+      where: { id, restaurantId: admin.restaurantId },
+      select: { id: true },
+    });
     if (!existingReward) {
       return NextResponse.json({ error: "Récompense introuvable" }, { status: 404 });
     }

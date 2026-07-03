@@ -1,4 +1,4 @@
-import { db, dbReady, bigIntToNumber } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { verifyPassword, generateToken } from "@/lib/auth";
 import { loginSchema } from "@/lib/validations";
@@ -39,13 +39,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
     }
 
-    const rawRows: any[] = await db.$queryRawUnsafe(
-      'SELECT c.id, c.email, c.password, c.name, c.phone, c.address, c.loyaltyPoints, c.totalOrders, c.totalSpent, c.status, COALESCE(c.mustChangePassword, 0) as mustChangePassword, c.restaurantId, r.slug as restaurantSlug FROM Customer c LEFT JOIN Restaurant r ON c.restaurantId = r.id WHERE c.email = ? AND c.restaurantId = ?',
-      email,
-      restaurantId
-    );
-    const rows = bigIntToNumber(rawRows) as any[];
-    const customer = rows[0];
+    // Use Prisma client (not raw SQL) — works on both SQLite and PostgreSQL.
+    // Raw SQL `FROM Customer` fails on PostgreSQL because unquoted identifiers
+    // are folded to lowercase; Prisma creates tables as `"Customer"` (quoted).
+    // Customer has @@unique([email, restaurantId]) so findFirst is the right call.
+    const customer = await db.customer.findFirst({
+      where: { email, restaurantId },
+      include: { restaurant: { select: { slug: true } } },
+    });
     if (!customer) {
       return NextResponse.json({ error: "Identifiants incorrects" }, { status: 401 });
     }
@@ -60,8 +61,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Compte désactivé. Contactez le restaurant." }, { status: 403 });
     }
 
+    const restaurantSlug = customer.restaurant?.slug || "";
+
     // Generate JWT token with tenant context
-    const token = generateToken({ id: customer.id, email: customer.email, role: "customer", type: "customer", restaurantId: customer.restaurantId, restaurantSlug: customer.restaurantSlug || "" });
+    const token = generateToken({
+      id: customer.id,
+      email: customer.email,
+      role: "customer",
+      type: "customer",
+      restaurantId: customer.restaurantId,
+      restaurantSlug,
+    });
 
     return NextResponse.json({
       id: customer.id,
@@ -73,9 +83,9 @@ export async function POST(request: Request) {
       totalOrders: customer.totalOrders,
       totalSpent: customer.totalSpent,
       status: customer.status,
-      mustChangePassword: customer.mustChangePassword,
+      mustChangePassword: customer.mustChangePassword ?? false,
       restaurantId: customer.restaurantId,
-      restaurantSlug: customer.restaurantSlug || "",
+      restaurantSlug,
       token,
     });
   } catch (error) {

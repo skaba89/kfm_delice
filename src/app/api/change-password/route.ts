@@ -1,4 +1,4 @@
-import { db, dbReady, bigIntToNumber } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAny, hashPassword, verifyPassword } from "@/lib/auth";
 import { z } from "zod";
@@ -31,43 +31,85 @@ export async function POST(request: Request) {
 
     const { currentPassword, newPassword } = validation.data;
 
-    // Find the user and verify current password using raw SQL
-    let user: { id: string; password: string; mustChangePassword: number } | null = null;
-    const tableName = auth.type.charAt(0).toUpperCase() + auth.type.slice(1); // Admin, Customer, Driver
+    // Find the user and verify current password using Prisma client.
+    // The previous raw SQL (`FROM ${tableName}`) was:
+    //   1. Broken on PostgreSQL (unquoted identifiers folded to lowercase)
+    //   2. A SQL injection risk if `auth.type` was ever attacker-controlled
+    //      (it isn't, but the pattern is dangerous).
+    let existingUser: { id: string; password: string; mustChangePassword: boolean } | null = null;
 
-    const rows = bigIntToNumber(await db.$queryRawUnsafe(
-      `SELECT id, password, COALESCE(mustChangePassword, 0) as mustChangePassword FROM ${tableName} WHERE id = ?`,
-      auth.id
-    )) as any[];
-
-    if (rows && rows.length > 0) {
-      user = {
-        id: String(rows[0].id),
-        password: String(rows[0].password),
-        mustChangePassword: Number(rows[0].mustChangePassword),
-      };
+    if (auth.type === 'admin') {
+      const admin = await db.admin.findUnique({
+        where: { id: auth.id },
+        select: { id: true, password: true, mustChangePassword: true },
+      });
+      if (admin) {
+        existingUser = {
+          id: admin.id,
+          password: admin.password,
+          mustChangePassword: !!admin.mustChangePassword,
+        };
+      }
+    } else if (auth.type === 'customer') {
+      const customer = await db.customer.findUnique({
+        where: { id: auth.id },
+        select: { id: true, password: true, mustChangePassword: true },
+      });
+      if (customer) {
+        existingUser = {
+          id: customer.id,
+          password: customer.password,
+          mustChangePassword: !!customer.mustChangePassword,
+        };
+      }
+    } else if (auth.type === 'driver') {
+      const driver = await db.driver.findUnique({
+        where: { id: auth.id },
+        select: { id: true, password: true, mustChangePassword: true },
+      });
+      if (driver) {
+        existingUser = {
+          id: driver.id,
+          password: driver.password,
+          mustChangePassword: !!driver.mustChangePassword,
+        };
+      }
+    } else {
+      // platform_admin — no password change flow currently
+      return NextResponse.json({ error: "Type d'utilisateur non supporté" }, { status: 400 });
     }
 
-    if (!user) {
+    if (!existingUser) {
       return NextResponse.json({ error: "Utilisateur non trouvé" }, { status: 404 });
     }
 
     // Verify current password (skip if mustChangePassword — they might not know the temp one)
-    if (!user.mustChangePassword) {
-      const isValid = await verifyPassword(currentPassword, user.password);
+    if (!existingUser.mustChangePassword) {
+      const isValid = await verifyPassword(currentPassword, existingUser.password);
       if (!isValid) {
         return NextResponse.json({ error: "Mot de passe actuel incorrect" }, { status: 400 });
       }
     }
 
-    // Hash and update using raw SQL
+    // Hash and update via Prisma client.
     const hashedNewPassword = await hashPassword(newPassword);
 
-    await db.$executeRawUnsafe(
-      `UPDATE ${tableName} SET password = ?, mustChangePassword = 0, updatedAt = CURRENT_TIMESTAMP WHERE id = ?`,
-      hashedNewPassword,
-      auth.id
-    );
+    if (auth.type === 'admin') {
+      await db.admin.update({
+        where: { id: auth.id },
+        data: { password: hashedNewPassword, mustChangePassword: false },
+      });
+    } else if (auth.type === 'customer') {
+      await db.customer.update({
+        where: { id: auth.id },
+        data: { password: hashedNewPassword, mustChangePassword: false },
+      });
+    } else if (auth.type === 'driver') {
+      await db.driver.update({
+        where: { id: auth.id },
+        data: { password: hashedNewPassword, mustChangePassword: false },
+      });
+    }
 
     return NextResponse.json({ success: true, message: "Mot de passe modifié avec succès" });
   } catch (error) {

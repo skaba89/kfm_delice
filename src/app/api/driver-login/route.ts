@@ -1,4 +1,4 @@
-import { db, dbReady, bigIntToNumber } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { verifyPassword, generateToken } from "@/lib/auth";
 import { rateLimit } from "@/lib/rate-limit";
@@ -37,13 +37,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
     }
 
-    const rawRows: any[] = await db.$queryRawUnsafe(
-      'SELECT d.id, d.email, d.password, d.name, d.phone, d.vehicle, d.status, d.rating, d.totalDeliveries, d.zone, COALESCE(d.lat, 0) as lat, COALESCE(d.lng, 0) as lng, COALESCE(d.currentOrderId, "") as currentOrderId, COALESCE(d.mustChangePassword, 0) as mustChangePassword, d.restaurantId, r.slug as restaurantSlug FROM Driver d LEFT JOIN Restaurant r ON d.restaurantId = r.id WHERE d.email = ? AND d.restaurantId = ?',
-      email,
-      restaurantId
-    );
-    const rows = bigIntToNumber(rawRows) as any[];
-    const driver = rows[0];
+    // Use Prisma client — works on both SQLite and PostgreSQL.
+    // Driver has @@unique([email, restaurantId]) so findFirst is the right call.
+    const driver = await db.driver.findFirst({
+      where: { email, restaurantId },
+      include: { restaurant: { select: { slug: true } } },
+    });
     if (!driver || !driver.password) {
       return NextResponse.json({ error: "Identifiants incorrects" }, { status: 401 });
     }
@@ -53,8 +52,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Identifiants incorrects" }, { status: 401 });
     }
 
+    const restaurantSlug = driver.restaurant?.slug || "";
+
     // Generate JWT token with tenant context
-    const token = generateToken({ id: driver.id, email: driver.email, role: "driver", type: "driver", restaurantId: driver.restaurantId, restaurantSlug: driver.restaurantSlug || "" });
+    const token = generateToken({
+      id: driver.id,
+      email: driver.email,
+      role: "driver",
+      type: "driver",
+      restaurantId: driver.restaurantId,
+      restaurantSlug,
+    });
 
     return NextResponse.json({
       id: driver.id,
@@ -66,12 +74,12 @@ export async function POST(request: Request) {
       rating: driver.rating,
       totalDeliveries: driver.totalDeliveries,
       zone: driver.zone,
-      currentOrderId: driver.currentOrderId,
-      mustChangePassword: driver.mustChangePassword,
+      currentOrderId: driver.currentOrderId || "",
+      mustChangePassword: driver.mustChangePassword ?? false,
       lat: driver.lat,
       lng: driver.lng,
       restaurantId: driver.restaurantId,
-      restaurantSlug: driver.restaurantSlug || "",
+      restaurantSlug,
       token,
     });
   } catch (error) {

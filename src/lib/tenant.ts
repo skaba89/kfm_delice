@@ -131,11 +131,29 @@ export async function resolveTenant(slug: string): Promise<TenantContext | null>
 /**
  * Resolve tenant from a Request object
  * This is the main function used in API routes
+ *
+ * Behavior:
+ *   - If a slug is extracted from the request (header / path / subdomain /
+ *     query), resolve that specific tenant.
+ *   - If no slug is extracted:
+ *       • In production (multi-tenant SaaS), return null unless
+ *         ALLOW_DEFAULT_TENANT=true is set explicitly. This prevents the
+ *         platform from silently leaking data of the first restaurant to
+ *         unauthenticated / unscoped requests.
+ *       • In development, fall back to the first restaurant (single-tenant
+ *         backward compat) to keep the local dev experience smooth.
  */
 export async function resolveTenantFromRequest(request: Request): Promise<TenantContext | null> {
   const slug = extractSlug(request);
   if (!slug) {
-    // Backward compatibility: return first restaurant if no slug specified
+    // Decide whether to fall back to the default (first) restaurant.
+    const isProduction = process.env.NODE_ENV === 'production';
+    const allowDefault = process.env.ALLOW_DEFAULT_TENANT === 'true';
+    if (isProduction && !allowDefault) {
+      // Multi-tenant SaaS: do NOT silently return another restaurant's data.
+      return null;
+    }
+    // Dev mode OR explicit opt-in via ALLOW_DEFAULT_TENANT=true
     return resolveDefaultTenant();
   }
   return resolveTenant(slug);

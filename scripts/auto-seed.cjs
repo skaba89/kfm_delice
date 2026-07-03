@@ -4,13 +4,28 @@
  * Uses CommonJS for maximum compatibility with Prisma + bcryptjs
  */
 
-// Fix DATABASE_URL if it doesn't start with 'file:'
-if (!process.env.DATABASE_URL || !process.env.DATABASE_URL.startsWith('file:')) {
+// ─── Database URL resolution (mirror of src/lib/db.ts) ───────────
+// Accept file:, postgresql://, postgres://. In production, a missing
+// DATABASE_URL is a fatal misconfiguration. Never override a valid
+// PostgreSQL URL with a SQLite fallback.
+if (!process.env.DATABASE_URL) {
+  if (process.env.NODE_ENV === 'production') {
+    console.error('[auto-seed] FATAL: DATABASE_URL is not set in production.');
+    process.exit(1);
+  }
   process.env.DATABASE_URL = 'file:./data/kfm-delice.db';
-  console.log('[auto-seed] DATABASE_URL was missing or invalid, defaulting to: file:./data/kfm-delice.db');
-} else {
-  console.log('[auto-seed] DATABASE_URL:', process.env.DATABASE_URL);
+  console.warn('[auto-seed] DATABASE_URL missing — defaulting to: file:./data/kfm-delice.db');
 }
+
+const _url = process.env.DATABASE_URL || '';
+const _isPostgres = _url.startsWith('postgresql://') || _url.startsWith('postgres://');
+const _isValid = _url.startsWith('file:') || _isPostgres;
+if (!_isValid) {
+  console.error('[auto-seed] FATAL: Invalid DATABASE_URL. Expected file:, postgresql:// or postgres://');
+  process.exit(1);
+}
+// Log only the provider (never the full URL — it contains credentials).
+console.log(`[auto-seed] Database provider: ${_isPostgres ? 'postgres' : 'sqlite'}`);
 
 const { PrismaClient } = require('@prisma/client');
 const { hashSync } = require('bcryptjs');
@@ -22,7 +37,8 @@ const prisma = new PrismaClient({
 async function main() {
   try {
     console.log('[auto-seed] Checking database...');
-    console.log('[auto-seed] DATABASE_URL:', process.env.DATABASE_URL || 'not set');
+    // (Don't log DATABASE_URL here — it contains credentials. Provider
+    // is already logged above.)
 
     // Test DB connection
     await prisma.$connect();

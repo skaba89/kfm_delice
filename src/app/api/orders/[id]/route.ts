@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getRestaurantId } from "@/lib/tenant";
 import { generateReceiptPDF } from "@/lib/pdf-receipt";
-import { authenticateAdmin, hasRole } from "@/lib/auth";
+import { authenticateAdmin } from "@/lib/auth";
 
 export async function GET(
   request: Request,
@@ -27,12 +26,14 @@ export async function GET(
         return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
       }
 
-      const rid = await getRestaurantId(request);
-      if (!rid) {
-        return NextResponse.json({ error: "Restaurant non configuré" }, { status: 500 });
+      // ── Multi-tenant isolation ────────────────────────────────
+      // Verify the order belongs to the admin's restaurant before
+      // generating a PDF receipt. Prevents cross-tenant PDF leakage.
+      if (order.restaurantId !== admin.restaurantId) {
+        return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
       }
 
-      const restaurant = await db.restaurant.findUnique({ where: { id: rid } });
+      const restaurant = await db.restaurant.findUnique({ where: { id: admin.restaurantId } });
       if (!restaurant) {
         return NextResponse.json({ error: "Restaurant non configuré" }, { status: 500 });
       }

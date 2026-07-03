@@ -2,24 +2,55 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { db } from './db';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'kfm-delice-dev-secret-change-in-prod';
-const _JWT_SECRET: string = JWT_SECRET;
+// ─── JWT_SECRET resolution ─────────────────────────────────────────
+// Rules:
+//   - In production, JWT_SECRET is REQUIRED. If missing, refuse to sign/verify
+//     tokens by throwing on first use (generateToken / verifyToken). We do NOT
+//     throw at module-load time because Next.js may import this module during
+//     `next build` (where env vars aren't loaded yet) — NEXT_BUILD skips the
+//     hard requirement, mirroring the previous behavior.
+//   - In development only, fall back to a known insecure dev secret with a
+//     loud warning. Never expose the actual secret value in logs.
+//   - The dev fallback MUST remain distinct from any production secret.
 
-// Warn at startup if the insecure fallback is being used
-// Note: Next.js build phase runs in "production" mode but without .env,
-// so we skip the fatal check during build (next build sets NEXT_BUILD=true).
-if (!process.env.JWT_SECRET && !process.env.NEXT_BUILD) {
-  if (process.env.NODE_ENV === 'production') {
-    console.error(
-      '[AUTH] FATAL: JWT_SECRET environment variable is not set. ' +
-      'Using insecure fallback — this is dangerous in production!'
-    );
-  } else {
-    console.warn(
-      '[AUTH] WARNING: JWT_SECRET is not set — using insecure dev fallback. ' +
-      'Set JWT_SECRET in your .env file before deploying to production.'
+const DEV_FALLBACK_SECRET = 'kfm-delice-dev-secret-change-in-prod';
+const isProduction = process.env.NODE_ENV === 'production';
+const isNextBuild = process.env.NEXT_BUILD === 'true';
+
+function resolveJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (secret && secret.length >= 16) {
+    return secret;
+  }
+  if (isProduction && !isNextBuild) {
+    throw new Error(
+      '[AUTH] FATAL: JWT_SECRET environment variable is missing or too short (min 16 chars). ' +
+      'Refusing to sign/verify tokens in production. Set JWT_SECRET in Render → Environment.'
     );
   }
+  // Dev / build only — warn loudly, do not log the actual value.
+  if (!secret) {
+    console.warn(
+      '[AUTH] WARNING: JWT_SECRET is not set — using insecure dev fallback. ' +
+      'Set JWT_SECRET (≥16 chars) in .env before deploying to production.'
+    );
+  } else if (secret.length < 16) {
+    console.warn(
+      '[AUTH] WARNING: JWT_SECRET is shorter than 16 chars — using insecure dev fallback. ' +
+      'Generate a stronger secret (e.g. `openssl rand -hex 32`).'
+    );
+  }
+  return DEV_FALLBACK_SECRET;
+}
+
+// Lazily resolve so the production throw happens on first token operation,
+// not at import time (safer for tooling, tests, and `next build`).
+let _cachedSecret: string | null = null;
+function getJwtSecret(): string {
+  if (_cachedSecret === null) {
+    _cachedSecret = resolveJwtSecret();
+  }
+  return _cachedSecret;
 }
 
 const JWT_EXPIRES_IN = '24h';
@@ -50,7 +81,7 @@ interface TokenPayload {
 
 // Generate a JWT token
 export function generateToken(payload: TokenPayload): string {
-  return jwt.sign(payload, _JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+  return jwt.sign(payload, getJwtSecret(), { expiresIn: JWT_EXPIRES_IN });
 }
 
 interface JwtPayload {
@@ -65,7 +96,7 @@ interface JwtPayload {
 // Verify a JWT token
 export function verifyToken(token: string): JwtPayload | null {
   try {
-    const decoded = jwt.verify(token, _JWT_SECRET);
+    const decoded = jwt.verify(token, getJwtSecret());
     if (typeof decoded === 'object' && decoded !== null && 'id' in decoded && 'type' in decoded) {
       return decoded as JwtPayload;
     }
@@ -102,12 +133,14 @@ export async function authenticateAdmin(request: Request): Promise<Authenticated
   if (!token) return null;
   const payload = verifyToken(token);
   if (!payload || payload.type !== 'admin') return null;
-  // Verify admin still exists and is active — use raw SQL to avoid schema mismatch (missing columns)
+  // Verify admin still exists and is active — use Prisma client for
+  // cross-database compatibility (raw SQL `FROM Admin` fails on PostgreSQL
+  // due to identifier case-folding).
   try {
-    const admins = await db.$queryRawUnsafe<Array<{
-      id: string; email: string; role: string; status: string; restaurantId: string;
-    }>>('SELECT id, email, role, status, restaurantId FROM Admin WHERE id = ?', payload.id);
-    const admin = admins[0];
+    const admin = await db.admin.findUnique({
+      where: { id: payload.id },
+      select: { id: true, email: true, role: true, status: true, restaurantId: true },
+    });
     if (!admin || admin.status === 'inactive') return null;
     return {
       id: admin.id,
@@ -135,12 +168,11 @@ export async function authenticateCustomer(request: Request): Promise<Authentica
   if (!token) return null;
   const payload = verifyToken(token);
   if (!payload || payload.type !== 'customer') return null;
-  // Use raw SQL to avoid schema mismatch
   try {
-    const customers = await db.$queryRawUnsafe<Array<{
-      id: string; email: string; name: string; status: string; restaurantId: string;
-    }>>('SELECT id, email, name, status, restaurantId FROM Customer WHERE id = ?', payload.id);
-    const customer = customers[0];
+    const customer = await db.customer.findUnique({
+      where: { id: payload.id },
+      select: { id: true, email: true, name: true, status: true, restaurantId: true },
+    });
     if (!customer || customer.status === 'inactive') return null;
     return {
       id: customer.id,
@@ -172,12 +204,11 @@ export async function authenticateDriver(request: Request): Promise<Authenticate
   if (!token) return null;
   const payload = verifyToken(token);
   if (!payload || payload.type !== 'driver') return null;
-  // Use raw SQL to avoid schema mismatch
   try {
-    const drivers = await db.$queryRawUnsafe<Array<{
-      id: string; email: string; name: string; phone: string; vehicle: string; status: string; zone: string; restaurantId: string;
-    }>>('SELECT id, email, name, phone, vehicle, status, zone, restaurantId FROM Driver WHERE id = ?', payload.id);
-    const driver = drivers[0];
+    const driver = await db.driver.findUnique({
+      where: { id: payload.id },
+      select: { id: true, email: true, name: true, phone: true, vehicle: true, status: true, zone: true, restaurantId: true },
+    });
     if (!driver) return null;
     return {
       id: driver.id,
@@ -201,25 +232,36 @@ export async function authenticateAny(request: Request): Promise<{ id: string; e
   if (!token) return null;
   const payload = verifyToken(token);
   if (!payload) return null;
-  // Use raw SQL to avoid schema mismatch (missing columns like mustChangePassword)
   try {
     if (payload.type === 'platform_admin') {
-      const rows = await db.$queryRawUnsafe<Array<{ id: string; status: string }>>('SELECT id, status FROM PlatformAdmin WHERE id = ?', payload.id);
-      if (!rows[0] || rows[0].status === 'inactive') return null;
+      const platformAdmin = await db.platformAdmin.findUnique({
+        where: { id: payload.id },
+        select: { id: true, status: true },
+      });
+      if (!platformAdmin || platformAdmin.status === 'inactive') return null;
       return { ...payload };
     }
     if (payload.type === 'admin') {
-      const rows = await db.$queryRawUnsafe<Array<{ id: string; status: string; restaurantId: string }>>('SELECT id, status, restaurantId FROM Admin WHERE id = ?', payload.id);
-      if (!rows[0] || rows[0].status === 'inactive') return null;
-      return { ...payload, restaurantId: rows[0].restaurantId };
+      const admin = await db.admin.findUnique({
+        where: { id: payload.id },
+        select: { id: true, status: true, restaurantId: true },
+      });
+      if (!admin || admin.status === 'inactive') return null;
+      return { ...payload, restaurantId: admin.restaurantId };
     } else if (payload.type === 'driver') {
-      const rows = await db.$queryRawUnsafe<Array<{ id: string; restaurantId: string }>>('SELECT id, restaurantId FROM Driver WHERE id = ?', payload.id);
-      if (!rows[0]) return null;
-      return { ...payload, restaurantId: rows[0].restaurantId };
+      const driver = await db.driver.findUnique({
+        where: { id: payload.id },
+        select: { id: true, restaurantId: true },
+      });
+      if (!driver) return null;
+      return { ...payload, restaurantId: driver.restaurantId };
     } else {
-      const rows = await db.$queryRawUnsafe<Array<{ id: string; status: string; restaurantId: string }>>('SELECT id, status, restaurantId FROM Customer WHERE id = ?', payload.id);
-      if (!rows[0] || rows[0].status === 'inactive') return null;
-      return { ...payload, restaurantId: rows[0].restaurantId };
+      const customer = await db.customer.findUnique({
+        where: { id: payload.id },
+        select: { id: true, status: true, restaurantId: true },
+      });
+      if (!customer || customer.status === 'inactive') return null;
+      return { ...payload, restaurantId: customer.restaurantId };
     }
   } catch {
     return null;
@@ -242,12 +284,11 @@ export async function authenticatePlatformAdmin(request: Request): Promise<Authe
   if (!token) return null;
   const payload = verifyToken(token);
   if (!payload || payload.type !== 'platform_admin') return null;
-  // Use raw SQL to avoid schema mismatch
   try {
-    const rows = await db.$queryRawUnsafe<Array<{
-      id: string; email: string; name: string; role: string; status: string;
-    }>>('SELECT id, email, name, role, status FROM PlatformAdmin WHERE id = ?', payload.id);
-    const platformAdmin = rows[0];
+    const platformAdmin = await db.platformAdmin.findUnique({
+      where: { id: payload.id },
+      select: { id: true, email: true, name: true, role: true, status: true },
+    });
     if (!platformAdmin || platformAdmin.status === 'inactive') return null;
     return {
       id: platformAdmin.id,

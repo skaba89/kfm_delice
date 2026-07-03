@@ -34,16 +34,35 @@ export async function GET(req: Request) {
     overallOk = false;
   }
 
-  // 3. Check each table exists (SQLite: sqlite_master)
+  // 3. Check each table exists. Use information_schema on PostgreSQL,
+  //    sqlite_master on SQLite. (The previous raw SQL used sqlite_master
+  //    unconditionally, which fails on PostgreSQL.)
   const requiredTables = ['Admin', 'Customer', 'Restaurant', 'MenuItem', 'Reservation', 'Order', 'Driver', 'Review', 'Staff', 'Invoice', 'Quote', 'Expense', 'Payment', 'LoyaltyPointsHistory', 'LoyaltyReward'];
 
-  try {
-    const tables = await db.$queryRaw<Array<{ name: string }>>`
-      SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_prisma%' ORDER BY name
-    `;
-    const existingTables = new Set(tables.map(t => t.name));
-    const tableChecks: Record<string, unknown> = {};
+  const dbUrl = process.env.DATABASE_URL || '';
+  const isPostgres = dbUrl.startsWith('postgresql://') || dbUrl.startsWith('postgres://');
 
+  try {
+    let existingTables = new Set<string>();
+    if (isPostgres) {
+      // information_schema.tables — PostgreSQL standard catalog.
+      // Prisma creates tables with quoted CamelCase names, so we look
+      // them up by their exact name in the current schema.
+      const rows = await db.$queryRawUnsafe<Array<{ table_name: string }>>(
+        `SELECT table_name FROM information_schema.tables
+         WHERE table_schema = current_schema()
+         AND table_type = 'BASE TABLE'`
+      );
+      existingTables = new Set(rows.map((r) => r.table_name));
+    } else {
+      // SQLite — sqlite_master is the canonical source.
+      const rows = await db.$queryRawUnsafe<Array<{ name: string }>>(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_prisma%' ORDER BY name`
+      );
+      existingTables = new Set(rows.map((r) => r.name));
+    }
+
+    const tableChecks: Record<string, unknown> = {};
     for (const table of requiredTables) {
       const exists = existingTables.has(table);
       tableChecks[table] = exists ? 'exists' : 'MISSING';
@@ -73,23 +92,29 @@ export async function GET(req: Request) {
     overallOk = false;
   }
 
-  // 5. Check Restaurant table columns (SQLite: pragma_table_info)
-  try {
-    const columns = await db.$queryRaw<Array<{ name: string; type: string }>>`
-      PRAGMA table_info(Restaurant)
-    `;
-    const columnNames = new Set(columns.map(c => c.name));
-    const criticalColumns = ['logo', 'primaryColor', 'secondaryColor', 'taxRate', 'currency', 'whatsapp', 'slug', 'tagline', 'latitude', 'longitude'];
-    const missingColumns = criticalColumns.filter(c => !columnNames.has(c));
-    if (missingColumns.length > 0) {
-      diagnostics.missingColumns = missingColumns;
-      overallOk = false;
-    } else {
-      diagnostics.restaurantColumns = 'all critical columns present';
+  // 5. Check Restaurant table columns — SQLite only (PRAGMA).
+  //    On PostgreSQL, the Prisma schema IS the source of truth, so
+  //    column introspection is unnecessary.
+  if (!isPostgres) {
+    try {
+      const columns = await db.$queryRawUnsafe<Array<{ name: string; type: string }>>(
+        'PRAGMA table_info(Restaurant)'
+      );
+      const columnNames = new Set(columns.map((c) => c.name));
+      const criticalColumns = ['logo', 'primaryColor', 'secondaryColor', 'taxRate', 'currency', 'whatsapp', 'slug', 'tagline', 'latitude', 'longitude'];
+      const missingColumns = criticalColumns.filter((c) => !columnNames.has(c));
+      if (missingColumns.length > 0) {
+        diagnostics.missingColumns = missingColumns;
+        overallOk = false;
+      } else {
+        diagnostics.restaurantColumns = 'all critical columns present';
+      }
+    } catch (error) {
+      // Non-critical
+      diagnostics.restaurantColumns = `check failed: ${error instanceof Error ? error.message : String(error)}`;
     }
-  } catch (error) {
-    // Non-critical
-    diagnostics.restaurantColumns = `check failed: ${error instanceof Error ? error.message : String(error)}`;
+  } else {
+    diagnostics.restaurantColumns = 'managed by Prisma migrations (PostgreSQL)';
   }
 
   return NextResponse.json({

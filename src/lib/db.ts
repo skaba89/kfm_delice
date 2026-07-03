@@ -1,12 +1,56 @@
 import { PrismaClient } from '@prisma/client'
 
-// Ensure DATABASE_URL is correctly set for SQLite
-// The URL MUST start with "file:" for Prisma SQLite
-if (!process.env.DATABASE_URL || !process.env.DATABASE_URL.startsWith('file:')) {
-  process.env.DATABASE_URL = 'file:./data/kfm-delice.db'
-  console.log('[db] DATABASE_URL was missing or invalid, defaulting to: file:./data/kfm-delice.db')
+// ─── Database URL resolution ───────────────────────────────────────
+// Accepts:
+//   - file:           → SQLite (local dev)
+//   - postgresql://   → PostgreSQL (Render/production)
+//   - postgres://     → PostgreSQL (Render/production)
+//
+// Rules:
+//   - In production, DATABASE_URL is REQUIRED. If missing or invalid, throw.
+//   - In development only, fall back to a local SQLite file with a warning.
+//   - NEVER override a valid PostgreSQL URL with a SQLite URL.
+//   - Never log the full DATABASE_URL in production (it contains credentials).
+
+const isProduction = process.env.NODE_ENV === 'production';
+
+if (!process.env.DATABASE_URL) {
+  if (isProduction) {
+    throw new Error(
+      '[db] FATAL: DATABASE_URL is required in production. ' +
+      'Set it to a valid postgresql:// URL (Render → Environment tab).'
+    );
+  }
+  // Dev-only fallback to local SQLite
+  process.env.DATABASE_URL = 'file:./data/kfm-delice.db';
+  console.warn(
+    '[db] DATABASE_URL was missing — defaulting to local SQLite: file:./data/kfm-delice.db. ' +
+    'Set DATABASE_URL (postgresql:// or postgres://) for production.'
+  );
+}
+
+const finalDatabaseUrl = process.env.DATABASE_URL || '';
+const isValidDatabaseUrl =
+  finalDatabaseUrl.startsWith('file:') ||
+  finalDatabaseUrl.startsWith('postgresql://') ||
+  finalDatabaseUrl.startsWith('postgres://');
+
+if (!isValidDatabaseUrl) {
+  throw new Error(
+    '[db] FATAL: Invalid DATABASE_URL. Expected a URL starting with "file:", "postgresql://" or "postgres://". ' +
+    'Refusing to start to avoid silent data corruption.'
+  );
+}
+
+// Log only the provider, never the full URL (which may contain credentials).
+const dbProvider =
+  finalDatabaseUrl.startsWith('postgresql://') || finalDatabaseUrl.startsWith('postgres://')
+    ? 'postgres'
+    : 'sqlite';
+if (isProduction) {
+  console.log(`[db] Database provider: ${dbProvider}`);
 } else {
-  console.log('[db] DATABASE_URL:', process.env.DATABASE_URL)
+  console.log(`[db] Database provider: ${dbProvider} (DATABASE_URL=${finalDatabaseUrl})`);
 }
 
 const globalForPrisma = globalThis as unknown as {
@@ -30,6 +74,15 @@ export const dbReady = new Promise<void>((resolve) => { dbReadyResolve = resolve
 
 if (!globalForPrisma.schemaFixed) {
   globalForPrisma.schemaFixed = true;
+
+  // ─── SQLite-only schema patch ──────────────────────────────────
+  // This ALTER TABLE block uses SQLite-specific syntax (BOOLEAN DEFAULT 0,
+  // DATETIME, REAL) that would fail on PostgreSQL. On PostgreSQL, schema
+  // is managed exclusively by `prisma migrate deploy` in render-start.sh.
+  if (dbProvider !== 'sqlite') {
+    // PostgreSQL: schema is managed by migrations — just resolve dbReady.
+    dbReadyResolve();
+  } else {
   const missingColumns: [string, string, string][] = [
     ['Admin', 'mustChangePassword', 'BOOLEAN NOT NULL DEFAULT 0'],
     ['Customer', 'mustChangePassword', 'BOOLEAN NOT NULL DEFAULT 0'],
@@ -96,6 +149,7 @@ if (!globalForPrisma.schemaFixed) {
     console.log('[db:fix] Schema fix complete');
     dbReadyResolve();
   })();
+  } // end SQLite-only branch
 } else {
   // Already fixed in a previous invocation
   dbReadyResolve();
@@ -138,6 +192,14 @@ export async function testDatabaseConnection(): Promise<{
 // ─── Public restaurant listing (multi-tenant SaaS) ────────────────
 // Returns minimal info for all active restaurants, for platform landing
 // pages and public restaurant directories.
+//
+// Uses the Prisma client (not raw SQL) so column/table quoting is handled
+// correctly on both SQLite and PostgreSQL. Raw SQL like `FROM Restaurant`
+// would fail on PostgreSQL because unquoted identifiers are folded to
+// lowercase, but Prisma creates tables as `"Restaurant"` (quoted).
+//
+// Note: `logo` and `bannerImage` come from the related RestaurantConfig
+// (where the field is `heroImage`), not from Restaurant itself.
 export async function listRestaurants(): Promise<
   Array<{
     id: string;
@@ -153,24 +215,33 @@ export async function listRestaurants(): Promise<
   }>
 > {
   try {
-    const rows = await db.$queryRawUnsafe<Array<Record<string, unknown>>>(`
-      SELECT id, slug, name, description, logo, bannerImage, currency, locale, plan, status
-      FROM Restaurant
-      WHERE status = 'active'
-      ORDER BY name ASC
-    `);
-    return bigIntToNumber(rows) as Array<{
-      id: string;
-      slug: string;
-      name: string;
-      description: string | null;
-      logo: string | null;
-      bannerImage: string | null;
-      currency: string;
-      locale: string;
-      plan: string;
-      status: string;
-    }>;
+    const restaurants = await db.restaurant.findMany({
+      where: { status: 'active' },
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+        description: true,
+        currency: true,
+        locale: true,
+        plan: true,
+        status: true,
+        config: { select: { logo: true, heroImage: true } },
+      },
+      orderBy: { name: 'asc' },
+    });
+    return restaurants.map((r) => ({
+      id: r.id,
+      slug: r.slug,
+      name: r.name,
+      description: r.description || null,
+      logo: r.config?.logo || null,
+      bannerImage: r.config?.heroImage || null,
+      currency: r.currency,
+      locale: r.locale,
+      plan: r.plan,
+      status: r.status,
+    }));
   } catch (e) {
     console.error('[db] listRestaurants error:', e);
     return [];

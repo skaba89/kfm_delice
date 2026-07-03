@@ -1,5 +1,4 @@
 import { db } from "@/lib/db";
-import { getRestaurantId } from "@/lib/tenant";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
 import PDFDocument from "pdfkit";
@@ -144,12 +143,15 @@ export async function GET(
       return NextResponse.json({ error: "Depense non trouvee" }, { status: 404 });
     }
 
-    const rid = await getRestaurantId(request);
-    if (!rid) {
-      return NextResponse.json({ error: "Restaurant non trouve" }, { status: 404 });
+    // ── Multi-tenant isolation ──────────────────────────────────
+    // Verify the expense belongs to the admin's restaurant. Without this,
+    // an admin of restaurant A could read/leak expense receipts of
+    // restaurant B by guessing an expense UUID.
+    if (expense.restaurantId !== admin.restaurantId) {
+      return NextResponse.json({ error: "Acces refuse" }, { status: 403 });
     }
 
-    const restaurant = await db.restaurant.findUnique({ where: { id: rid } });
+    const restaurant = await db.restaurant.findUnique({ where: { id: admin.restaurantId } });
     if (!restaurant) {
       return NextResponse.json({ error: "Restaurant non trouve" }, { status: 404 });
     }

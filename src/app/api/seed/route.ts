@@ -3,7 +3,21 @@ import { NextResponse } from "next/server";
 import { hashPassword, authenticateAdmin, hasRole } from "@/lib/auth";
 
 // ─── Seed Token Configuration ───────────────────────────────────
+// In production, SEED_TOKEN is REQUIRED to call /api/seed. It is checked
+// against the `x-seed-token` request header. The token is never logged.
 const SEED_TOKEN = process.env.SEED_TOKEN;
+const isProduction = process.env.NODE_ENV === 'production';
+
+// ─── Constant-time string comparison ────────────────────────────
+// Avoids timing attacks when comparing the seed token.
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
 
 // ─── In-memory Rate Limiter for Seed Endpoint ───────────────────
 const seedRateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -85,12 +99,28 @@ async function findOrCreateDriver(data: {
 }
 
 // ─── GET: Check seed status ─────────────────────────────────────
-export async function GET() {
+// GET is also protected in production: requires x-seed-token or admin JWT.
+// This prevents anonymous enumeration of "is the DB seeded?" in production.
+export async function GET(request: Request) {
   try {
     await dbReady;
-    // Use raw SQL to avoid schema mismatch issues
-    const result = await db.$queryRawUnsafe<Array<{ count: bigint }>>("SELECT COUNT(*) as count FROM Restaurant");
-    const restaurantCount = Number(result[0]?.count ?? 0);
+
+    // ── Production auth gate ────────────────────────────────────
+    if (isProduction) {
+      const headerToken = request.headers.get('x-seed-token') || '';
+      const tokenOk = SEED_TOKEN && headerToken && safeEqual(headerToken, SEED_TOKEN);
+      let adminOk = false;
+      if (!tokenOk) {
+        const admin = await authenticateAdmin(request).catch(() => null);
+        adminOk = !!admin && hasRole(admin.role, ['admin', 'super_admin']);
+      }
+      if (!tokenOk && !adminOk) {
+        return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
+      }
+    }
+
+    // Use Prisma client (not raw SQL) — works on both SQLite and PostgreSQL.
+    const restaurantCount = await db.restaurant.count();
     const seeded = restaurantCount > 0;
     return NextResponse.json({ seeded, needsSeed: !seeded });
   } catch {
@@ -116,30 +146,63 @@ export async function POST(request: Request) {
     }
 
     // ─── Authentication / Authorization ──────────────────────────
-    // Use raw SQL to avoid schema mismatch issues
+    // Production rules (stricter than dev):
+    //   1. Always require EITHER a valid x-seed-token header (matching
+    //      SEED_TOKEN env var) OR a valid admin JWT with role admin/super_admin.
+    //   2. If `reset=true` is requested, require BOTH (defense in depth) —
+    //      a leaked token alone or a stolen admin session alone cannot
+    //      wipe the database.
+    // Dev rules (lenient, to allow easy first-run bootstrap):
+    //   - If no admin exists yet (bootstrap), allow seeding without auth.
+    //   - If an admin already exists, require admin auth (same as before).
+    const headerToken = request.headers.get('x-seed-token') || '';
+    const tokenOk = !!(SEED_TOKEN && headerToken && safeEqual(headerToken, SEED_TOKEN));
+
+    // Check if any admin exists (use Prisma client — raw SQL `FROM Admin`
+    // fails on PostgreSQL due to case-folding of unquoted identifiers).
     let existingAdminCount = 0;
     try {
-      const countResult = await db.$queryRawUnsafe<Array<{ count: bigint }>>("SELECT COUNT(*) as count FROM Admin");
-      existingAdminCount = Number(countResult[0]?.count ?? 0);
+      existingAdminCount = await db.admin.count();
     } catch {
       existingAdminCount = 0;
     }
-    if (existingAdminCount > 0) {
-      // Existing admin — require admin auth
-      const admin = await authenticateAdmin(request);
-      if (!admin) {
-        return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
-      }
-      if (!hasRole(admin.role, ["admin"])) {
-        return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
-      }
-    }
-    // Bootstrap mode (no admin exists) — allow seeding without auth
-    // This is safe because no data exists yet to protect
+
+    // Check admin JWT (may be null if not provided / invalid)
+    const admin = await authenticateAdmin(request).catch(() => null);
+    const adminOk = !!admin && hasRole(admin.role, ['admin', 'super_admin']);
 
     // Check if reset is requested
     const url = new URL(request.url);
     const reset = url.searchParams.get("reset") === "true";
+
+    if (isProduction) {
+      // Rule 1: require token OR admin
+      if (!tokenOk && !adminOk) {
+        return NextResponse.json(
+          { error: "Non autorisé. Fournir un header x-seed-token valide ou un token admin." },
+          { status: 401 }
+        );
+      }
+      // Rule 2: reset requires BOTH token AND admin (defense in depth)
+      if (reset && (!tokenOk || !adminOk)) {
+        return NextResponse.json(
+          { error: "Reset nécessite x-seed-token ET un token admin valide." },
+          { status: 403 }
+        );
+      }
+    } else {
+      // Dev: keep the bootstrap-friendly behavior.
+      if (existingAdminCount > 0) {
+        // Existing admin — require admin auth (token OR JWT acceptable)
+        if (!tokenOk && !adminOk) {
+          return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+        }
+        if (admin && !hasRole(admin.role, ['admin', 'super_admin']) && !tokenOk) {
+          return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+        }
+      }
+      // Bootstrap mode (no admin exists) — allow seeding without auth (dev only).
+    }
 
     if (reset) {
       // Delete in reverse dependency order within a transaction

@@ -11,9 +11,11 @@ async function ensureDbSeeded() {
   if (_seedPromise) return _seedPromise;
   _seedPromise = (async () => {
     try {
-      // Use raw SQL to check if DB is empty (avoid schema mismatch)
-      const countResult = await db.$queryRawUnsafe<Array<{ count: bigint }>>("SELECT COUNT(*) as count FROM Restaurant");
-      const count = Number(countResult[0]?.count ?? 0);
+      // Use Prisma client (not raw SQL) — works on both SQLite and PostgreSQL.
+      // Raw SQL like `FROM Restaurant` fails on PostgreSQL because unquoted
+      // identifiers are folded to lowercase, but Prisma creates tables as
+      // `"Restaurant"` (quoted).
+      const count = await db.restaurant.count();
       if (count === 0) {
         console.log("[auto-seed] Empty DB detected, seeding on first login...");
         const { hashSync } = await import("bcryptjs");
@@ -120,13 +122,18 @@ export async function POST(request: Request) {
 
     const { email, password } = validation.data;
 
-    // Use raw query to avoid schema mismatch issues (e.g., missing mustChangePassword column)
-    const admins = await db.$queryRaw<Array<{
-      id: string; email: string; password: string; name: string;
-      role: string; status: string; restaurantId: string;
-    }>>`SELECT id, email, password, name, role, status, restaurantId FROM Admin WHERE email = ${email} LIMIT 1`;
+    // Use Prisma client (not raw SQL) for cross-database compatibility.
+    // The previous raw SQL (`SELECT ... FROM Admin WHERE email = ?`) would
+    // fail on PostgreSQL because `Admin` and `restaurantId` are case-folded
+    // to `admin` / `restaurantid` when unquoted.
+    const admin = await db.admin.findUnique({
+      where: { email },
+      select: {
+        id: true, email: true, password: true, name: true,
+        role: true, status: true, restaurantId: true,
+      },
+    });
 
-    const admin = admins[0];
     if (!admin) {
       return NextResponse.json({ error: "Identifiants incorrects" }, { status: 401 });
     }
@@ -141,11 +148,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Compte désactivé. Contactez l'administrateur." }, { status: 403 });
     }
 
-    // Get restaurant slug — use raw SQL to avoid schema mismatch
-    const restaurantRows = await db.$queryRawUnsafe<Array<{ slug: string }>>(
-      'SELECT slug FROM Restaurant WHERE id = ?', admin.restaurantId
-    );
-    const restaurantSlug = restaurantRows[0]?.slug || "";
+    // Get restaurant slug — use Prisma client for cross-DB compatibility.
+    const restaurant = await db.restaurant.findUnique({
+      where: { id: admin.restaurantId },
+      select: { slug: true },
+    });
+    const restaurantSlug = restaurant?.slug || "";
 
     // Generate JWT token with tenant context
     const token = generateToken({

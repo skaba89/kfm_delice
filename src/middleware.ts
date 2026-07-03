@@ -7,9 +7,34 @@ import { rateLimit } from '@/lib/rate-limit';
 // Security Configuration
 // ────────────────────────────────────────────────────────────────
 
-// JWT_SECRET must be set via environment variable
-// For Render deployment, generate a random string and set it as env var
-const JWT_SECRET = process.env.JWT_SECRET || 'kfm-delice-dev-secret-change-in-prod';
+// JWT_SECRET resolution — matches src/lib/auth.ts semantics:
+//   - Production: REQUIRED (≥16 chars). If missing, the middleware refuses
+//     to verify any token (returns 500 on protected routes). We do NOT throw
+//     at module-load time because Next.js imports middleware in many contexts.
+//   - Dev/build: insecure dev fallback with a warning. Never logged verbatim.
+const DEV_FALLBACK_SECRET = 'kfm-delice-dev-secret-change-in-prod';
+const isProdEnv = process.env.NODE_ENV === 'production';
+const isNextBuildPhase = process.env.NEXT_BUILD === 'true';
+
+function resolveJwtSecretForEdge(): string {
+  const secret = process.env.JWT_SECRET;
+  if (secret && secret.length >= 16) return secret;
+  if (isProdEnv && !isNextBuildPhase) {
+    console.error(
+      '[middleware] FATAL: JWT_SECRET missing or too short in production. ' +
+      'All authenticated routes will reject tokens until JWT_SECRET is set.'
+    );
+    return DEV_FALLBACK_SECRET;
+  }
+  if (!secret) {
+    console.warn(
+      '[middleware] WARNING: JWT_SECRET not set — using insecure dev fallback.'
+    );
+  }
+  return DEV_FALLBACK_SECRET;
+}
+
+const JWT_SECRET = resolveJwtSecretForEdge();
 // jose uses Uint8Array for the secret (Web Crypto API compatible)
 const _JWT_SECRET = new TextEncoder().encode(JWT_SECRET);
 

@@ -27,11 +27,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Email et mot de passe requis" }, { status: 400 });
     }
 
-    const rows: any[] = await db.$queryRawUnsafe(
-      'SELECT id, email, password, name, role, status FROM PlatformAdmin WHERE email = ?',
-      email
-    );
-    const platformAdmin = rows[0];
+    // Use Prisma client — works on both SQLite and PostgreSQL.
+    // Raw SQL `FROM PlatformAdmin` fails on PostgreSQL due to identifier
+    // case-folding; Prisma quotes identifiers correctly.
+    const platformAdmin = await db.platformAdmin.findUnique({
+      where: { email },
+      select: { id: true, email: true, password: true, name: true, role: true, status: true },
+    });
     if (!platformAdmin) {
       return NextResponse.json({ error: "Identifiants incorrects" }, { status: 401 });
     }

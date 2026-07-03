@@ -1,8 +1,9 @@
-import { db, dbReady, bigIntToNumber } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
 import { driverSchema, driverPatchSchema } from "@/lib/validations";
 import { parsePagination, parseSorting, parseSearch, parseStatusFilter } from "@/lib/pagination";
+import { Prisma } from "@prisma/client";
 
 // All methods: Admin/Manager auth required
 export async function GET(request: Request) {
@@ -25,46 +26,28 @@ export async function GET(request: Request) {
 
     const restaurantId = admin.restaurantId;
 
-    // Build WHERE clause for raw SQL
-    const conditions: string[] = ['d.restaurantId = ?'];
-    const params: unknown[] = [restaurantId];
-    if (statusFilter) { conditions.push('d.status = ?'); params.push(statusFilter); }
-    if (vehicleFilter) { conditions.push('d.vehicle = ?'); params.push(vehicleFilter); }
+    // Build WHERE clause via Prisma (cross-database compatible).
+    const where: Prisma.DriverWhereInput = { restaurantId };
+    if (statusFilter) where.status = statusFilter;
+    if (vehicleFilter) where.vehicle = vehicleFilter;
     if (search) {
-      conditions.push('(d.name LIKE ? OR d.email LIKE ? OR d.phone LIKE ? OR d.zone LIKE ?)');
-      const likeSearch = `%${search}%`;
-      params.push(likeSearch, likeSearch, likeSearch, likeSearch);
+      where.OR = [
+        { name: { contains: search } },
+        { email: { contains: search } },
+        { phone: { contains: search } },
+        { zone: { contains: search } },
+      ];
     }
-    const whereClause = conditions.join(' AND ');
 
-    // Validate sort column to prevent SQL injection
-    const validSortCols = ['createdAt', 'name', 'rating', 'totalDeliveries', 'status'];
-    const safeSortBy = validSortCols.includes(sortBy) ? sortBy : 'createdAt';
-    const safeSortOrder = sortOrder === 'asc' ? 'ASC' : 'DESC';
-
-    // Count — explicitly convert BigInt to Number for JSON serialization
-    const countResult = await db.$queryRawUnsafe<Array<{ count: bigint }>>(
-      `SELECT COUNT(*) as count FROM Driver d WHERE ${whereClause}`,
-      ...params
-    );
-    const total = countResult[0] ? Number(countResult[0].count) : 0;
-
-    // Fetch data — use explicit column list to avoid missing column errors
-    const offset = (page - 1) * limit;
-    const rawDrivers = await db.$queryRawUnsafe<Array<Record<string, unknown>>>(
-      `SELECT d.id, d.email, d.password, d.name, d.phone, d.vehicle, d.status,
-        d.rating, d.totalDeliveries, d.zone,
-        COALESCE(d.lat, 0) as lat, COALESCE(d.lng, 0) as lng,
-        COALESCE(d.currentOrderId, '') as currentOrderId,
-        COALESCE(d.mustChangePassword, 0) as mustChangePassword,
-        d.restaurantId, d.createdAt, d.updatedAt
-      FROM Driver d WHERE ${whereClause}
-      ORDER BY d.${safeSortBy} ${safeSortOrder}
-      LIMIT ? OFFSET ?`,
-      ...params, limit, offset
-    );
-    // Convert BigInt fields to Number for JSON serialization
-    const drivers = rawDrivers.map(d => bigIntToNumber(d));
+    const [drivers, total] = await Promise.all([
+      db.driver.findMany({
+        where,
+        orderBy: { [sortBy]: sortOrder },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      db.driver.count({ where }),
+    ]);
 
     const totalPages = Math.ceil(total / limit);
     return NextResponse.json({
@@ -130,45 +113,27 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "ID requis" }, { status: 400 });
     }
 
-    // Scope update to admin's restaurant
-    const existing = await db.$queryRawUnsafe<Array<{ id: string }>>(
-      'SELECT id FROM Driver WHERE id = ? AND restaurantId = ?',
-      id, admin.restaurantId
-    );
-    if (!existing[0]) return NextResponse.json({ error: "Livreur introuvable" }, { status: 404 });
+    // ── Multi-tenant isolation: verify driver belongs to admin's restaurant
+    // before update. Replaces raw SQL which was broken on PostgreSQL.
+    const existing = await db.driver.findFirst({
+      where: { id, restaurantId: admin.restaurantId },
+      select: { id: true },
+    });
+    if (!existing) return NextResponse.json({ error: "Livreur introuvable" }, { status: 404 });
 
     const updateData: Record<string, unknown> = { ...data };
     if (currentOrderId !== undefined) updateData.currentOrderId = currentOrderId;
 
-    // Use raw SQL for update to avoid schema mismatch
-    const setClauses: string[] = [];
-    const values: unknown[] = [];
-    for (const [key, value] of Object.entries(updateData)) {
-      setClauses.push(`${key} = ?`);
-      values.push(value);
-    }
-    if (setClauses.length === 0) {
+    if (Object.keys(updateData).length === 0) {
       return NextResponse.json({ error: "Aucune donnée à mettre à jour" }, { status: 400 });
     }
-    values.push(id);
-    await db.$executeRawUnsafe(
-      `UPDATE Driver SET ${setClauses.join(', ')}, updatedAt = CURRENT_TIMESTAMP WHERE id = ?`,
-      ...values
-    );
 
-    // Fetch updated driver
-    const updated = await db.$queryRawUnsafe<Array<{
-      id: string; email: string; name: string; phone: string; vehicle: string;
-      status: string; rating: number; totalDeliveries: number; zone: string;
-      lat: number; lng: number; currentOrderId: string; restaurantId: string;
-    }>>(
-      `SELECT id, email, name, phone, vehicle, status, rating, totalDeliveries, zone,
-        COALESCE(lat, 0) as lat, COALESCE(lng, 0) as lng,
-        COALESCE(currentOrderId, '') as currentOrderId, restaurantId
-      FROM Driver WHERE id = ?`, id
-    );
+    const updated = await db.driver.update({
+      where: { id },
+      data: updateData,
+    });
 
-    return NextResponse.json(updated[0] || { id });
+    return NextResponse.json(updated);
   } catch (error) {
     console.error("[drivers] PATCH error:", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
@@ -197,10 +162,17 @@ export async function DELETE(request: Request) {
     if (!id) {
       return NextResponse.json({ error: "ID requis" }, { status: 400 });
     }
-    await db.$executeRawUnsafe(
-      'DELETE FROM Driver WHERE id = ? AND restaurantId = ?',
-      id, admin.restaurantId
-    );
+
+    // ── Multi-tenant isolation: findFirst by id + restaurantId before delete
+    const existing = await db.driver.findFirst({
+      where: { id, restaurantId: admin.restaurantId },
+      select: { id: true },
+    });
+    if (!existing) {
+      return NextResponse.json({ error: "Livreur introuvable" }, { status: 404 });
+    }
+
+    await db.driver.delete({ where: { id } });
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("[drivers] DELETE error:", error);

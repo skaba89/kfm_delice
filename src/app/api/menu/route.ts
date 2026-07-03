@@ -107,6 +107,18 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "ID requis" }, { status: 400 });
     }
 
+    // ── Multi-tenant isolation ──────────────────────────────────
+    // Verify the item belongs to the admin's restaurant BEFORE updating.
+    // Without this, an admin of restaurant A could update an item of
+    // restaurant B by simply guessing/leaking its UUID.
+    const existing = await db.menuItem.findFirst({
+      where: { id, restaurantId: admin.restaurantId },
+      select: { id: true },
+    });
+    if (!existing) {
+      return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+    }
+
     const item = await db.menuItem.update({ where: { id }, data });
     return NextResponse.json(item);
   } catch (error) {
@@ -138,6 +150,17 @@ export async function DELETE(request: Request) {
     if (!id) {
       return NextResponse.json({ error: "ID requis" }, { status: 400 });
     }
+
+    // ── Multi-tenant isolation ──────────────────────────────────
+    // Verify the item belongs to the admin's restaurant BEFORE deleting.
+    const existing = await db.menuItem.findFirst({
+      where: { id, restaurantId: admin.restaurantId },
+      select: { id: true },
+    });
+    if (!existing) {
+      return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+    }
+
     await db.menuItem.delete({ where: { id } });
     return NextResponse.json({ success: true });
   } catch (error) {

@@ -5,22 +5,33 @@ echo "[render-start] Current directory: $(pwd)"
 echo "[render-start] PORT=$PORT HOSTNAME=$HOSTNAME"
 
 # ── Detect database provider from DATABASE_URL ─────────────────
+# NEVER override DATABASE_URL on Render — Render injects a real PostgreSQL URL.
+# If DATABASE_URL is missing in production, fail loudly instead of silently
+# falling back to SQLite (which would mask a misconfigured deployment).
 detect_provider() {
   case "$DATABASE_URL" in
     postgresql://*|postgres://*) echo "postgres" ;;
     file:*)                       echo "sqlite" ;;
-    "")                           echo "sqlite" ;;
-    *)                            echo "sqlite" ;;
+    *)                            echo "unknown" ;;
   esac
 }
 
 if [ -z "$DATABASE_URL" ]; then
+  if [ "$NODE_ENV" = "production" ]; then
+    echo "[render-start] FATAL: DATABASE_URL is not set in production. Refusing to start."
+    exit 1
+  fi
   export DATABASE_URL="file:./data/kfm-delice.db"
   echo "[render-start] DATABASE_URL was missing, defaulted to: $DATABASE_URL"
 fi
 
 PROVIDER=$(detect_provider)
 echo "[render-start] Detected provider: $PROVIDER"
+
+if [ "$PROVIDER" = "unknown" ]; then
+  echo "[render-start] FATAL: DATABASE_URL must start with 'file:', 'postgresql://' or 'postgres://'. Got a different scheme."
+  exit 1
+fi
 
 # ── Apply schema & migrations ──────────────────────────────────
 if [ "$PROVIDER" = "postgres" ]; then
@@ -29,21 +40,29 @@ if [ "$PROVIDER" = "postgres" ]; then
     cp prisma/schema.postgres.prisma prisma/schema.prisma
   fi
 
-  # First deploy: run migrations (creates tables)
-  # Subsequent deploys: applies any pending migrations
+  # Primary path: prisma migrate deploy (safe, never loses data)
   echo "[render-start] Running prisma migrate deploy..."
-  npx prisma migrate deploy 2>&1 || {
-    echo "[render-start] prisma migrate deploy failed — falling back to db push"
-    npx prisma db push --skip-generate --accept-data-loss 2>&1 || echo "[render-start] prisma db push warning"
-  }
+  if ! npx prisma migrate deploy 2>&1; then
+    echo "[render-start] WARNING: prisma migrate deploy failed."
+    echo "[render-start] Falling back to 'prisma db push' (no --accept-data-loss)."
+    # Fallback is intentional but NEVER with --accept-data-loss in production.
+    npx prisma db push --skip-generate 2>&1 || echo "[render-start] prisma db push warning"
+  fi
 else
   echo "[render-start] Switching schema to SQLite..."
   if [ -f "prisma/schema.sqlite.prisma" ]; then
     cp prisma/schema.sqlite.prisma prisma/schema.prisma
   fi
   mkdir -p data
-  echo "[render-start] Pushing SQLite schema..."
-  npx prisma db push --skip-generate --accept-data-loss 2>&1 || echo "[render-start] prisma db push warning"
+  # SQLite is local/dev only — db push is acceptable here, but still
+  # never with --accept-data-loss in production.
+  if [ "$NODE_ENV" = "production" ]; then
+    echo "[render-start] Pushing SQLite schema (no --accept-data-loss)..."
+    npx prisma db push --skip-generate 2>&1 || echo "[render-start] prisma db push warning"
+  else
+    echo "[render-start] Pushing SQLite schema (dev mode)..."
+    npx prisma db push --skip-generate 2>&1 || echo "[render-start] prisma db push warning"
+  fi
 
   # Force-add missing columns that prisma db push might miss
   # (handles DBs created with an older schema)

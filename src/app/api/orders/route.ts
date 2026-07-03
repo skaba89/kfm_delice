@@ -197,39 +197,62 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "ID requis" }, { status: 400 });
     }
 
+    // ── Multi-tenant isolation ──────────────────────────────────
+    // Verify the order belongs to the admin's restaurant BEFORE updating.
+    // Prevents cross-tenant modifications (admin of restaurant A must not
+    // be able to mutate orders of restaurant B by guessing an order UUID).
+    const existingOrder = await db.order.findFirst({
+      where: { id, restaurantId: admin.restaurantId },
+      select: { id: true, driverId: true, total: true, deliveryFee: true },
+    });
+    if (!existingOrder) {
+      return NextResponse.json({ error: "Commande introuvable" }, { status: 404 });
+    }
+
     const updateData: Record<string, unknown> = { ...data };
     if (driverId !== undefined) updateData.driverId = driverId || null;
     const order = await db.order.update({ where: { id }, data: updateData });
     // Update driver status if assigned
     if (driverId) {
-      await db.driver.update({ where: { id: driverId }, data: { status: "busy" } });
+      // Also verify the driver belongs to the same restaurant (defense in depth).
+      const driver = await db.driver.findFirst({
+        where: { id: driverId, restaurantId: admin.restaurantId },
+        select: { id: true, commissionRate: true },
+      });
+      if (driver) {
+        await db.driver.update({ where: { id: driverId }, data: { status: "busy" } });
+      }
     }
     // If order delivered or cancelled, free up driver + credit driver earnings on delivery
     if (data.status === "delivered" || data.status === "cancelled") {
-      const existingOrder = await db.order.findUnique({ where: { id } });
-      if (existingOrder?.driverId) {
-        const driver = await db.driver.findUnique({ where: { id: existingOrder.driverId } });
-        await db.driver.update({
-          where: { id: existingOrder.driverId },
-          data: {
-            status: "available",
-            totalDeliveries: { increment: 1 },
-            // Credit earnings on delivery: commission % of order total (or delivery fee, whichever is higher)
-            ...(data.status === "delivered" && driver ? {
-              totalEarnings: { increment: Math.max(
-                Math.round(existingOrder.total * (driver.commissionRate / 100)),
-                existingOrder.deliveryFee
-              ) },
-            } : {}),
-          },
+      if (existingOrder.driverId) {
+        const driver = await db.driver.findFirst({
+          where: { id: existingOrder.driverId, restaurantId: admin.restaurantId },
+          select: { id: true, commissionRate: true },
         });
-        // Persist the earning on the order for history
-        if (data.status === "delivered" && driver) {
-          const earning = Math.max(
-            Math.round(existingOrder.total * (driver.commissionRate / 100)),
-            existingOrder.deliveryFee
-          );
-          await db.order.update({ where: { id }, data: { driverEarning: earning } });
+        if (driver) {
+          await db.driver.update({
+            where: { id: existingOrder.driverId },
+            data: {
+              status: "available",
+              totalDeliveries: { increment: 1 },
+              // Credit earnings on delivery: commission % of order total (or delivery fee, whichever is higher)
+              ...(data.status === "delivered" ? {
+                totalEarnings: { increment: Math.max(
+                  Math.round(existingOrder.total * (driver.commissionRate / 100)),
+                  existingOrder.deliveryFee
+                ) },
+              } : {}),
+            },
+          });
+          // Persist the earning on the order for history
+          if (data.status === "delivered") {
+            const earning = Math.max(
+              Math.round(existingOrder.total * (driver.commissionRate / 100)),
+              existingOrder.deliveryFee
+            );
+            await db.order.update({ where: { id }, data: { driverEarning: earning } });
+          }
         }
       }
     }
