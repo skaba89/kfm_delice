@@ -116,12 +116,19 @@ if (isServer && !globalForPrisma.schemaFixed) {
   // Only ADDS columns — never drops or modifies existing ones.
   if (dbProvider !== 'sqlite') {
     const pgColumns: [string, string, string][] = [
+      // Admin (init migration was missing restaurantId + mustChangePassword)
+      ['Admin', 'restaurantId', "TEXT NOT NULL DEFAULT ''"],
+      ['Admin', 'mustChangePassword', 'BOOLEAN NOT NULL DEFAULT false'],
+      // Customer (same issue)
+      ['Customer', 'restaurantId', "TEXT NOT NULL DEFAULT ''"],
+      ['Customer', 'mustChangePassword', 'BOOLEAN NOT NULL DEFAULT false'],
+      // Driver (missing restaurantId + earnings + password flag)
+      ['Driver', 'restaurantId', "TEXT NOT NULL DEFAULT ''"],
       ['Driver', 'commissionRate', 'DOUBLE PRECISION NOT NULL DEFAULT 10'],
       ['Driver', 'totalEarnings', 'BIGINT NOT NULL DEFAULT 0'],
       ['Driver', 'mustChangePassword', 'BOOLEAN NOT NULL DEFAULT false'],
+      // Order (missing driverEarning)
       ['Order', 'driverEarning', 'BIGINT NOT NULL DEFAULT 0'],
-      ['Admin', 'mustChangePassword', 'BOOLEAN NOT NULL DEFAULT false'],
-      ['Customer', 'mustChangePassword', 'BOOLEAN NOT NULL DEFAULT false'],
     ];
     (async () => {
       for (const [table, column, def] of pgColumns) {

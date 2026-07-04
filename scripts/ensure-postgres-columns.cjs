@@ -37,9 +37,20 @@ const prisma = new PrismaClient({ log: ['error', 'warn'] });
  * missing from the initial migration or that get lost during drift.
  */
 const REQUIRED_COLUMNS = [
+  // Admin missing columns (the init migration didn't have restaurantId
+  // or mustChangePassword — without restaurantId, /api/login crashes)
+  ['Admin', 'restaurantId', 'TEXT NOT NULL DEFAULT \'\''],
+  ['Admin', 'mustChangePassword', 'BOOLEAN NOT NULL DEFAULT false'],
+
+  // Customer missing columns
+  ['Customer', 'restaurantId', 'TEXT NOT NULL DEFAULT \'\''],
+  ['Customer', 'mustChangePassword', 'BOOLEAN NOT NULL DEFAULT false'],
+
   // Driver earnings (commit 7e63085)
+  ['Driver', 'restaurantId', 'TEXT NOT NULL DEFAULT \'\''],
   ['Driver', 'commissionRate', 'DOUBLE PRECISION NOT NULL DEFAULT 10'],
   ['Driver', 'totalEarnings', 'BIGINT NOT NULL DEFAULT 0'],
+  ['Driver', 'mustChangePassword', 'BOOLEAN NOT NULL DEFAULT false'],
 
   // Order driver earning (commit 29b777f)
   ['Order', 'driverEarning', 'BIGINT NOT NULL DEFAULT 0'],
