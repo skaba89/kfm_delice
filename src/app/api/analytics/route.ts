@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db, dbReady } from '@/lib/db';
 import { authenticateAdmin, hasRole } from '@/lib/auth';
+import { parseJsonField } from '@/lib/parse-json';
 
 export async function GET(request: Request) {
   try {
@@ -93,7 +94,8 @@ export async function GET(request: Request) {
     const dishSales: Record<string, { name: string; qty: number; revenue: number }> = {};
     recentOrdersForDishes.forEach(order => {
       try {
-        const items = JSON.parse(order.items || '[]') as { name: string; price: number; qty: number }[];
+        // parseJsonField handles both SQLite (String) and PostgreSQL (Json)
+        const items = parseJsonField(order.items, []) as { name: string; price: number; qty: number }[];
         items.forEach(item => {
           if (!dishSales[item.name]) dishSales[item.name] = { name: item.name, qty: 0, revenue: 0 };
           dishSales[item.name].qty += item.qty;

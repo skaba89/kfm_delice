@@ -2,6 +2,7 @@ import { db, bigIntToNumber } from "@/lib/db";
 import { getRestaurantId } from "@/lib/tenant";
 import { NextResponse } from "next/server";
 import { authenticateAdmin } from "@/lib/auth";
+import { parseJsonField } from "@/lib/parse-json";
 
 // Combined dashboard endpoint — returns ALL admin data in a single request
 // This replaces 11 separate API calls with 1, dramatically reducing page load time
@@ -103,7 +104,7 @@ export async function GET(request: Request) {
     const dishCounts: Record<string, number> = {};
     recentOrders.forEach((o) => {
       try {
-        const items = JSON.parse(o.items) as { name: string; qty: number }[];
+        const items = parseJsonField(o.items, []) as { name: string; qty: number }[];
         items.forEach((item) => { dishCounts[item.name] = (dishCounts[item.name] || 0) + item.qty; });
       } catch { /* skip */ }
     });

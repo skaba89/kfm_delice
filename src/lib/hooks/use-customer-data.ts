@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { Reservation, OrderDB, ReviewDB, CustomerUser, MenuItemDB } from "@/lib/types";
 import { useAuth } from "@/lib/auth-context";
+import { parseJsonField } from "@/lib/parse-json";
 import { notify } from "@/lib/notifications";
 
 export function useCustomerData(customer: CustomerUser, onUpdate: (c: CustomerUser) => void) {
@@ -182,7 +183,8 @@ export function useCustomerData(customer: CustomerUser, onUpdate: (c: CustomerUs
 
   const reorder = async (order: OrderDB) => {
     try {
-      const items: { name: string; price: number; qty: number }[] = JSON.parse(order.items);
+      // parseJsonField handles both SQLite (String) and PostgreSQL (Json)
+      const items: { name: string; price: number; qty: number }[] = parseJsonField(order.items, []) as typeof items;
       const total = items.reduce((sum, i) => sum + i.price * i.qty, 0);
       const res = await apiFetch("/api/orders", {
         method: "POST",

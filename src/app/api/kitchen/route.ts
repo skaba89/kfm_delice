@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db as prisma } from "@/lib/db";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
+import { parseJsonField } from "@/lib/parse-json";
 
 // All methods: Admin/Manager/Staff auth required (kitchen staff can access)
 // GET /api/kitchen — fetch kitchen queue (orders in pending/preparing/ready status)
@@ -101,7 +102,7 @@ export async function GET(request: Request) {
     const dishCountMap: Record<string, { name: string; qty: number }> = {};
     for (const o of todayOrders) {
       try {
-        const items = JSON.parse(o.items);
+        const items = parseJsonField<{ name?: string; id?: string; quantity?: number; qty?: number }[]>(o.items, []);
         if (Array.isArray(items)) {
           for (const it of items) {
             const key = it.name || it.id || "unknown";

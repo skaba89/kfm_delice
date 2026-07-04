@@ -67,8 +67,8 @@ model Restaurant {
   expenses      Expense[]
   payments      Payment[]
   loyaltyRewards LoyaltyReward[]
-  stockItems    StockItem[]
-  stockMovements StockMovement[]
+  stockItems        StockItem[]
+  stockMovements    StockMovement[]
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -102,27 +102,14 @@ model RestaurantConfig {
 }
 
 // ────────────────────────────────────────────────────────────────
-// Admin — scoped to a restaurant (login account)
-//
-// role can be one of 8 values (see src/lib/auth.ts → ADMIN_ROLES):
-//   admin              — Super Admin restaurant (full access)
-//   manager            — Gérant adjoint (operational management)
-//   staff              — Personnel polyvalent (orders, reservations, kitchen view)
-//   cashier            — Caissier (POS, payments, invoices, customer list)
-//   kitchen            — Chef Cuisine (kitchen display, stock view, order status)
-//   delivery_manager   — Responsable Livraison (drivers, deliveries)
-//   host               — Hôte d'Accueil (reservations only)
-//   accountant         — Comptable (invoices, expenses, quotes, analytics — no ops)
-//
-// Permission matrix lives in src/lib/auth.ts → PERMISSION_GROUPS.
-// Sidebar visibility lives in src/components/AdminDashboard.tsx → rolesMap.
+// Admin — scoped to a restaurant
 // ────────────────────────────────────────────────────────────────
 model Admin {
   id                String   @id @default(cuid())
   email             String   @unique
   password          String
   name              String
-  role              String   @default("admin") // see ADMIN_ROLES in src/lib/auth.ts
+  role              String   @default("admin") // admin, manager, staff
   status            String   @default("active") // active, inactive
   mustChangePassword Boolean @default(false) // force password change on first login
   restaurantId      String
@@ -221,9 +208,9 @@ model Order {
   tax           Int      @default(0)
   note          String   @default("")
   estimatedDeliveryTime String @default("") // ISO string of estimated delivery
-  driverEarning     Int      @default(0) // commission credited to driver on delivery (GNF)
-  driverLat     Float    @default(0) // driver live latitude
-  driverLng     Float    @default(0) // driver live longitude
+  driverLat      Float    @default(0) // driver live latitude
+  driverLng      Float    @default(0) // driver live longitude
+  driverEarning  Int      @default(0) // commission credited to driver on delivery
   customerId    String?
   customer      Customer? @relation(fields: [customerId], references: [id])
   driverId      String?
@@ -257,8 +244,10 @@ model Driver {
   lastLocationUpdate DateTime @default(now()) // last GPS update
   currentOrderId    String   @default("") // current active order
   mustChangePassword Boolean @default(false) // force password change on first login
-  commissionRate    Float    @default(10) // % of order delivery fee earned per delivery (default 10%)
-  totalEarnings     Int      @default(0) // cumulative earnings in GNF
+  // Driver earnings fields — same as PostgreSQL schema (Int on SQLite
+  // is sufficient for dev DB; production uses BigInt)
+  commissionRate    Float    @default(10)
+  totalEarnings     Int      @default(0)
   restaurantId      String
   restaurant        Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   orders            Order[]
@@ -289,7 +278,7 @@ model Staff {
   id           String   @id @default(cuid())
   name         String
   phone        String   @default("")
-  role         String   // see staffRoleLabels in src/lib/constants.ts — 15 kitchen/service roles
+  role         String   // cuisinier, serveur, barman, gerant, plongeur, securite, caissier
   salary       Int      @default(0)
   status       String   @default("active") // active, inactive, on_leave
   hireDate     String   @default("")
@@ -434,9 +423,6 @@ model PushSubscription {
   @@index([restaurantId])
 }
 
-// ────────────────────────────────────────────────────────────────
-// Stock / Inventory
-// ────────────────────────────────────────────────────────────────
 model StockItem {
   id            String   @id @default(cuid())
   name          String
@@ -459,7 +445,6 @@ model StockItem {
   @@index([restaurantId, quantity])
 }
 
-// Stock movements history (in/out adjustments)
 model StockMovement {
   id            String   @id @default(cuid())
   stockItemId   String

@@ -132,7 +132,7 @@ export async function POST(request: Request) {
     const result = await initiatePayment({
       method: method as PaymentMethod,
       phone: phone || "",
-      amount: order.total,
+      amount: Number(order.total),
       orderId,
     });
 
@@ -141,7 +141,7 @@ export async function POST(request: Request) {
       await db.payment.create({
         data: {
           orderId,
-          amount: order.total,
+          amount: Number(order.total),
           method,
           status: "failed",
           phone: phone || "",
@@ -158,7 +158,7 @@ export async function POST(request: Request) {
     const payment = await db.payment.create({
       data: {
         orderId,
-        amount: order.total,
+        amount: Number(order.total),
         method,
         status: result.status || "processing",
         transactionRef: result.transactionRef || "",
@@ -212,7 +212,7 @@ export async function POST(request: Request) {
               broadcastToType("admin", WSEvents.ADMIN_NOTIFICATION, {
                 type: "payment_confirmed",
                 orderId,
-                amount: order.total,
+                amount: Number(order.total),
                 method,
               });
             } catch {}
@@ -230,7 +230,7 @@ export async function POST(request: Request) {
       broadcastToType("admin", WSEvents.ADMIN_NOTIFICATION, {
         type: "payment_initiated",
         orderId,
-        amount: order.total,
+        amount: Number(order.total),
         method,
         status: result.status,
       });

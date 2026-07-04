@@ -1,6 +1,7 @@
 import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
+import { parseJsonField } from "@/lib/parse-json";
 
 // Default stats response for empty/error states
 const EMPTY_STATS = {
@@ -150,7 +151,7 @@ export async function GET(request: Request) {
     const dishCounts: Record<string, number> = {};
     recentOrders.forEach((o) => {
       try {
-        const items = JSON.parse(o.items) as { name: string; price: number; qty?: number; quantity?: number }[];
+        const items = parseJsonField(o.items, []) as { name: string; price: number; qty?: number; quantity?: number }[];
         items.forEach((item) => {
           const qty = item.qty ?? item.quantity ?? 1;
           if (item.name) dishCounts[item.name] = (dishCounts[item.name] || 0) + qty;

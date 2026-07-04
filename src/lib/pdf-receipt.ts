@@ -1,4 +1,5 @@
 import PDFDocument from "pdfkit";
+import { parseJsonField } from "./parse-json";
 
 /**
  * Generates a professional receipt PDF for KFM Delice orders
@@ -128,7 +129,8 @@ export async function generateReceiptPDF(order: {
     y += 14;
 
     let items: { name: string; price: number; qty: number; note?: string }[] = [];
-    try { items = JSON.parse(order.items); } catch { /* */ }
+    // parseJsonField handles both SQLite (String) and PostgreSQL (Json)
+    items = parseJsonField(order.items, []) as typeof items;
 
     let subtotal = 0;
     for (const item of items) {

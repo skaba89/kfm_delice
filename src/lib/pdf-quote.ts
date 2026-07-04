@@ -1,4 +1,5 @@
 import PDFDocument from "pdfkit";
+import { parseJsonField } from "./parse-json";
 
 /**
  * Generates a professional quote PDF for KFM Delice
@@ -132,7 +133,7 @@ export async function generateQuotePDF(quote: {
     // Parse line items
     let lineItems: { description: string; qty: number; unitPrice: number; total: number }[] = [];
     try {
-      lineItems = JSON.parse(quote.items);
+      lineItems = parseJsonField(quote.items, []) as typeof lineItems;
     } catch { /* empty */ }
 
     // Table rows

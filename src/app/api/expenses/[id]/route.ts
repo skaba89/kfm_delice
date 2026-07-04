@@ -159,13 +159,22 @@ export async function GET(
     // Check if this is a PDF request (via ?format=pdf)
     const url = new URL(request.url);
     if (url.searchParams.get("format") === "pdf") {
-      const pdfBuffer = await generateExpensePDF(expense, {
-        name: restaurant.name,
-        address: restaurant.address,
-        phone: restaurant.phone,
-        email: restaurant.email,
-        tagline: restaurant.tagline || undefined,
-      });
+      // Convert BigInt fields to Number for PDF rendering (pdfkit can't
+      // handle BigInt directly, and the generateExpensePDF function
+      // expects amount: number).
+      const pdfBuffer = await generateExpensePDF(
+        {
+          ...expense,
+          amount: Number(expense.amount),
+        },
+        {
+          name: restaurant.name,
+          address: restaurant.address,
+          phone: restaurant.phone,
+          email: restaurant.email,
+          tagline: restaurant.tagline || undefined,
+        }
+      );
 
       return new NextResponse(new Uint8Array(pdfBuffer), {
         status: 200,

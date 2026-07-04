@@ -1,4 +1,5 @@
 import PDFDocument from "pdfkit";
+import { parseJsonField } from "./parse-json";
 
 /**
  * Generates a professional invoice PDF for KFM Delice
@@ -133,7 +134,7 @@ export async function generateInvoicePDF(invoice: {
     // Parse line items
     let lineItems: { description: string; qty: number; unitPrice: number; total: number }[] = [];
     try {
-      lineItems = JSON.parse(invoice.items);
+      lineItems = parseJsonField(invoice.items, []) as typeof lineItems;
     } catch { /* empty */ }
 
     // Table rows

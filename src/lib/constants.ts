@@ -235,14 +235,20 @@ export function enrichCategoriesWithIcons(categories: MenuCategory[]): MenuCateg
 
 // ────────────────────────────────────────────────────────────────
 // Safe JSON parser
+// Handles both SQLite (String JSON) and PostgreSQL (Json type, already parsed)
 // ────────────────────────────────────────────────────────────────
 
-function safeJsonParse<T>(json: string, fallback: T): T {
-  try {
-    return JSON.parse(json) as T;
-  } catch {
-    return fallback;
+function safeJsonParse<T>(json: unknown, fallback: T): T {
+  if (json === null || json === undefined) return fallback;
+  if (typeof json === 'string') {
+    try {
+      return JSON.parse(json) as T;
+    } catch {
+      return fallback;
+    }
   }
+  // Already parsed (PostgreSQL Json type returns object/array)
+  return json as T;
 }
 
 // ────────────────────────────────────────────────────────────────

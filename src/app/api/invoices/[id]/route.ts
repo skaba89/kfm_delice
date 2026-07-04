@@ -38,13 +38,24 @@ export async function GET(
     // Check if this is a PDF request (via ?format=pdf)
     const url = new URL(request.url);
     if (url.searchParams.get("format") === "pdf") {
-      const pdfBuffer = await generateInvoicePDF(invoice, {
-        name: restaurant.name,
-        address: restaurant.address,
-        phone: restaurant.phone,
-        email: restaurant.email,
-        tagline: restaurant.tagline || undefined,
-      });
+      // Convert BigInt fields to Number and Json to string for PDF rendering.
+      // pdfkit + generateInvoicePDF expect number/string, not bigint/Json.
+      const pdfBuffer = await generateInvoicePDF(
+        {
+          ...invoice,
+          items: typeof invoice.items === 'string' ? invoice.items : JSON.stringify(invoice.items),
+          subtotal: Number(invoice.subtotal),
+          tax: Number(invoice.tax),
+          total: Number(invoice.total),
+        },
+        {
+          name: restaurant.name,
+          address: restaurant.address,
+          phone: restaurant.phone,
+          email: restaurant.email,
+          tagline: restaurant.tagline || undefined,
+        }
+      );
 
       return new NextResponse(new Uint8Array(pdfBuffer), {
         status: 200,

@@ -38,13 +38,23 @@ export async function GET(
     // Check if this is a PDF request (via ?format=pdf)
     const url = new URL(request.url);
     if (url.searchParams.get("format") === "pdf") {
-      const pdfBuffer = await generateQuotePDF(quote, {
-        name: restaurant.name,
-        address: restaurant.address,
-        phone: restaurant.phone,
-        email: restaurant.email,
-        tagline: restaurant.tagline || undefined,
-      });
+      // Convert BigInt fields to Number and Json to string for PDF rendering.
+      const pdfBuffer = await generateQuotePDF(
+        {
+          ...quote,
+          items: typeof quote.items === 'string' ? quote.items : JSON.stringify(quote.items),
+          subtotal: Number(quote.subtotal),
+          discount: Number(quote.discount),
+          total: Number(quote.total),
+        },
+        {
+          name: restaurant.name,
+          address: restaurant.address,
+          phone: restaurant.phone,
+          email: restaurant.email,
+          tagline: restaurant.tagline || undefined,
+        }
+      );
 
       return new NextResponse(new Uint8Array(pdfBuffer), {
         status: 200,

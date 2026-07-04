@@ -43,7 +43,9 @@ export async function GET(
           id: order.id,
           customerName: order.customerName,
           phone: order.phone || undefined,
-          items: order.items,
+          // Convert Json (PostgreSQL) or String (SQLite) to string for PDF.
+          // generateReceiptPDF expects a JSON string, not a parsed object.
+          items: typeof order.items === 'string' ? order.items : JSON.stringify(order.items),
           // Number() wraps BigInt fields (PostgreSQL) for PDF rendering.
           // pdfkit's text() can't handle BigInt directly.
           total: Number(order.total),
