@@ -232,6 +232,48 @@ const REQUIRED_TABLES = [
       CONSTRAINT "LoyaltyPointsHistory_pkey" PRIMARY KEY ("id")
     )`,
   },
+  {
+    name: 'Account',
+    sql: `CREATE TABLE IF NOT EXISTS "Account" (
+      "id" TEXT NOT NULL,
+      "name" TEXT NOT NULL,
+      "ownerName" TEXT NOT NULL DEFAULT '',
+      "ownerEmail" TEXT NOT NULL DEFAULT '',
+      "ownerPhone" TEXT NOT NULL DEFAULT '',
+      "status" TEXT NOT NULL DEFAULT 'active',
+      "plan" TEXT NOT NULL DEFAULT 'starter',
+      "maxRestaurants" INTEGER NOT NULL DEFAULT 1,
+      "maxSecondaryRestaurants" INTEGER NOT NULL DEFAULT 0,
+      "maxAdmins" INTEGER NOT NULL DEFAULT 3,
+      "maxUsers" INTEGER NOT NULL DEFAULT 10,
+      "maxOrdersPerMonth" INTEGER NOT NULL DEFAULT 1000,
+      "contractStartDate" TEXT NOT NULL DEFAULT '',
+      "contractEndDate" TEXT NOT NULL DEFAULT '',
+      "trialEndsAt" TEXT NOT NULL DEFAULT '',
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" TIMESTAMP(3) NOT NULL,
+      CONSTRAINT "Account_pkey" PRIMARY KEY ("id")
+    )`,
+  },
+  {
+    name: 'AuditLog',
+    sql: `CREATE TABLE IF NOT EXISTS "AuditLog" (
+      "id" TEXT NOT NULL,
+      "actorId" TEXT NOT NULL,
+      "actorType" TEXT NOT NULL,
+      "action" TEXT NOT NULL,
+      "entityType" TEXT NOT NULL,
+      "entityId" TEXT NOT NULL,
+      "accountId" TEXT,
+      "restaurantId" TEXT,
+      "before" JSONB,
+      "after" JSONB,
+      "ipAddress" TEXT NOT NULL DEFAULT '',
+      "userAgent" TEXT NOT NULL DEFAULT '',
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "AuditLog_pkey" PRIMARY KEY ("id")
+    )`,
+  },
 ];
 
 async function main() {

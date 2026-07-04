@@ -79,6 +79,10 @@ if [ "$PROVIDER" = "postgres" ]; then
   # Safety net: ensure critical columns/tables exist
   echo "[render-start] Running ensure-postgres-columns safety check..."
   node scripts/ensure-postgres-columns.cjs 2>&1 || echo "[render-start] ensure-columns warning, continuing..."
+
+  # SaaS backfill: create Account for each existing restaurant without one
+  echo "[render-start] Running SaaS account backfill..."
+  node scripts/backfill-accounts.cjs 2>&1 || echo "[render-start] backfill warning, continuing..."
 else
   echo "[render-start] Pushing SQLite schema..."
   npx prisma db push --skip-generate 2>&1 || echo "[render-start] prisma db push warning"

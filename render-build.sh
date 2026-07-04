@@ -83,6 +83,7 @@ mkdir -p .next/standalone/scripts
 cp scripts/auto-seed.cjs .next/standalone/scripts/ 2>/dev/null || true
 cp scripts/ensure-postgres-columns.cjs .next/standalone/scripts/ 2>/dev/null || true
 cp scripts/check-prisma-provider.cjs .next/standalone/scripts/ 2>/dev/null || true
+cp scripts/backfill-accounts.cjs .next/standalone/scripts/ 2>/dev/null || true
 
 # ── Copy render-start.sh ──────────────────────────────────────
 cp render-start.sh .next/standalone/render-start.sh 2>/dev/null || true
