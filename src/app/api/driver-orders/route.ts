@@ -66,8 +66,45 @@ export async function PATCH(request: Request) {
 
     const { orderId, status, lat, lng } = validation.data;
 
-    const order = await db.order.findUnique({ where: { id: orderId } });
-    if (!order) return NextResponse.json({ error: "Commande non trouvée" }, { status: 404 });
+    // ── Multi-tenant isolation + driver ownership ───────────────
+    // The driver must only be able to update an order that:
+    //   1. Belongs to the driver's restaurant (tenant scope)
+    //   2. Is EITHER already assigned to them OR is an unassigned
+    //      delivery order that they are now accepting (picking_up)
+    //
+    // Without this check, a driver of restaurant A could mutate any
+    // order of restaurant B by guessing an order UUID — including
+    // marking it as "delivered" (which would credit their own earnings).
+    const order = await db.order.findFirst({
+      where: {
+        id: orderId,
+        restaurantId: driverAuth.restaurantId,
+        orderType: "delivery",
+        OR: [
+          { driverId: driverAuth.id },
+          // Allow accepting an unassigned order only if action is pickup
+          { driverId: null, status: { in: ["ready", "picking_up"] } },
+        ],
+      },
+      select: { id: true, driverId: true, status: true },
+    });
+    if (!order) {
+      return NextResponse.json(
+        { error: "Commande non trouvée ou non assignée à ce livreur" },
+        { status: 404 }
+      );
+    }
+
+    // If the driver is trying to update a status on an order that
+    // belongs to another driver (after the OR filter above matched the
+    // unassigned branch but the order was since assigned to someone
+    // else), reject. This is a race-condition guard.
+    if (order.driverId && order.driverId !== driverAuth.id) {
+      return NextResponse.json(
+        { error: "Cette commande est assignée à un autre livreur" },
+        { status: 403 }
+      );
+    }
 
     const updateData: Record<string, unknown> = {};
 

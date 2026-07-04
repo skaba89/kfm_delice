@@ -126,7 +126,13 @@ export async function PATCH(request: Request) {
     const { id, action, ...data } = body;
     if (!id) return NextResponse.json({ error: "ID requis" }, { status: 400 });
 
-    const existing = await prisma.stockItem.findUnique({ where: { id } });
+    // ── Multi-tenant isolation ──────────────────────────────────
+    // findUnique by id only would let an admin of restaurant A modify
+    // stock of restaurant B by guessing a UUID. findFirst by id AND
+    // restaurantId enforces tenant scoping.
+    const existing = await prisma.stockItem.findFirst({
+      where: { id, restaurantId: admin.restaurantId },
+    });
     if (!existing) return NextResponse.json({ error: "Article introuvable" }, { status: 404 });
 
     // Action = record a stock movement
@@ -200,7 +206,16 @@ export async function DELETE(request: Request) {
     const id = sp.get("id");
     if (!id) return NextResponse.json({ error: "ID requis" }, { status: 400 });
 
-    await prisma.stockItem.delete({ where: { id } });
+    // ── Multi-tenant isolation: scope delete to admin's restaurant.
+    // deleteMany returns { count: N } — if N === 0, the item either
+    // didn't exist or belonged to another restaurant (we return 404
+    // either way, without leaking which one).
+    const result = await prisma.stockItem.deleteMany({
+      where: { id, restaurantId: admin.restaurantId },
+    });
+    if (result.count === 0) {
+      return NextResponse.json({ error: "Article introuvable" }, { status: 404 });
+    }
     return NextResponse.json({ success: true });
   } catch (e) {
     console.error("[stock DELETE]", e);

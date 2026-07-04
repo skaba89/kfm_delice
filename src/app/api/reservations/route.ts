@@ -160,6 +160,17 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "ID requis" }, { status: 400 });
     }
 
+    // ── Multi-tenant isolation ──────────────────────────────────
+    // Verify the reservation belongs to the admin's restaurant BEFORE
+    // updating. Prevents cross-tenant modifications.
+    const existing = await db.reservation.findFirst({
+      where: { id, restaurantId: admin.restaurantId },
+      select: { id: true },
+    });
+    if (!existing) {
+      return NextResponse.json({ error: "Réservation introuvable" }, { status: 404 });
+    }
+
     // Build update data with only provided fields
     const updateData: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(rawData)) {
