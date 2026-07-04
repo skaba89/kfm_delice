@@ -21,6 +21,7 @@ export async function GET(request: Request) {
     const search = parseSearch(sp);
     const statusFilter = parseStatusFilter(sp, ['pending', 'preparing', 'ready', 'delivering', 'delivered', 'cancelled']);
     const orderTypeFilter = parseStatusFilter(sp, ['dine_in', 'takeaway', 'delivery'], 'orderType');
+    const tableFilter = sp.get("tableNumber");
 
     // Use restaurantId from authenticated user (all auth types include it)
     const restaurantId = auth.restaurantId || await getRestaurantId(request);
@@ -31,6 +32,7 @@ export async function GET(request: Request) {
       restaurantId,
       ...(statusFilter && { status: statusFilter }),
       ...(orderTypeFilter && { orderType: orderTypeFilter }),
+      ...(tableFilter && { tableNumber: parseInt(tableFilter, 10) }),
       ...(search && {
         OR: [
           { customerName: { contains: search } },
