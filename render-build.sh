@@ -6,41 +6,46 @@ echo "[render-build] NODE_ENV=${NODE_ENV:-(not set)}"
 echo "[render-build] DATABASE_URL is ${DATABASE_URL:+set}${DATABASE_URL:-NOT SET}"
 
 # ── Determine which Prisma schema to use ──────────────────────
-# Production (Render) ALWAYS uses PostgreSQL. The DATABASE_URL may
-# not be available at build time on Render free tier, so we detect
-# production via NODE_ENV and force PostgreSQL schema + a temporary
-# fake DATABASE_URL just so `prisma generate` and `next build` succeed.
+# SIMPLE LOGIC — no NODE_ENV dependency:
+#   1. If DATABASE_URL starts with postgresql:// or postgres:// → PostgreSQL
+#   2. If DATABASE_URL starts with file: → SQLite
+#   3. If DATABASE_URL is NOT SET → PostgreSQL (Render production default)
+#      (local dev should always have DATABASE_URL=file:... in .env)
 #
-# Local dev uses whatever DATABASE_URL is set (typically file:... for
-# SQLite, but can be postgresql:// for local Postgres testing).
-if [ "$NODE_ENV" = "production" ]; then
-  echo "[render-build] NODE_ENV=production → forcing PostgreSQL schema"
-  cp prisma/schema.postgres.prisma prisma/schema.prisma
-
-  # prisma generate needs a DATABASE_URL to validate the datasource,
-  # even though it doesn't connect. Use a fake PostgreSQL URL if the
-  # real one isn't available at build time.
-  if [ -z "$DATABASE_URL" ]; then
-    echo "[render-build] DATABASE_URL missing during build — using temporary PostgreSQL URL for Prisma generate only"
+# This ensures PostgreSQL is ALWAYS used on Render, even if NODE_ENV
+# is not set at build time.
+case "$DATABASE_URL" in
+  postgresql://*|postgres://*)
+    PROVIDER="postgres"
+    ;;
+  file:*)
+    PROVIDER="sqlite"
+    ;;
+  "")
+    # DATABASE_URL not set → assume PostgreSQL (Render production)
+    # Local dev should have DATABASE_URL in .env
+    PROVIDER="postgres"
+    echo "[render-build] DATABASE_URL not set — defaulting to PostgreSQL (Render production)"
     export DATABASE_URL="postgresql://build:build@localhost:5432/build_db?schema=public"
-  fi
+    ;;
+  *)
+    echo "[render-build] FATAL: DATABASE_URL has unknown format"
+    exit 1
+    ;;
+esac
+
+echo "[render-build] Provider: $PROVIDER"
+
+if [ "$PROVIDER" = "postgres" ]; then
+  echo "[render-build] Copying PostgreSQL schema..."
+  cp prisma/schema.postgres.prisma prisma/schema.prisma
 else
-  # Local dev: use SQLite if DATABASE_URL not set or is file:...
-  if [ -z "$DATABASE_URL" ]; then
-    echo "[render-build] DATABASE_URL not set — defaulting to SQLite for local dev"
-    export DATABASE_URL="file:./data/kfm-delice.db"
-    cp prisma/schema.sqlite.prisma prisma/schema.prisma
-  elif [[ "$DATABASE_URL" == postgresql://* ]] || [[ "$DATABASE_URL" == postgres://* ]]; then
-    echo "[render-build] DATABASE_URL is PostgreSQL — using PostgreSQL schema"
-    cp prisma/schema.postgres.prisma prisma/schema.prisma
-  else
-    echo "[render-build] DATABASE_URL is SQLite — using SQLite schema"
-    cp prisma/schema.sqlite.prisma prisma/schema.prisma
-  fi
+  echo "[render-build] Copying SQLite schema..."
+  cp prisma/schema.sqlite.prisma prisma/schema.prisma
   mkdir -p data
 fi
 
-# ── Verify the schema provider matches expectations ───────────
+# ── Verify the schema provider ────────────────────────────────
 echo "[render-build] Verifying Prisma provider..."
 node scripts/check-prisma-provider.cjs
 
@@ -48,17 +53,14 @@ node scripts/check-prisma-provider.cjs
 # Delete cached client first to force regeneration.
 echo "[render-build] Clearing cached Prisma client..."
 rm -rf node_modules/.prisma node_modules/@prisma/client
-echo "[render-build] Running prisma generate..."
+echo "[render-build] Running prisma generate (provider=$PROVIDER)..."
 npx prisma generate
 
-# ── Build Next.js (standalone output for Render) ──────────────
+# ── Build Next.js ─────────────────────────────────────────────
 echo "[render-build] Building Next.js..."
 next build
 
 # ── Copy Prisma files to standalone output ────────────────────
-# The standalone server (.next/standalone/server.js) loads modules
-# from .next/standalone/node_modules/, so we must copy the generated
-# Prisma client there.
 echo "[render-build] Copying Prisma files to standalone output..."
 mkdir -p .next/standalone/prisma
 cp prisma/schema.prisma .next/standalone/prisma/
@@ -78,7 +80,7 @@ cp scripts/auto-seed.cjs .next/standalone/scripts/ 2>/dev/null || true
 cp scripts/ensure-postgres-columns.cjs .next/standalone/scripts/ 2>/dev/null || true
 cp scripts/check-prisma-provider.cjs .next/standalone/scripts/ 2>/dev/null || true
 
-# ── Copy render-start.sh to standalone output ─────────────────
+# ── Copy render-start.sh ──────────────────────────────────────
 cp render-start.sh .next/standalone/render-start.sh 2>/dev/null || true
 
-echo "[render-build] Build complete!"
+echo "[render-build] Build complete! Provider=$PROVIDER"
