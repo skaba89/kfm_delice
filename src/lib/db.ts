@@ -11,60 +11,92 @@ import { PrismaClient } from '@prisma/client'
 //   - In development only, fall back to a local SQLite file with a warning.
 //   - NEVER override a valid PostgreSQL URL with a SQLite URL.
 //   - Never log the full DATABASE_URL in production (it contains credentials).
+//
+// IMPORTANT: This module is imported transitively by client-side code
+// (constants.ts → MenuSection.tsx, DriverDashboard.tsx, etc.). We must
+// NOT throw at module-load time on the client, because the browser
+// doesn't have DATABASE_URL and PrismaClient can't run in the browser.
+// All validation is guarded with `typeof window === 'undefined'`.
 
 const isProduction = process.env.NODE_ENV === 'production';
+const isServer = typeof window === 'undefined';
 
-if (!process.env.DATABASE_URL) {
-  if (isProduction) {
-    throw new Error(
-      '[db] FATAL: DATABASE_URL is required in production. ' +
-      'Set it to a valid postgresql:// URL (Render → Environment tab).'
+if (isServer) {
+  if (!process.env.DATABASE_URL) {
+    if (isProduction) {
+      throw new Error(
+        '[db] FATAL: DATABASE_URL is required in production. ' +
+        'Set it to a valid postgresql:// URL (Render → Environment tab).'
+      );
+    }
+    // Dev-only fallback to local SQLite
+    process.env.DATABASE_URL = 'file:./data/kfm-delice.db';
+    console.warn(
+      '[db] DATABASE_URL was missing — defaulting to local SQLite: file:./data/kfm-delice.db. ' +
+      'Set DATABASE_URL (postgresql:// or postgres://) for production.'
     );
   }
-  // Dev-only fallback to local SQLite
-  process.env.DATABASE_URL = 'file:./data/kfm-delice.db';
-  console.warn(
-    '[db] DATABASE_URL was missing — defaulting to local SQLite: file:./data/kfm-delice.db. ' +
-    'Set DATABASE_URL (postgresql:// or postgres://) for production.'
-  );
+
+  const finalDatabaseUrl = process.env.DATABASE_URL || '';
+  const isValidDatabaseUrl =
+    finalDatabaseUrl.startsWith('file:') ||
+    finalDatabaseUrl.startsWith('postgresql://') ||
+    finalDatabaseUrl.startsWith('postgres://');
+
+  if (!isValidDatabaseUrl) {
+    throw new Error(
+      '[db] FATAL: Invalid DATABASE_URL. Expected a URL starting with "file:", "postgresql://" or "postgres://". ' +
+      'Refusing to start to avoid silent data corruption.'
+    );
+  }
+
+  // Log only the provider, never the full URL (which may contain credentials).
+  const dbProvider =
+    finalDatabaseUrl.startsWith('postgresql://') || finalDatabaseUrl.startsWith('postgres://')
+      ? 'postgres'
+      : 'sqlite';
+  if (isProduction) {
+    console.log(`[db] Database provider: ${dbProvider}`);
+  } else {
+    console.log(`[db] Database provider: ${dbProvider} (DATABASE_URL=${finalDatabaseUrl})`);
+  }
 }
 
-const finalDatabaseUrl = process.env.DATABASE_URL || '';
-const isValidDatabaseUrl =
-  finalDatabaseUrl.startsWith('file:') ||
-  finalDatabaseUrl.startsWith('postgresql://') ||
-  finalDatabaseUrl.startsWith('postgres://');
-
-if (!isValidDatabaseUrl) {
-  throw new Error(
-    '[db] FATAL: Invalid DATABASE_URL. Expected a URL starting with "file:", "postgresql://" or "postgres://". ' +
-    'Refusing to start to avoid silent data corruption.'
-  );
-}
-
-// Log only the provider, never the full URL (which may contain credentials).
+// Compute provider for schema-fix branching (server-only)
+const _finalDatabaseUrl = process.env.DATABASE_URL || '';
 const dbProvider =
-  finalDatabaseUrl.startsWith('postgresql://') || finalDatabaseUrl.startsWith('postgres://')
+  _finalDatabaseUrl.startsWith('postgresql://') || _finalDatabaseUrl.startsWith('postgres://')
     ? 'postgres'
     : 'sqlite';
-if (isProduction) {
-  console.log(`[db] Database provider: ${dbProvider}`);
-} else {
-  console.log(`[db] Database provider: ${dbProvider} (DATABASE_URL=${finalDatabaseUrl})`);
-}
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
   schemaFixed: boolean | undefined
 }
 
-export const db =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['query'] : ['error'],
-  })
+// Only instantiate PrismaClient on the server. On the client, export a
+// proxy that throws if accessed (so client code that accidentally uses
+// `db` fails clearly instead of crashing at import time).
+//
+// Why: db.ts is imported transitively by client components via
+// constants.ts. PrismaClient cannot run in the browser (it needs Node.js
+// crypto + a TCP connection to the DB), so we must not instantiate it
+// on the client.
+export const db = isServer
+  ? (globalForPrisma.prisma ??
+      new PrismaClient({
+        log: process.env.NODE_ENV === 'development' ? ['query'] : ['error'],
+      }))
+  : (new Proxy(
+      {},
+      {
+        get() {
+          throw new Error('[db] PrismaClient cannot be used in the browser.');
+        },
+      }
+    ) as PrismaClient);
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
+if (isServer && process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
 
 // ─── Synchronous schema fix: add missing columns ────────────────────
 // This runs once when the PrismaClient is first created.
@@ -72,7 +104,7 @@ if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
 let dbReadyResolve!: () => void
 export const dbReady = new Promise<void>((resolve) => { dbReadyResolve = resolve })
 
-if (!globalForPrisma.schemaFixed) {
+if (isServer && !globalForPrisma.schemaFixed) {
   globalForPrisma.schemaFixed = true;
 
   // ─── SQLite-only schema patch ──────────────────────────────────
