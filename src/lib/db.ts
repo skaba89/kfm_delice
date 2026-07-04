@@ -107,13 +107,38 @@ export const dbReady = new Promise<void>((resolve) => { dbReadyResolve = resolve
 if (isServer && !globalForPrisma.schemaFixed) {
   globalForPrisma.schemaFixed = true;
 
-  // ─── SQLite-only schema patch ──────────────────────────────────
-  // This ALTER TABLE block uses SQLite-specific syntax (BOOLEAN DEFAULT 0,
-  // DATETIME, REAL) that would fail on PostgreSQL. On PostgreSQL, schema
-  // is managed exclusively by `prisma migrate deploy` in render-start.sh.
+  // ─── PostgreSQL schema patch (safety net) ──────────────────────
+  // On PostgreSQL, we ALSO run a safety net here (in addition to the
+  // ensure-postgres-columns.cjs script in render-start.sh). This ensures
+  // critical columns exist even if the shell script fails or is skipped.
+  //
+  // Uses ALTER TABLE ... ADD COLUMN IF NOT EXISTS (PostgreSQL 9.6+).
+  // Only ADDS columns — never drops or modifies existing ones.
   if (dbProvider !== 'sqlite') {
-    // PostgreSQL: schema is managed by migrations — just resolve dbReady.
-    dbReadyResolve();
+    const pgColumns: [string, string, string][] = [
+      ['Driver', 'commissionRate', 'DOUBLE PRECISION NOT NULL DEFAULT 10'],
+      ['Driver', 'totalEarnings', 'BIGINT NOT NULL DEFAULT 0'],
+      ['Driver', 'mustChangePassword', 'BOOLEAN NOT NULL DEFAULT false'],
+      ['Order', 'driverEarning', 'BIGINT NOT NULL DEFAULT 0'],
+      ['Admin', 'mustChangePassword', 'BOOLEAN NOT NULL DEFAULT false'],
+      ['Customer', 'mustChangePassword', 'BOOLEAN NOT NULL DEFAULT false'],
+    ];
+    (async () => {
+      for (const [table, column, def] of pgColumns) {
+        try {
+          await db.$executeRawUnsafe(
+            `ALTER TABLE "${table}" ADD COLUMN IF NOT EXISTS "${column}" ${def}`
+          );
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          if (!msg.includes('already exists') && !msg.includes('does not exist')) {
+            console.warn(`[db:pg-fix] Could not add ${table}.${column}: ${msg}`);
+          }
+        }
+      }
+      console.log('[db:pg-fix] PostgreSQL safety-net schema check complete');
+      dbReadyResolve();
+    })();
   } else {
   const missingColumns: [string, string, string][] = [
     ['Admin', 'mustChangePassword', 'BOOLEAN NOT NULL DEFAULT 0'],
