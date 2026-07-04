@@ -82,7 +82,7 @@ export async function GET(request: Request) {
 
     const totalPages = Math.ceil(total / limit);
     return NextResponse.json({
-      data: payments,
+      data: bigIntToNumber(payments),
       pagination: { page, limit, total, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
     });
   } catch (error) {
@@ -109,8 +109,25 @@ export async function POST(request: Request) {
 
     const { orderId, method, phone, customerName } = validation.data;
 
-    // Find the order
-    const order = await db.order.findUnique({ where: { id: orderId } });
+    // ── Multi-tenant isolation: scope order lookup by user type ──
+    // Customer: must own the order (customerId === auth.id)
+    // Admin: order must belong to admin's restaurant
+    // Driver: not allowed to initiate payments (return 403)
+    // Without this, any authenticated user could pay for ANY order by
+    // guessing an orderId — leading to unauthorized payment charges
+    // and cross-tenant data access.
+    if (auth.type === "driver") {
+      return NextResponse.json({ error: "Les livreurs ne peuvent pas initier de paiement" }, { status: 403 });
+    }
+
+    const orderWhere: Record<string, unknown> = { id: orderId };
+    if (auth.type === "customer") {
+      orderWhere.customerId = auth.id;
+    } else if (auth.type === "admin" && auth.restaurantId) {
+      orderWhere.restaurantId = auth.restaurantId;
+    }
+
+    const order = await db.order.findFirst({ where: orderWhere });
     if (!order) {
       return NextResponse.json({ error: "Commande non trouvée" }, { status: 404 });
     }
@@ -237,7 +254,7 @@ export async function POST(request: Request) {
     } catch {}
 
     return NextResponse.json({
-      payment,
+      payment: bigIntToNumber(payment),
       message: result.message,
       otpRequired: result.otpRequired,
     }, { status: 201 });
@@ -250,10 +267,13 @@ export async function POST(request: Request) {
 // PATCH: Update payment status (admin confirms/cancels, or webhook callback)
 export async function PATCH(request: Request) {
   try {
+    await dbReady;
     const body = await request.json();
 
     // Support both admin manual update and webhook callback
     const isWebhook = body.webhook === true;
+
+    let adminRestaurantId: string | undefined;
 
     if (isWebhook) {
       // Verify webhook signature
@@ -262,6 +282,8 @@ export async function PATCH(request: Request) {
       if (!sigValidation.success || !signature || !verifyWebhookSignature(String(body.id), signature)) {
         return NextResponse.json({ error: "Signature webhook invalide" }, { status: 401 });
       }
+      // Webhook has no tenant scope — it's a gateway callback. The payment
+      // will be found by ID (below) and its restaurantId determines scope.
     } else {
       // Admin manual update
       const admin = await authenticateAdmin(request);
@@ -271,6 +293,7 @@ export async function PATCH(request: Request) {
       if (!hasRole(admin.role, ["admin", "manager", "cashier", "accountant"])) {
         return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
       }
+      adminRestaurantId = admin.restaurantId;
     }
 
     const validation = paymentStatusSchema.safeParse(body);
@@ -281,7 +304,16 @@ export async function PATCH(request: Request) {
 
     const { id, status, transactionRef, failedReason } = validation.data;
 
-    const payment = await db.payment.findUnique({ where: { id } });
+    // ── Multi-tenant isolation ──────────────────────────────────
+    // For admin updates: findFirst by id + admin.restaurantId.
+    // For webhooks: findUnique by id (gateway callback, no tenant scope).
+    // Without this, an admin of restaurant A could update a payment of
+    // restaurant B by guessing a payment UUID — potentially marking
+    // another restaurant's payment as 'paid' or 'failed'.
+    const payment = adminRestaurantId
+      ? await db.payment.findFirst({ where: { id, restaurantId: adminRestaurantId } })
+      : await db.payment.findUnique({ where: { id } });
+
     if (!payment) {
       return NextResponse.json({ error: "Paiement non trouvé" }, { status: 404 });
     }
