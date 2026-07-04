@@ -42,6 +42,40 @@ model PlatformAdmin {
 }
 
 // ────────────────────────────────────────────────────────────────
+// Account / Organization — SaaS customer account that owns restaurants
+// ────────────────────────────────────────────────────────────────
+model Account {
+  id                       String   @id @default(cuid())
+  name                     String
+  ownerName                String   @default("")
+  ownerEmail               String   @default("")
+  ownerPhone               String   @default("")
+  status                   String   @default("active") // active, trial, suspended, cancelled, over_quota
+  plan                     String   @default("starter") // free, starter, pro, enterprise, custom
+
+  maxRestaurants           Int      @default(1)
+  maxSecondaryRestaurants  Int      @default(0)
+  maxAdmins                Int      @default(3)
+  maxUsers                 Int      @default(10)
+  maxOrdersPerMonth        Int      @default(1000)
+
+  contractStartDate        String   @default("")
+  contractEndDate          String   @default("")
+  trialEndsAt              String   @default("")
+
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  restaurants              Restaurant[]
+  admins                   Admin[]
+  auditLogs                AuditLog[]
+
+  @@index([status])
+  @@index([plan])
+  @@index([ownerEmail])
+}
+
+// ────────────────────────────────────────────────────────────────
 // Restaurant — central tenant entity
 // ────────────────────────────────────────────────────────────────
 model Restaurant {
@@ -69,6 +103,12 @@ model Restaurant {
   ownerEmail    String   @default("") // email of restaurant owner
   ownerName     String   @default("") // name of restaurant owner
   ownerPhone    String   @default("") // phone of restaurant owner
+  // ── SaaS Account hierarchy ──
+  accountId          String?  // nullable for backward compat
+  account            Account? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  parentRestaurantId String?  // null = principal, set = secondary
+  type               String   @default("principal") // principal, secondary
+  createdByAdminId   String?  // who created this restaurant
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -132,16 +172,23 @@ model Admin {
   email             String   @unique
   password          String
   name              String
-  role              String   @default("admin") // admin, manager, staff
+  role              String   @default("admin") // admin, manager, staff, cashier, kitchen, delivery_manager, driver, host, accountant
   status            String   @default("active") // active, inactive
   mustChangePassword Boolean @default(false) // force password change on first login
   restaurantId      String
   restaurant        Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  // ── SaaS Account fields ──
+  accountId                  String?
+  account                    Account?  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  canCreateRestaurant        Boolean   @default(false)
+  restaurantCreationLimit    Int       @default(0)
+  restaurantsCreatedCount    Int       @default(0)
   createdAt         DateTime   @default(now())
   updatedAt         DateTime   @updatedAt
 
   @@index([restaurantId])
   @@index([email])
+  @@index([accountId])
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -495,4 +542,30 @@ model StockMovement {
 
   @@index([stockItemId])
   @@index([restaurantId, createdAt])
+}
+
+// ────────────────────────────────────────────────────────────────
+// AuditLog — business audit trail for SaaS operations
+// ────────────────────────────────────────────────────────────────
+model AuditLog {
+  id           String   @id @default(cuid())
+  actorId      String
+  actorType    String   // platform_admin, admin, customer, driver
+  action       String   // account_create, quota_change, restaurant_create, etc.
+  entityType   String   // Account, Restaurant, Admin, etc.
+  entityId     String
+  accountId    String?
+  account      Account? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  restaurantId String?
+  before       Json?
+  after        Json?
+  ipAddress    String   @default("")
+  userAgent    String   @default("")
+  createdAt    DateTime @default(now())
+
+  @@index([actorId])
+  @@index([accountId])
+  @@index([restaurantId])
+  @@index([entityType])
+  @@index([createdAt])
 }

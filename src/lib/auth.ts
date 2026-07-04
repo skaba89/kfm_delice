@@ -122,9 +122,15 @@ export function extractToken(request: Request): string | null {
 interface AuthenticatedAdmin {
   id: string;
   email: string;
+  name?: string;
   role: string;
   restaurantId: string;
   restaurantSlug: string;
+  // SaaS Account fields
+  accountId?: string;
+  canCreateRestaurant?: boolean;
+  restaurantCreationLimit?: number;
+  restaurantsCreatedCount?: number;
 }
 
 // Authenticate an admin request - returns admin payload with tenant context
@@ -133,21 +139,30 @@ export async function authenticateAdmin(request: Request): Promise<Authenticated
   if (!token) return null;
   const payload = verifyToken(token);
   if (!payload || payload.type !== 'admin') return null;
-  // Verify admin still exists and is active — use Prisma client for
-  // cross-database compatibility (raw SQL `FROM Admin` fails on PostgreSQL
-  // due to identifier case-folding).
   try {
     const admin = await db.admin.findUnique({
       where: { id: payload.id },
-      select: { id: true, email: true, role: true, status: true, restaurantId: true },
+      select: {
+        id: true, email: true, name: true, role: true, status: true, restaurantId: true,
+        // SaaS Account fields
+        accountId: true,
+        canCreateRestaurant: true,
+        restaurantCreationLimit: true,
+        restaurantsCreatedCount: true,
+      },
     });
     if (!admin || admin.status === 'inactive') return null;
     return {
       id: admin.id,
       email: admin.email,
+      name: admin.name,
       role: admin.role,
       restaurantId: admin.restaurantId,
       restaurantSlug: payload.restaurantSlug || '',
+      accountId: admin.accountId ?? undefined,
+      canCreateRestaurant: admin.canCreateRestaurant ?? false,
+      restaurantCreationLimit: admin.restaurantCreationLimit ?? 0,
+      restaurantsCreatedCount: admin.restaurantsCreatedCount ?? 0,
     };
   } catch {
     return null;

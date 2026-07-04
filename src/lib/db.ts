@@ -180,6 +180,15 @@ if (isServer && !globalForPrisma.schemaFixed) {
       ['Payment', 'metadata', "TEXT NOT NULL DEFAULT '{}'"],
       ['Payment', 'paidAt', "TEXT NOT NULL DEFAULT ''"],
       ['Payment', 'failedReason', "TEXT NOT NULL DEFAULT ''"],
+      // ── SaaS Account fields ──
+      ['Restaurant', 'accountId', 'TEXT'],
+      ['Restaurant', 'parentRestaurantId', 'TEXT'],
+      ['Restaurant', 'type', "TEXT NOT NULL DEFAULT 'principal'"],
+      ['Restaurant', 'createdByAdminId', 'TEXT'],
+      ['Admin', 'accountId', 'TEXT'],
+      ['Admin', 'canCreateRestaurant', 'BOOLEAN NOT NULL DEFAULT false'],
+      ['Admin', 'restaurantCreationLimit', 'INTEGER NOT NULL DEFAULT 0'],
+      ['Admin', 'restaurantsCreatedCount', 'INTEGER NOT NULL DEFAULT 0'],
     ];
 
     (async () => {

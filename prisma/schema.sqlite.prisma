@@ -22,6 +22,32 @@ model PlatformAdmin {
 }
 
 // ────────────────────────────────────────────────────────────────
+// Account / Organization — SaaS customer account
+// ────────────────────────────────────────────────────────────────
+model Account {
+  id                       String   @id @default(cuid())
+  name                     String
+  ownerName                String   @default("")
+  ownerEmail               String   @default("")
+  ownerPhone               String   @default("")
+  status                   String   @default("active")
+  plan                     String   @default("starter")
+  maxRestaurants           Int      @default(1)
+  maxSecondaryRestaurants  Int      @default(0)
+  maxAdmins                Int      @default(3)
+  maxUsers                 Int      @default(10)
+  maxOrdersPerMonth        Int      @default(1000)
+  contractStartDate        String   @default("")
+  contractEndDate          String   @default("")
+  trialEndsAt              String   @default("")
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+  restaurants              Restaurant[]
+  admins                   Admin[]
+  auditLogs                AuditLog[]
+}
+
+// ────────────────────────────────────────────────────────────────
 // Restaurant — central tenant entity
 // ────────────────────────────────────────────────────────────────
 model Restaurant {
@@ -40,19 +66,23 @@ model Restaurant {
   deliveryFee   Int      @default(5000)
   minDelivery   Int      @default(15000)
   deliveryZones String   @default("Conakry:Kaloum:Dixinn:Matam:Matoto")
-  // SaaS subscription fields
-  plan          String   @default("free") // free, starter, pro, enterprise
-  status        String   @default("active") // active, suspended, trial, cancelled
-  trialEndsAt   String   @default("") // ISO date string
-  currency      String   @default("GNF") // GNF, EUR, USD, XOF, etc.
-  locale        String   @default("fr") // fr, en, etc.
-  ownerEmail    String   @default("") // email of restaurant owner
-  ownerName     String   @default("") // name of restaurant owner
-  ownerPhone    String   @default("") // phone of restaurant owner
+  plan          String   @default("free")
+  status        String   @default("active")
+  trialEndsAt   String   @default("")
+  currency      String   @default("GNF")
+  locale        String   @default("fr")
+  ownerEmail    String   @default("")
+  ownerName     String   @default("")
+  ownerPhone    String   @default("")
+  // ── SaaS Account hierarchy ──
+  accountId          String?
+  account            Account? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  parentRestaurantId String?
+  type               String   @default("principal")
+  createdByAdminId   String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  // Relations
   config      RestaurantConfig?
   admins      Admin[]
   customers   Customer[]
@@ -109,11 +139,17 @@ model Admin {
   email             String   @unique
   password          String
   name              String
-  role              String   @default("admin") // admin, manager, staff
-  status            String   @default("active") // active, inactive
-  mustChangePassword Boolean @default(false) // force password change on first login
+  role              String   @default("admin")
+  status            String   @default("active")
+  mustChangePassword Boolean @default(false)
   restaurantId      String
   restaurant        Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  // ── SaaS Account fields ──
+  accountId                  String?
+  account                    Account?  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  canCreateRestaurant        Boolean   @default(false)
+  restaurantCreationLimit    Int       @default(0)
+  restaurantsCreatedCount    Int       @default(0)
   createdAt         DateTime   @default(now())
   updatedAt         DateTime   @updatedAt
 
@@ -459,4 +495,28 @@ model StockMovement {
 
   @@index([stockItemId])
   @@index([restaurantId, createdAt])
+}
+
+// ────────────────────────────────────────────────────────────────
+// AuditLog — business audit trail
+// ────────────────────────────────────────────────────────────────
+model AuditLog {
+  id           String   @id @default(cuid())
+  actorId      String
+  actorType    String
+  action       String
+  entityType   String
+  entityId     String
+  accountId    String?
+  account      Account? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  restaurantId String?
+  before       String?
+  after        String?
+  ipAddress    String   @default("")
+  userAgent    String   @default("")
+  createdAt    DateTime @default(now())
+
+  @@index([actorId])
+  @@index([accountId])
+  @@index([entityType])
 }
