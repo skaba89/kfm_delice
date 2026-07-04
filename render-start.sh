@@ -54,12 +54,24 @@ if [ "$PROVIDER" = "postgres" ]; then
     # Fallback is intentional but NEVER with --accept-data-loss in production.
     if ! npx prisma db push --skip-generate 2>&1; then
       echo "[render-start] ─────────────────────────────────────────────────"
-      echo "[render-start] ❌ FATAL: prisma db push also failed."
-      echo "[render-start] ❌ The database schema cannot be applied."
-      echo "[render-start] ❌ The server will start but most API routes will return 500."
+      echo "[render-start] ⚠️  prisma db push also failed (likely type conflicts)."
       echo "[render-start] ─────────────────────────────────────────────────"
     fi
   fi
+
+  # ── SAFETY NET: ensure critical columns/tables exist directly via SQL ──
+  # This runs AFTER prisma migrate deploy + db push, regardless of whether
+  # they succeeded or failed. It uses ADD COLUMN IF NOT EXISTS which is
+  # idempotent and safe — it only adds missing columns, never drops or
+  # modifies existing ones.
+  #
+  # Why this is needed: prisma migrate deploy can fail due to drift (DB
+  # modified by db push in the past), and prisma db push can fail due to
+  # type conflicts (INTEGER vs BIGINT). Without this safety net, critical
+  # columns like Driver.commissionRate would never get created and routes
+  # would crash with 500.
+  echo "[render-start] Running ensure-postgres-columns safety check..."
+  node scripts/ensure-postgres-columns.cjs 2>&1 || echo "[render-start] ensure-columns warning, continuing..."
 else
   echo "[render-start] Switching schema to SQLite..."
   if [ -f "prisma/schema.sqlite.prisma" ]; then

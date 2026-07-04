@@ -75,9 +75,10 @@ echo "[render-build] Copying public assets..."
 cp -r public .next/standalone/public 2>/dev/null || true
 
 # ── Copy scripts needed at runtime ─────────────────────────────
-echo "[render-build] Copying seed script..."
+echo "[render-build] Copying runtime scripts..."
 mkdir -p .next/standalone/scripts
 cp scripts/auto-seed.cjs .next/standalone/scripts/ 2>/dev/null || true
+cp scripts/ensure-postgres-columns.cjs .next/standalone/scripts/ 2>/dev/null || true
 
 # ── Copy render-start.sh to standalone output ──────────────────
 cp render-start.sh .next/standalone/render-start.sh 2>/dev/null || true
