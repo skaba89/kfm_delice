@@ -325,6 +325,7 @@ export const ADMIN_ROLES = [
   "cashier",
   "kitchen",
   "delivery_manager",
+  "driver",
   "host",
   "accountant",
 ] as const;
@@ -369,7 +370,7 @@ export const PERMISSION_GROUPS = {
 
   // Operations
   ORDERS_WRITE: ["admin", "manager", "staff", "cashier", "kitchen", "delivery_manager"],
-  ORDERS_READ: ["admin", "manager", "staff", "cashier", "kitchen", "delivery_manager", "host"],
+  ORDERS_READ: ["admin", "manager", "staff", "cashier", "kitchen", "delivery_manager", "driver", "host"],
   RESERVATIONS_WRITE: ["admin", "manager", "staff", "host"],
   RESERVATIONS_READ: ["admin", "manager", "staff", "host"],
   KITCHEN_DISPLAY: ["admin", "manager", "staff", "kitchen"],
@@ -381,7 +382,7 @@ export const PERMISSION_GROUPS = {
   WS_NOTIFY: ["admin", "manager"],
 
   // Platform
-  DASHBOARD_VIEW: ["admin", "manager"],
+  DASHBOARD_VIEW: ["admin", "manager", "driver"],
   SEED_RUN: ["admin"],
 } as const;
 

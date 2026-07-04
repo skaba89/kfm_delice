@@ -120,10 +120,10 @@ describe("Status labels and colors", () => {
     expect(Object.keys(staffRoleLabels).sort()).toEqual([...expectedStaffRoles].sort());
   });
 
-  it("should expose all 8 admin login roles with labels", () => {
+  it("should expose all 9 admin login roles with labels", () => {
     const expectedAdminRoles = [
       "admin", "manager", "staff", "cashier",
-      "kitchen", "delivery_manager", "host", "accountant",
+      "kitchen", "delivery_manager", "driver", "host", "accountant",
     ];
     for (const role of expectedAdminRoles) {
       expect(adminRoleLabels[role]).toBeTruthy();

@@ -355,6 +355,7 @@ export const adminRoleLabels: Record<string, string> = {
   cashier: "Caissier",
   kitchen: "Chef Cuisine",
   delivery_manager: "Resp. Livraison",
+  driver: "Livreur",
   host: "Hôte d'Accueil",
   accountant: "Comptable",
 };
@@ -365,13 +366,14 @@ export const adminRoleColors: Record<string, string> = {
   cashier: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
   kitchen: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
   delivery_manager: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
+  driver: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
   host: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300",
   accountant: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300",
 };
 // Ordered list (used by dropdowns and badge components)
 export const adminRoleOrder: string[] = [
   "admin", "manager", "staff", "cashier",
-  "kitchen", "delivery_manager", "host", "accountant",
+  "kitchen", "delivery_manager", "driver", "host", "accountant",
 ];
 export const invoiceStatusColors: Record<string, string> = { pending: "bg-amber-100 text-amber-700", paid: "bg-green-100 text-green-700", cancelled: "bg-red-100 text-red-700", overdue: "bg-red-200 text-red-800" };
 export const invoiceStatusLabels: Record<string, string> = { pending: "En attente", paid: "Payée", cancelled: "Annulée", overdue: "En retard" };
