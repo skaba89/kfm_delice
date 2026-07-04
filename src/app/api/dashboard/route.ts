@@ -32,7 +32,17 @@ export async function GET(request: Request) {
 
     const today = new Date().toISOString().split("T")[0];
 
+    // ─── Helper: safe query wrapper ──────────────────────────────
+    // If a query fails (e.g. missing column), return a fallback value
+    // instead of crashing the entire dashboard. This makes the endpoint
+    // resilient to partial schema mismatches during migration.
+    async function safeQuery<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
+      try { return await fn(); } catch (e) { console.warn("[dashboard] query failed:", e instanceof Error ? e.message : String(e)); return fallback; }
+    }
+
     // ─── Stats queries (DB-level, no full table scans) ──────────────
+    // Each query is wrapped in safeQuery so a single failure doesn't
+    // crash the entire dashboard.
     const [
       todayReservations,
       pendingReservations,
@@ -51,36 +61,36 @@ export async function GET(request: Request) {
       recentReservations,
       menuItemsForPopular,
     ] = await Promise.all([
-      db.reservation.count({ where: { restaurantId: rid, date: today } }),
-      db.reservation.count({ where: { restaurantId: rid, status: "pending" } }),
-      db.order.count({ where: { restaurantId: rid } }),
-      db.order.count({ where: { restaurantId: rid, status: { in: ["pending", "preparing", "ready", "delivering"] } } }),
-      db.order.count({ where: { restaurantId: rid, orderType: "delivery" } }),
-      db.order.count({ where: { restaurantId: rid, orderType: "delivery", status: "delivering" } }),
-      db.order.count({ where: { restaurantId: rid, orderType: "dine_in" } }),
-      db.order.count({ where: { restaurantId: rid, orderType: "takeaway" } }),
-      db.driver.count({ where: { restaurantId: rid, status: "available" } }),
-      db.driver.count({ where: { restaurantId: rid } }),
-      db.review.count({ where: { restaurantId: rid } }),
-      db.review.aggregate({ where: { restaurantId: rid }, _avg: { rating: true } }),
-      db.order.findMany({
+      safeQuery(() => db.reservation.count({ where: { restaurantId: rid, date: today } }), 0),
+      safeQuery(() => db.reservation.count({ where: { restaurantId: rid, status: "pending" } }), 0),
+      safeQuery(() => db.order.count({ where: { restaurantId: rid } }), 0),
+      safeQuery(() => db.order.count({ where: { restaurantId: rid, status: { in: ["pending", "preparing", "ready", "delivering"] } } }), 0),
+      safeQuery(() => db.order.count({ where: { restaurantId: rid, orderType: "delivery" } }), 0),
+      safeQuery(() => db.order.count({ where: { restaurantId: rid, orderType: "delivery", status: "delivering" } }), 0),
+      safeQuery(() => db.order.count({ where: { restaurantId: rid, orderType: "dine_in" } }), 0),
+      safeQuery(() => db.order.count({ where: { restaurantId: rid, orderType: "takeaway" } }), 0),
+      safeQuery(() => db.driver.count({ where: { restaurantId: rid, status: "available" } }), 0),
+      safeQuery(() => db.driver.count({ where: { restaurantId: rid } }), 0),
+      safeQuery(() => db.review.count({ where: { restaurantId: rid } }), 0),
+      safeQuery(() => db.review.aggregate({ where: { restaurantId: rid }, _avg: { rating: true } }), { _avg: { rating: null } }),
+      safeQuery(() => db.order.findMany({
         where: { restaurantId: rid, createdAt: { gte: new Date(today) }, status: { not: "cancelled" } },
         select: { total: true, deliveryFee: true },
-      }),
-      db.order.aggregate({
+      }), []),
+      safeQuery(() => db.order.aggregate({
         where: { restaurantId: rid, orderType: "delivery", status: "delivered" },
         _sum: { deliveryFee: true },
-      }),
-      db.reservation.findMany({
+      }), { _sum: { deliveryFee: null } }),
+      safeQuery(() => db.reservation.findMany({
         where: { restaurantId: rid },
         orderBy: { createdAt: "desc" },
         take: 5,
         select: { id: true, customerName: true, date: true, time: true, guests: true, zone: true, status: true },
-      }),
-      db.menuItem.findMany({
+      }), []),
+      safeQuery(() => db.menuItem.findMany({
         where: { restaurantId: rid },
         select: { name: true, price: true, category: true },
-      }),
+      }), []),
     ]);
 
     // Convert BigInt → Number for arithmetic. On SQLite these fields are
@@ -95,12 +105,12 @@ export async function GET(request: Request) {
     const deliveryRevenue = Number(deliveryRevenueAgg._sum.deliveryFee || 0);
 
     // Popular dishes from recent orders
-    const recentOrders = await db.order.findMany({
+    const recentOrders = await safeQuery(() => db.order.findMany({
       where: { restaurantId: rid, status: { not: "cancelled" } },
       orderBy: { createdAt: "desc" },
       take: 200,
       select: { items: true },
-    });
+    }), [] as { items: unknown }[]);
     const dishCounts: Record<string, number> = {};
     recentOrders.forEach((o) => {
       try {
@@ -117,10 +127,10 @@ export async function GET(request: Request) {
       });
 
     // Orders by hour for today
-    const todayOrdersByHour = await db.order.findMany({
+    const todayOrdersByHour = await safeQuery(() => db.order.findMany({
       where: { restaurantId: rid, createdAt: { gte: new Date(today) }, status: { not: "cancelled" } },
       select: { createdAt: true },
-    });
+    }), [] as { createdAt: Date }[]);
     const ordersByHour: { hour: string; count: number }[] = [];
     for (let h = 11; h <= 22; h++) {
       const hStr = `${h.toString().padStart(2, "0")}`;
@@ -137,61 +147,22 @@ export async function GET(request: Request) {
     };
 
     // ─── Data lists (with limit=1000 for admin view) ───────────────
+    // Each list is wrapped in safeQuery so a single table failure
+    // (e.g. StockItem not created yet) doesn't crash the entire dashboard.
     const [
       reservations, menuItems, orders, drivers, reviews,
       staff, admins, invoices, quotes, expenses,
     ] = await Promise.all([
-      db.reservation.findMany({
-        where: { restaurantId: rid },
-        orderBy: { createdAt: "desc" },
-        take: 1000,
-      }),
-      db.menuItem.findMany({
-        where: { restaurantId: rid },
-        orderBy: { order: "asc" },
-        take: 1000,
-      }),
-      db.order.findMany({
-        where: { restaurantId: rid },
-        orderBy: { createdAt: "desc" },
-        include: { driver: true },
-        take: 1000,
-      }),
-      db.driver.findMany({
-        where: { restaurantId: rid },
-        orderBy: { createdAt: "desc" },
-        take: 1000,
-      }),
-      db.review.findMany({
-        where: { restaurantId: rid },
-        orderBy: { createdAt: "desc" },
-        take: 1000,
-      }),
-      db.staff.findMany({
-        where: { restaurantId: rid },
-        orderBy: { createdAt: "desc" },
-        take: 1000,
-      }),
-      db.admin.findMany({
-        orderBy: { createdAt: "desc" },
-        take: 1000,
-        select: { id: true, email: true, name: true, role: true, status: true, createdAt: true, updatedAt: true },
-      }),
-      db.invoice.findMany({
-        where: { restaurantId: rid },
-        orderBy: { createdAt: "desc" },
-        take: 1000,
-      }),
-      db.quote.findMany({
-        where: { restaurantId: rid },
-        orderBy: { createdAt: "desc" },
-        take: 1000,
-      }),
-      db.expense.findMany({
-        where: { restaurantId: rid },
-        orderBy: { createdAt: "desc" },
-        take: 1000,
-      }),
+      safeQuery(() => db.reservation.findMany({ where: { restaurantId: rid }, orderBy: { createdAt: "desc" }, take: 1000 }), []),
+      safeQuery(() => db.menuItem.findMany({ where: { restaurantId: rid }, orderBy: { order: "asc" }, take: 1000 }), []),
+      safeQuery(() => db.order.findMany({ where: { restaurantId: rid }, orderBy: { createdAt: "desc" }, include: { driver: true }, take: 1000 }), []),
+      safeQuery(() => db.driver.findMany({ where: { restaurantId: rid }, orderBy: { createdAt: "desc" }, take: 1000 }), []),
+      safeQuery(() => db.review.findMany({ where: { restaurantId: rid }, orderBy: { createdAt: "desc" }, take: 1000 }), []),
+      safeQuery(() => db.staff.findMany({ where: { restaurantId: rid }, orderBy: { createdAt: "desc" }, take: 1000 }), []),
+      safeQuery(() => db.admin.findMany({ orderBy: { createdAt: "desc" }, take: 1000, select: { id: true, email: true, name: true, role: true, status: true, createdAt: true, updatedAt: true } }), []),
+      safeQuery(() => db.invoice.findMany({ where: { restaurantId: rid }, orderBy: { createdAt: "desc" }, take: 1000 }), []),
+      safeQuery(() => db.quote.findMany({ where: { restaurantId: rid }, orderBy: { createdAt: "desc" }, take: 1000 }), []),
+      safeQuery(() => db.expense.findMany({ where: { restaurantId: rid }, orderBy: { createdAt: "desc" }, take: 1000 }), []),
     ]);
 
     return NextResponse.json({

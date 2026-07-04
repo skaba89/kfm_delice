@@ -16,14 +16,39 @@ export async function GET(request: Request) {
     const category = sp.get("category");
     const lowStockOnly = sp.get("lowStock") === "1";
 
-    const items = await prisma.stockItem.findMany({
-      where: {
-        restaurantId,
-        ...(category ? { category } : {}),
-      },
-      orderBy: [{ name: "asc" }],
-      include: { _count: { select: { movements: true } } },
-    });
+    // StockItem table may not exist yet if the safety net hasn't run.
+    // Return empty result instead of crashing with 500.
+    let items: Array<{
+      id: string; name: string; sku: string; category: string;
+      quantity: number; unit: string; minThreshold: number;
+      unitCost: number; supplier: string; lastRestocked: string;
+      notes: string; restaurantId: string; createdAt: Date; updatedAt: Date;
+    }> = [];
+    let movements: Array<Record<string, unknown>> = [];
+
+    try {
+      items = await prisma.stockItem.findMany({
+        where: {
+          restaurantId,
+          ...(category ? { category } : {}),
+        },
+        orderBy: [{ name: "asc" }],
+        include: { _count: { select: { movements: true } } },
+      });
+    } catch (e) {
+      console.warn("[stock GET] StockItem table not available:", e instanceof Error ? e.message : String(e));
+    }
+
+    try {
+      movements = await prisma.stockMovement.findMany({
+        where: { restaurantId },
+        orderBy: [{ createdAt: "desc" }],
+        take: 50,
+        include: { stockItem: { select: { name: true, unit: true } } },
+      });
+    } catch (e) {
+      console.warn("[stock GET] StockMovement table not available:", e instanceof Error ? e.message : String(e));
+    }
 
     // Compute status: 'ok' | 'low' | 'out'
     const enriched = items
@@ -37,14 +62,6 @@ export async function GET(request: Request) {
     const totalValue = items.reduce((sum, it) => sum + it.quantity * it.unitCost, 0);
     const lowCount = items.filter((it) => it.quantity > 0 && it.quantity <= it.minThreshold).length;
     const outCount = items.filter((it) => it.quantity <= 0).length;
-
-    // Recent movements (last 50)
-    const movements = await prisma.stockMovement.findMany({
-      where: { restaurantId },
-      orderBy: [{ createdAt: "desc" }],
-      take: 50,
-      include: { stockItem: { select: { name: true, unit: true } } },
-    });
 
     return NextResponse.json({
       // bigIntToNumber wraps BigInt fields (unitCost) for JSON serialization.
