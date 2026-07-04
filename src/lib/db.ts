@@ -122,14 +122,66 @@ if (isServer && !globalForPrisma.schemaFixed) {
       // Customer (same issue)
       ['Customer', 'restaurantId', "TEXT NOT NULL DEFAULT ''"],
       ['Customer', 'mustChangePassword', 'BOOLEAN NOT NULL DEFAULT false'],
+      ['Customer', 'loyaltyPoints', 'INTEGER NOT NULL DEFAULT 0'],
+      ['Customer', 'totalOrders', 'INTEGER NOT NULL DEFAULT 0'],
+      ['Customer', 'totalSpent', 'BIGINT NOT NULL DEFAULT 0'],
+      ['Customer', 'address', "TEXT NOT NULL DEFAULT ''"],
+      ['Customer', 'phone', "TEXT NOT NULL DEFAULT ''"],
       // Driver (missing restaurantId + earnings + password flag)
       ['Driver', 'restaurantId', "TEXT NOT NULL DEFAULT ''"],
       ['Driver', 'commissionRate', 'DOUBLE PRECISION NOT NULL DEFAULT 10'],
       ['Driver', 'totalEarnings', 'BIGINT NOT NULL DEFAULT 0'],
       ['Driver', 'mustChangePassword', 'BOOLEAN NOT NULL DEFAULT false'],
-      // Order (missing driverEarning)
+      ['Driver', 'lat', 'DOUBLE PRECISION NOT NULL DEFAULT 0'],
+      ['Driver', 'lng', 'DOUBLE PRECISION NOT NULL DEFAULT 0'],
+      ['Driver', 'currentOrderId', "TEXT NOT NULL DEFAULT ''"],
+      ['Driver', 'email', "TEXT NOT NULL DEFAULT ''"],
+      ['Driver', 'password', "TEXT NOT NULL DEFAULT ''"],
+      // Order (missing driverEarning + other fields)
       ['Order', 'driverEarning', 'BIGINT NOT NULL DEFAULT 0'],
+      ['Order', 'driverLat', 'DOUBLE PRECISION NOT NULL DEFAULT 0'],
+      ['Order', 'driverLng', 'DOUBLE PRECISION NOT NULL DEFAULT 0'],
+      ['Order', 'estimatedDeliveryTime', "TEXT NOT NULL DEFAULT ''"],
+      ['Order', 'note', "TEXT NOT NULL DEFAULT ''"],
+      ['Order', 'tax', 'BIGINT NOT NULL DEFAULT 0'],
+      ['Order', 'discount', 'BIGINT NOT NULL DEFAULT 0'],
+      ['Order', 'deliveryFee', 'BIGINT NOT NULL DEFAULT 0'],
+      ['Order', 'tableNumber', 'INTEGER NOT NULL DEFAULT 0'],
+      ['Order', 'deliveryAddress', "TEXT NOT NULL DEFAULT ''"],
+      ['Order', 'paymentMethod', "TEXT NOT NULL DEFAULT 'cash'"],
+      ['Order', 'paymentStatus', "TEXT NOT NULL DEFAULT 'pending'"],
+      ['Order', 'customerId', 'TEXT'],
+      ['Order', 'driverId', 'TEXT'],
+      // Restaurant (init migration was missing SaaS fields)
+      ['Restaurant', 'plan', "TEXT NOT NULL DEFAULT 'free'"],
+      ['Restaurant', 'status', "TEXT NOT NULL DEFAULT 'active'"],
+      ['Restaurant', 'trialEndsAt', "TEXT NOT NULL DEFAULT ''"],
+      ['Restaurant', 'currency', "TEXT NOT NULL DEFAULT 'GNF'"],
+      ['Restaurant', 'locale', "TEXT NOT NULL DEFAULT 'fr'"],
+      ['Restaurant', 'ownerEmail', "TEXT NOT NULL DEFAULT ''"],
+      ['Restaurant', 'ownerName', "TEXT NOT NULL DEFAULT ''"],
+      ['Restaurant', 'ownerPhone', "TEXT NOT NULL DEFAULT ''"],
+      ['Restaurant', 'whatsapp', "TEXT NOT NULL DEFAULT ''"],
+      // MenuItem (missing badge, popular, available)
+      ['MenuItem', 'badge', "TEXT NOT NULL DEFAULT ''"],
+      ['MenuItem', 'popular', 'BOOLEAN NOT NULL DEFAULT false'],
+      ['MenuItem', 'available', 'BOOLEAN NOT NULL DEFAULT true'],
+      // Reservation (missing loyaltyPoint + customerId)
+      ['Reservation', 'loyaltyPoint', 'INTEGER NOT NULL DEFAULT 50'],
+      ['Reservation', 'customerId', 'TEXT'],
+      // Review (missing customerId)
+      ['Review', 'customerId', 'TEXT'],
+      // Invoice (missing orderId)
+      ['Invoice', 'orderId', "TEXT DEFAULT ''"],
+      // Payment (missing fields)
+      ['Payment', 'transactionRef', "TEXT NOT NULL DEFAULT ''"],
+      ['Payment', 'phone', "TEXT NOT NULL DEFAULT ''"],
+      ['Payment', 'customerName', "TEXT NOT NULL DEFAULT ''"],
+      ['Payment', 'metadata', "TEXT NOT NULL DEFAULT '{}'"],
+      ['Payment', 'paidAt', "TEXT NOT NULL DEFAULT ''"],
+      ['Payment', 'failedReason', "TEXT NOT NULL DEFAULT ''"],
     ];
+
     (async () => {
       for (const [table, column, def] of pgColumns) {
         try {
@@ -143,6 +195,43 @@ if (isServer && !globalForPrisma.schemaFixed) {
           }
         }
       }
+
+      // ── Fix: link existing Admin records to the first Restaurant ──
+      // The safety net added restaurantId with DEFAULT '' but the admin
+      // record from auto-seed might have an empty restaurantId. This
+      // UPDATE links any admin with empty restaurantId to the first
+      // restaurant in the DB.
+      try {
+        await db.$executeRawUnsafe(`
+          UPDATE "Admin" SET "restaurantId" = (
+            SELECT "id" FROM "Restaurant" LIMIT 1
+          )
+          WHERE "restaurantId" = '' OR "restaurantId" IS NULL
+        `);
+        console.log('[db:pg-fix] Linked orphan admins to first restaurant');
+      } catch (e: unknown) {
+        // Non-fatal — might fail if Restaurant table is empty
+      }
+
+      // Same for Customer and Driver
+      try {
+        await db.$executeRawUnsafe(`
+          UPDATE "Customer" SET "restaurantId" = (
+            SELECT "id" FROM "Restaurant" LIMIT 1
+          )
+          WHERE "restaurantId" = '' OR "restaurantId" IS NULL
+        `);
+      } catch {}
+
+      try {
+        await db.$executeRawUnsafe(`
+          UPDATE "Driver" SET "restaurantId" = (
+            SELECT "id" FROM "Restaurant" LIMIT 1
+          )
+          WHERE "restaurantId" = '' OR "restaurantId" IS NULL
+        `);
+      } catch {}
+
       console.log('[db:pg-fix] PostgreSQL safety-net schema check complete');
       dbReadyResolve();
     })();
