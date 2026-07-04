@@ -108,8 +108,14 @@ export async function POST(request: Request) {
 
   try {
     await dbReady;
-    // Ensure DB is seeded before attempting login
-    await ensureDbSeeded();
+    // Auto-seed from login is DISABLED — it was a security risk in production
+    // (anyone could trigger demo account creation by hitting /api/login).
+    // Seeding is now exclusively handled by scripts/auto-seed.cjs (called
+    // from render-start.sh), gated by ALLOW_AUTO_SEED=true.
+    // To re-enable for dev/testing: set ALLOW_LOGIN_AUTO_SEED=true
+    if (process.env.ALLOW_LOGIN_AUTO_SEED === "true") {
+      await ensureDbSeeded();
+    }
 
     const body = await request.json();
 
@@ -176,8 +182,13 @@ export async function POST(request: Request) {
   } catch (error: unknown) {
     console.error("[login] Error:", error);
     const message = error instanceof Error ? error.message : "Erreur inconnue";
+    // In production, never expose technical error details to the client.
+    // The debug field is only included in development for easier debugging.
     return NextResponse.json(
-      { error: "Erreur de connexion", debug: message },
+      {
+        error: "Erreur de connexion",
+        ...(process.env.NODE_ENV !== "production" ? { debug: message } : {}),
+      },
       { status: 500 }
     );
   }

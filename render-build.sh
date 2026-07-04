@@ -3,7 +3,11 @@ set -e
 
 echo "[render-build] Starting build..."
 echo "[render-build] NODE_ENV=${NODE_ENV:-(not set)}"
-echo "[render-build] DATABASE_URL is ${DATABASE_URL:+set}${DATABASE_URL:-NOT SET}"
+if [ -n "$DATABASE_URL" ]; then
+  echo "[render-build] DATABASE_URL is set (value hidden for security)"
+else
+  echo "[render-build] DATABASE_URL is NOT SET"
+fi
 
 # ── Determine which Prisma schema to use ──────────────────────
 # SIMPLE LOGIC — no NODE_ENV dependency:

@@ -33,6 +33,18 @@ const registerRestaurantSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  // ── Gate: public restaurant registration is disabled by default ──
+  // In the future SaaS architecture, only the platform super-admin will
+  // create restaurants. For now, this gate prevents uncontrolled public
+  // creation of restaurants + admin accounts.
+  // To enable for demo: set ENABLE_PUBLIC_RESTAURANT_REGISTRATION=true
+  if (process.env.ENABLE_PUBLIC_RESTAURANT_REGISTRATION !== "true") {
+    return NextResponse.json(
+      { error: "Inscription restaurant désactivée. Contactez l'équipe KFM Delice." },
+      { status: 403 }
+    );
+  }
+
   // Rate limiting
   const clientIp = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "unknown";
   const { allowed } = await rateLimit(clientIp, 3, 60000); // 3 registrations per minute

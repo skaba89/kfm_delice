@@ -4,7 +4,11 @@ set -e
 echo "[render-start] Current directory: $(pwd)"
 echo "[render-start] PORT=$PORT HOSTNAME=$HOSTNAME"
 echo "[render-start] NODE_ENV=${NODE_ENV:-(not set)}"
-echo "[render-start] DATABASE_URL is ${DATABASE_URL:+set}${DATABASE_URL:-NOT SET}"
+if [ -n "$DATABASE_URL" ]; then
+  echo "[render-start] DATABASE_URL is set (value hidden for security)"
+else
+  echo "[render-start] DATABASE_URL is NOT SET"
+fi
 
 # ── Detect database provider from DATABASE_URL ────────────────
 detect_provider() {

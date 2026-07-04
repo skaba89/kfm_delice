@@ -86,3 +86,9 @@ services:
         value: "mailto:admin@kfm-delice.com"
       - key: NEXT_PUBLIC_SHOW_DEMO_CREDS
         value: "false"
+      # Public restaurant registration is DISABLED by default.
+      # Set to "true" only for demo/onboarding events.
+      # In the future SaaS architecture, only the platform super-admin
+      # will create restaurants.
+      - key: ENABLE_PUBLIC_RESTAURANT_REGISTRATION
+        value: "false"
