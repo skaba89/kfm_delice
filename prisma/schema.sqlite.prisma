@@ -244,6 +244,10 @@ model Driver {
   lastLocationUpdate DateTime @default(now()) // last GPS update
   currentOrderId    String   @default("") // current active order
   mustChangePassword Boolean @default(false) // force password change on first login
+  // Driver earnings fields — same as PostgreSQL schema (Int on SQLite
+  // is sufficient for dev DB; production uses BigInt)
+  commissionRate    Float    @default(10)
+  totalEarnings     Int      @default(0)
   restaurantId      String
   restaurant        Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   orders            Order[]

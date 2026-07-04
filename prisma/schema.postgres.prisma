@@ -269,6 +269,12 @@ model Driver {
   lastLocationUpdate DateTime @default(now()) // last GPS update
   currentOrderId    String   @default("") // current active order
   mustChangePassword Boolean @default(false) // force password change on first login
+  // Driver earnings fields — referenced in code (orders PATCH, driver-earnings,
+  // DriverEarnings.tsx) but were missing from schema. Without these columns,
+  // /api/drivers, /api/dashboard, /api/tracking all crash with:
+  //   "The column main.Driver.commissionRate does not exist in the current database"
+  commissionRate    Float    @default(10) // % commission on each delivery (default 10%)
+  totalEarnings     BigInt   @default(0) // cumulative GNF earnings from all deliveries
   restaurantId      String
   restaurant        Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   orders            Order[]
