@@ -3,11 +3,10 @@ set -e
 
 echo "[render-start] Current directory: $(pwd)"
 echo "[render-start] PORT=$PORT HOSTNAME=$HOSTNAME"
+echo "[render-start] NODE_ENV=${NODE_ENV:-(not set)}"
+echo "[render-start] DATABASE_URL is ${DATABASE_URL:+set}${DATABASE_URL:-NOT SET}"
 
-# ── Detect database provider from DATABASE_URL ─────────────────
-# NEVER override DATABASE_URL on Render — Render injects a real PostgreSQL URL.
-# If DATABASE_URL is missing in production, fail loudly instead of silently
-# falling back to SQLite (which would mask a misconfigured deployment).
+# ── Detect database provider from DATABASE_URL ────────────────
 detect_provider() {
   case "$DATABASE_URL" in
     postgresql://*|postgres://*) echo "postgres" ;;
@@ -29,117 +28,56 @@ PROVIDER=$(detect_provider)
 echo "[render-start] Detected provider: $PROVIDER"
 
 if [ "$PROVIDER" = "unknown" ]; then
-  echo "[render-start] FATAL: DATABASE_URL must start with 'file:', 'postgresql://' or 'postgres://'. Got a different scheme."
+  echo "[render-start] FATAL: DATABASE_URL must start with 'file:', 'postgresql://' or 'postgres://'."
   exit 1
 fi
 
-# ── Apply schema & migrations ──────────────────────────────────
+# ── Switch schema + regenerate Prisma Client ──────────────────
+# The build may have cached a stale Prisma Client. We regenerate it
+# at runtime to ensure it matches the actual DATABASE_URL provider.
+# This is the definitive fix for the "URL must start with file:" error.
 if [ "$PROVIDER" = "postgres" ]; then
   echo "[render-start] Switching schema to PostgreSQL..."
-  if [ -f "prisma/schema.postgres.prisma" ]; then
-    cp prisma/schema.postgres.prisma prisma/schema.prisma
-  fi
+  cp prisma/schema.postgres.prisma prisma/schema.prisma
+elif [ "$PROVIDER" = "sqlite" ]; then
+  echo "[render-start] Switching schema to SQLite..."
+  cp prisma/schema.sqlite.prisma prisma/schema.prisma
+  mkdir -p data
+fi
 
-  # ── CRITICAL: Regenerate Prisma Client at RUNTIME ─────────────
-  # The build may have used a CACHED Prisma Client generated with
-  # provider="sqlite" (from a previous build). This cached client
-  # refuses PostgreSQL URLs at runtime with:
-  #   "the URL must start with the protocol file:"
-  #
-  # The standalone server (.next/standalone/server.js) loads
-  # @prisma/client from .next/standalone/node_modules/, NOT from
-  # the root node_modules/. So we must:
-  #   1. Regenerate the client in root node_modules/
-  #   2. COPY it to .next/standalone/node_modules/ (where server.js loads from)
-  echo "[render-start] Regenerating Prisma Client with PostgreSQL schema..."
-  rm -rf node_modules/.prisma node_modules/@prisma/client
-  npx prisma generate 2>&1 || echo "[render-start] WARNING: prisma generate failed"
-  
-  # Copy regenerated client to standalone output
-  echo "[render-start] Copying regenerated Prisma Client to standalone..."
-  rm -rf .next/standalone/node_modules/.prisma
-  cp -r node_modules/.prisma .next/standalone/node_modules/ 2>/dev/null || echo "[render-start] WARNING: could not copy .prisma to standalone"
-  rm -rf .next/standalone/node_modules/@prisma/client
-  mkdir -p .next/standalone/node_modules/@prisma
-  cp -r node_modules/@prisma/client .next/standalone/node_modules/@prisma/ 2>/dev/null || echo "[render-start] WARNING: could not copy @prisma/client to standalone"
-  
-  # Also copy the schema.prisma to standalone (prisma client needs it at runtime)
-  mkdir -p .next/standalone/prisma
-  cp prisma/schema.prisma .next/standalone/prisma/ 2>/dev/null || true
+# Verify provider before proceeding
+echo "[render-start] Verifying Prisma provider..."
+node scripts/check-prisma-provider.cjs
 
-  # Primary path: prisma migrate deploy (safe, never loses data)
+# Regenerate Prisma Client at RUNTIME to bypass any build cache.
+echo "[render-start] Regenerating Prisma Client (provider=$PROVIDER)..."
+rm -rf node_modules/.prisma node_modules/@prisma/client
+npx prisma generate 2>&1 || echo "[render-start] WARNING: prisma generate failed"
+
+# Copy regenerated client to standalone output (server.js loads from there).
+echo "[render-start] Copying regenerated Prisma Client to standalone..."
+rm -rf .next/standalone/node_modules/.prisma
+cp -r node_modules/.prisma .next/standalone/node_modules/ 2>/dev/null || echo "[render-start] WARNING: could not copy .prisma to standalone"
+rm -rf .next/standalone/node_modules/@prisma/client
+mkdir -p .next/standalone/node_modules/@prisma
+cp -r node_modules/@prisma/client .next/standalone/node_modules/@prisma/ 2>/dev/null || echo "[render-start] WARNING: could not copy @prisma/client to standalone"
+mkdir -p .next/standalone/prisma
+cp prisma/schema.prisma .next/standalone/prisma/ 2>/dev/null || true
+
+# ── Apply schema & migrations ──────────────────────────────────
+if [ "$PROVIDER" = "postgres" ]; then
   echo "[render-start] Running prisma migrate deploy..."
   if ! npx prisma migrate deploy 2>&1; then
-    echo "[render-start] ─────────────────────────────────────────────────"
-    echo "[render-start] ⚠️  WARNING: prisma migrate deploy failed."
-    echo "[render-start] ⚠️  This usually means a migration SQL is invalid"
-    echo "[render-start] ⚠️  OR the database is in an inconsistent state."
-    echo "[render-start] ─────────────────────────────────────────────────"
-    echo "[render-start] Falling back to 'prisma db push' (NO --accept-data-loss)."
-    echo "[render-start] This is a TEMPORARY fallback — investigate the migration"
-    echo "[render-start] error in your logs and fix it before the next deploy."
-    # Fallback is intentional but NEVER with --accept-data-loss in production.
-    if ! npx prisma db push --skip-generate 2>&1; then
-      echo "[render-start] ─────────────────────────────────────────────────"
-      echo "[render-start] ⚠️  prisma db push also failed (likely type conflicts)."
-      echo "[render-start] ─────────────────────────────────────────────────"
-    fi
+    echo "[render-start] ⚠️  prisma migrate deploy failed — falling back to db push (NO --accept-data-loss)"
+    npx prisma db push --skip-generate 2>&1 || echo "[render-start] ⚠️  prisma db push also failed"
   fi
 
-  # ── SAFETY NET: ensure critical columns/tables exist directly via SQL ──
-  # This runs AFTER prisma migrate deploy + db push, regardless of whether
-  # they succeeded or failed. It uses ADD COLUMN IF NOT EXISTS which is
-  # idempotent and safe — it only adds missing columns, never drops or
-  # modifies existing ones.
-  #
-  # Why this is needed: prisma migrate deploy can fail due to drift (DB
-  # modified by db push in the past), and prisma db push can fail due to
-  # type conflicts (INTEGER vs BIGINT). Without this safety net, critical
-  # columns like Driver.commissionRate would never get created and routes
-  # would crash with 500.
+  # Safety net: ensure critical columns/tables exist
   echo "[render-start] Running ensure-postgres-columns safety check..."
   node scripts/ensure-postgres-columns.cjs 2>&1 || echo "[render-start] ensure-columns warning, continuing..."
 else
-  echo "[render-start] Switching schema to SQLite..."
-  if [ -f "prisma/schema.sqlite.prisma" ]; then
-    cp prisma/schema.sqlite.prisma prisma/schema.prisma
-  fi
-  mkdir -p data
-  # SQLite is local/dev only — db push is acceptable here, but still
-  # never with --accept-data-loss in production.
-  if [ "$NODE_ENV" = "production" ]; then
-    echo "[render-start] Pushing SQLite schema (no --accept-data-loss)..."
-    npx prisma db push --skip-generate 2>&1 || echo "[render-start] prisma db push warning"
-  else
-    echo "[render-start] Pushing SQLite schema (dev mode)..."
-    npx prisma db push --skip-generate 2>&1 || echo "[render-start] prisma db push warning"
-  fi
-
-  # Force-add missing columns that prisma db push might miss
-  # (handles DBs created with an older schema)
-  echo "[render-start] Ensuring all columns exist..."
-  node -e "
-  const { PrismaClient } = require('@prisma/client');
-  const prisma = new PrismaClient();
-  async function fix() {
-    const cols = [
-      ['Admin', 'mustChangePassword', 'BOOLEAN NOT NULL DEFAULT 0'],
-      ['Customer', 'mustChangePassword', 'BOOLEAN NOT NULL DEFAULT 0'],
-      ['Driver', 'mustChangePassword', 'BOOLEAN NOT NULL DEFAULT 0'],
-    ];
-    for (const [tbl, col, def] of cols) {
-      try {
-        await prisma.\$executeRawUnsafe('ALTER TABLE ' + tbl + ' ADD COLUMN ' + col + ' ' + def);
-        console.log('[fix] Added ' + col + ' to ' + tbl);
-      } catch(e) {
-        if (e.message.includes('duplicate column')) console.log('[fix] ' + tbl + '.' + col + ' already exists');
-        else console.log('[fix] ' + tbl + ' check:', e.message);
-      }
-    }
-    await prisma.\$disconnect();
-  }
-  fix();
-  " 2>&1 || echo "[render-start] Column fix warning, continuing..."
+  echo "[render-start] Pushing SQLite schema..."
+  npx prisma db push --skip-generate 2>&1 || echo "[render-start] prisma db push warning"
 fi
 
 # ── Seed if empty ──────────────────────────────────────────────
