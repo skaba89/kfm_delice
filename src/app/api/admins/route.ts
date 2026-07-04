@@ -1,4 +1,4 @@
-import { db, dbReady } from "@/lib/db";
+import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole, hashPassword, verifyPassword, ADMIN_ROLES } from "@/lib/auth";
 import { adminSchema, adminPatchSchema } from "@/lib/validations";
@@ -51,7 +51,7 @@ export async function GET(request: Request) {
     ]);
     const totalPages = Math.ceil(total / limit);
     return NextResponse.json({
-      data: admins,
+      data: bigIntToNumber(admins),
       pagination: { page, limit, total, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
     });
   } catch (error) {
@@ -89,7 +89,7 @@ export async function POST(request: Request) {
     if (rest.status) createData.status = rest.status;
 
     const newAdmin = await db.admin.create({ data: createData });
-    return NextResponse.json(newAdmin, { status: 201 });
+    return NextResponse.json(bigIntToNumber(newAdmin), { status: 201 });
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
@@ -149,7 +149,7 @@ export async function PATCH(request: Request) {
     }
 
     const updatedAdmin = await db.admin.update({ where: { id }, data: updateData });
-    return NextResponse.json(updatedAdmin);
+    return NextResponse.json(bigIntToNumber(updatedAdmin));
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });

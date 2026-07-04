@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db, bigIntToNumber } from "@/lib/db";
 import { getRestaurantId } from "@/lib/tenant";
 import { NextResponse } from "next/server";
 import { authenticateAdmin } from "@/lib/auth";
@@ -194,17 +194,22 @@ export async function GET(request: Request) {
     ]);
 
     return NextResponse.json({
+      // bigIntToNumber wraps all BigInt fields in nested Prisma objects
+      // (orders, drivers, invoices, quotes, expenses, menuItems) for JSON
+      // serialization. On SQLite these are already number (no-op); on
+      // PostgreSQL they are bigint and JSON.stringify would throw without
+      // this conversion.
       stats,
-      reservations,
-      menuItems,
-      orders,
-      drivers,
-      reviews,
-      staff,
-      admins,
-      invoices,
-      quotes,
-      expenses,
+      reservations: bigIntToNumber(reservations),
+      menuItems: bigIntToNumber(menuItems),
+      orders: bigIntToNumber(orders),
+      drivers: bigIntToNumber(drivers),
+      reviews: bigIntToNumber(reviews),
+      staff: bigIntToNumber(staff),
+      admins: bigIntToNumber(admins),
+      invoices: bigIntToNumber(invoices),
+      quotes: bigIntToNumber(quotes),
+      expenses: bigIntToNumber(expenses),
     });
   } catch (error) {
     console.error(`[API GET /api/dashboard]`, error);

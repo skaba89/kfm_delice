@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db as prisma } from "@/lib/db";
+import { db as prisma, bigIntToNumber } from "@/lib/db";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
 
 // All methods: Admin/Manager auth required
@@ -47,8 +47,9 @@ export async function GET(request: Request) {
     });
 
     return NextResponse.json({
-      items: enriched,
-      movements,
+      // bigIntToNumber wraps BigInt fields (unitCost) for JSON serialization.
+      items: bigIntToNumber(enriched),
+      movements: bigIntToNumber(movements),
       summary: {
         totalItems: items.length,
         totalValue,
@@ -107,7 +108,7 @@ export async function POST(request: Request) {
       });
     }
 
-    return NextResponse.json({ item }, { status: 201 });
+    return NextResponse.json({ item: bigIntToNumber(item) }, { status: 201 });
   } catch (e) {
     console.error("[stock POST]", e);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
@@ -173,7 +174,7 @@ export async function PATCH(request: Request) {
         }),
       ]);
 
-      return NextResponse.json({ item: updated, movement });
+      return NextResponse.json({ item: bigIntToNumber(updated), movement: bigIntToNumber(movement) });
     }
 
     // Default: update item fields
@@ -187,7 +188,7 @@ export async function PATCH(request: Request) {
     }
 
     const updated = await prisma.stockItem.update({ where: { id }, data: updateData });
-    return NextResponse.json({ item: updated });
+    return NextResponse.json({ item: bigIntToNumber(updated) });
   } catch (e) {
     console.error("[stock PATCH]", e);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });

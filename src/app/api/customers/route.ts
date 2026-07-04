@@ -1,4 +1,4 @@
-import { db, dbReady } from "@/lib/db";
+import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, authenticateAny, hasRole, hashPassword, verifyPassword } from "@/lib/auth";
 import { customerUpdateSchema, customerCreateSchema } from "@/lib/validations";
@@ -55,7 +55,7 @@ export async function GET(request: Request) {
 
     const totalPages = Math.ceil(total / limit);
     return NextResponse.json({
-      data: customers,
+      data: bigIntToNumber(customers),
       pagination: { page, limit, total, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
     });
   } catch (error) {
@@ -107,7 +107,7 @@ export async function POST(request: Request) {
         restaurantId: admin.restaurantId,
       },
     });
-    return NextResponse.json(customer, { status: 201 });
+    return NextResponse.json(bigIntToNumber(customer), { status: 201 });
   } catch (error) {
     console.error("[customers] POST error:", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
@@ -186,7 +186,7 @@ export async function PATCH(request: Request) {
       },
     });
 
-    return NextResponse.json(updated);
+    return NextResponse.json(bigIntToNumber(updated));
   } catch (error) {
     console.error("[customers] PATCH error:", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });

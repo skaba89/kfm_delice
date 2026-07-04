@@ -1,4 +1,4 @@
-import { db, dbReady } from "@/lib/db";
+import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
 import { driverSchema, driverPatchSchema } from "@/lib/validations";
@@ -51,7 +51,7 @@ export async function GET(request: Request) {
 
     const totalPages = Math.ceil(total / limit);
     return NextResponse.json({
-      data: drivers,
+      data: bigIntToNumber(drivers),
       pagination: { page, limit, total, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
     });
   } catch (error) {
@@ -83,7 +83,7 @@ export async function POST(request: Request) {
     const driver = await db.driver.create({
       data: { ...validation.data, restaurantId },
     });
-    return NextResponse.json(driver, { status: 201 });
+    return NextResponse.json(bigIntToNumber(driver), { status: 201 });
   } catch (error) {
     console.error("[drivers] POST error:", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
@@ -133,7 +133,7 @@ export async function PATCH(request: Request) {
       data: updateData,
     });
 
-    return NextResponse.json(updated);
+    return NextResponse.json(bigIntToNumber(updated));
   } catch (error) {
     console.error("[drivers] PATCH error:", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });

@@ -1,4 +1,4 @@
-import { db, dbReady } from "@/lib/db";
+import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
 import { staffSchema, staffPatchSchema } from "@/lib/validations";
@@ -42,7 +42,7 @@ export async function GET(request: Request) {
     ]);
     const totalPages = Math.ceil(total / limit);
     return NextResponse.json({
-      data: staff,
+      data: bigIntToNumber(staff),
       pagination: { page, limit, total, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
     });
   } catch (error) {
@@ -73,7 +73,7 @@ export async function POST(request: Request) {
     const staff = await db.staff.create({
       data: { ...validation.data, restaurantId },
     });
-    return NextResponse.json(staff, { status: 201 });
+    return NextResponse.json(bigIntToNumber(staff), { status: 201 });
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
@@ -108,7 +108,7 @@ export async function PATCH(request: Request) {
     if (!existing) return NextResponse.json({ error: "Personnel introuvable" }, { status: 404 });
 
     const staff = await db.staff.update({ where: { id }, data });
-    return NextResponse.json(staff);
+    return NextResponse.json(bigIntToNumber(staff));
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });

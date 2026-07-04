@@ -1,4 +1,4 @@
-import { db, dbReady } from "@/lib/db";
+import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { trackingSchema } from "@/lib/validations";
 import { getRestaurantId } from "@/lib/tenant";
@@ -33,7 +33,7 @@ export async function GET(request: Request) {
         include: { driver: true },
       });
       if (!order) return NextResponse.json({ error: "Commande non trouvée" }, { status: 404 });
-      return NextResponse.json(order);
+      return NextResponse.json(bigIntToNumber(order));
     }
 
     if (phone) {
@@ -43,7 +43,7 @@ export async function GET(request: Request) {
         include: { driver: true },
         take: 10,
       });
-      return NextResponse.json(orders);
+      return NextResponse.json(bigIntToNumber(orders));
     }
 
     // All active delivery orders (for admin dashboard)
@@ -56,7 +56,7 @@ export async function GET(request: Request) {
       orderBy: { createdAt: "desc" },
       include: { driver: true },
     });
-    return NextResponse.json(activeOrders);
+    return NextResponse.json(bigIntToNumber(activeOrders));
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });

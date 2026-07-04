@@ -1,4 +1,4 @@
-import { db, dbReady } from "@/lib/db";
+import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, authenticateCustomer, hasRole } from "@/lib/auth";
 import { getRestaurantId } from "@/lib/tenant";
@@ -35,7 +35,7 @@ export async function GET(request: Request) {
     ]);
     const totalPages = Math.ceil(total / limit);
     return NextResponse.json({
-      data: reviews,
+      data: bigIntToNumber(reviews),
       pagination: { page, limit, total, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
     });
   } catch (error) {
@@ -68,7 +68,7 @@ export async function POST(request: Request) {
     const review = await db.review.create({
       data: { ...validation.data, customerName: customer.name, customerId: customer.id, restaurantId },
     });
-    return NextResponse.json(review, { status: 201 });
+    return NextResponse.json(bigIntToNumber(review), { status: 201 });
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
