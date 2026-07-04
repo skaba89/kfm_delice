@@ -14,7 +14,6 @@ const createMainRestaurantSchema = z.object({
   address: z.string().default(""),
   currency: z.string().default("GNF"),
   plan: z.enum(["free", "starter", "pro", "enterprise"]).default("free"),
-  // Admin credentials
   adminName: z.string().min(2, "Nom de l'admin requis"),
   adminEmail: z.string().email("Email admin invalide"),
   adminPassword: z.string().min(6, "Mot de passe requis (min 6)"),
@@ -35,8 +34,9 @@ export async function POST(request: Request) {
 
     const data = validation.data;
     let accountId = data.accountId;
+    let accountMaxSecondary = 0;
 
-    // Create Account if not provided
+    // Create Account if not provided, otherwise load existing
     if (!accountId) {
       const account = await db.account.create({
         data: {
@@ -47,45 +47,68 @@ export async function POST(request: Request) {
         },
       });
       accountId = account.id;
+      accountMaxSecondary = account.maxSecondaryRestaurants;
+    } else {
+      // ── Mission 2: Prevent multiple principal restaurants per account ──
+      const existingAccount = await db.account.findUnique({ where: { id: accountId } });
+      if (!existingAccount) {
+        return NextResponse.json({ error: "Compte non trouvé" }, { status: 404 });
+      }
+      accountMaxSecondary = existingAccount.maxSecondaryRestaurants;
+
+      // Check if account already has a principal restaurant
+      const existingPrincipal = await db.restaurant.findFirst({
+        where: { accountId, type: "principal" },
+        select: { id: true },
+      });
+      if (existingPrincipal) {
+        return NextResponse.json(
+          { error: "Ce compte possède déjà un restaurant principal." },
+          { status: 400 }
+        );
+      }
     }
 
     // Generate slug
     const baseSlug = data.slug || generateSlug(data.restaurantName);
     const slug = await ensureUniqueSlug(baseSlug);
 
-    // Create restaurant
-    const restaurant = await db.restaurant.create({
-      data: {
-        name: data.restaurantName,
-        slug,
-        phone: data.phone,
-        email: data.email,
-        address: data.address,
-        currency: data.currency,
-        plan: data.plan,
-        accountId,
-        type: "principal",
-        createdByAdminId: platformAdmin.id,
-      },
-    });
+    // Create restaurant + config + admin in a transaction
+    const result = await db.$transaction(async (tx) => {
+      const restaurant = await tx.restaurant.create({
+        data: {
+          name: data.restaurantName,
+          slug,
+          phone: data.phone,
+          email: data.email,
+          address: data.address,
+          currency: data.currency,
+          plan: data.plan,
+          accountId,
+          type: "principal",
+          createdByAdminId: platformAdmin.id,
+        },
+      });
 
-    // Create default config
-    await db.restaurantConfig.create({
-      data: { restaurantId: restaurant.id },
-    });
+      await tx.restaurantConfig.create({ data: { restaurantId: restaurant.id } });
 
-    // Create admin
-    const hashedPassword = await hashPassword(data.adminPassword);
-    const admin = await db.admin.create({
-      data: {
-        email: data.adminEmail,
-        password: hashedPassword,
-        name: data.adminName,
-        role: "admin",
-        restaurantId: restaurant.id,
-        accountId,
-        canCreateRestaurant: true,
-      },
+      // ── Mission 1: Set restaurantCreationLimit from account quotas ──
+      const hashedPassword = await hashPassword(data.adminPassword);
+      const admin = await tx.admin.create({
+        data: {
+          email: data.adminEmail,
+          password: hashedPassword,
+          name: data.adminName,
+          role: "admin",
+          restaurantId: restaurant.id,
+          accountId,
+          canCreateRestaurant: true,
+          restaurantCreationLimit: accountMaxSecondary,
+          restaurantsCreatedCount: 0,
+        },
+      });
+
+      return { restaurant, admin };
     });
 
     await logAudit({
@@ -93,15 +116,15 @@ export async function POST(request: Request) {
       actorType: "platform_admin",
       action: "restaurant_main_create",
       entityType: "Restaurant",
-      entityId: restaurant.id,
+      entityId: result.restaurant.id,
       accountId,
-      after: { restaurantName: data.restaurantName, slug, adminEmail: data.adminEmail },
+      after: { restaurantName: data.restaurantName, slug, adminEmail: data.adminEmail, restaurantCreationLimit: accountMaxSecondary },
       request,
     });
 
     return NextResponse.json(bigIntToNumber({
-      restaurant,
-      admin: { id: admin.id, email: admin.email, name: admin.name },
+      restaurant: result.restaurant,
+      admin: { id: result.admin.id, email: result.admin.email, name: result.admin.name },
       accountId,
     }), { status: 201 });
   } catch (error) {

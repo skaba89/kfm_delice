@@ -12,7 +12,6 @@ const createSecondarySchema = z.object({
   email: z.string().default(""),
   address: z.string().default(""),
   currency: z.string().default("GNF"),
-  // Optional: create an admin for this secondary restaurant
   adminName: z.string().optional(),
   adminEmail: z.string().email().optional(),
   adminPassword: z.string().min(6).optional(),
@@ -30,6 +29,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Aucun compte associé à cet administrateur." }, { status: 403 });
     }
     if (!admin.canCreateRestaurant) {
+      await logAudit({
+        actorId: admin.id, actorType: "admin", action: "restaurant_secondary_denied",
+        entityType: "Restaurant", entityId: "N/A", accountId: admin.accountId,
+        after: { reason: "canCreateRestaurant=false" }, request,
+      });
       return NextResponse.json({ error: "Vous n'êtes pas autorisé à créer un restaurant secondaire." }, { status: 403 });
     }
 
@@ -48,12 +52,17 @@ export async function POST(request: Request) {
     // Count current restaurants
     const restaurants = await db.restaurant.findMany({
       where: { accountId: admin.accountId },
-      select: { type: true },
+      select: { id: true, type: true },
     });
     const totalRestaurants = restaurants.length;
     const secondaryRestaurants = restaurants.filter(r => r.type === "secondary").length;
 
     if (totalRestaurants >= account.maxRestaurants) {
+      await logAudit({
+        actorId: admin.id, actorType: "admin", action: "restaurant_secondary_denied",
+        entityType: "Restaurant", entityId: "N/A", accountId: admin.accountId,
+        after: { reason: "maxRestaurants reached", used: totalRestaurants, max: account.maxRestaurants }, request,
+      });
       return NextResponse.json({ error: "Quota de restaurants atteint. Contactez KFM Delice pour augmenter votre limite." }, { status: 403 });
     }
     if (secondaryRestaurants >= account.maxSecondaryRestaurants) {
@@ -64,16 +73,7 @@ export async function POST(request: Request) {
     }
 
     // Check that a principal restaurant exists
-    const principal = restaurants.find(r => r.type === "principal");
-    if (!principal) {
-      return NextResponse.json({ error: "Aucun restaurant principal trouvé pour ce compte." }, { status: 400 });
-    }
-
-    // Find the principal restaurant ID
-    const principalRestaurant = await db.restaurant.findFirst({
-      where: { accountId: admin.accountId, type: "principal" },
-      select: { id: true },
-    });
+    const principalRestaurant = restaurants.find(r => r.type === "principal");
     if (!principalRestaurant) {
       return NextResponse.json({ error: "Aucun restaurant principal trouvé pour ce compte." }, { status: 400 });
     }
@@ -85,48 +85,71 @@ export async function POST(request: Request) {
     }
 
     const data = validation.data;
+
+    // ── Mission 7: Validate secondary admin fields ──
+    const hasAllAdminFields = data.adminName && data.adminEmail && data.adminPassword;
+    const hasSomeAdminFields = data.adminName || data.adminEmail || data.adminPassword;
+    if (hasSomeAdminFields && !hasAllAdminFields) {
+      return NextResponse.json(
+        { error: "Pour créer un administrateur secondaire, adminName, adminEmail et adminPassword sont obligatoires." },
+        { status: 400 }
+      );
+    }
+
+    // ── Mission 7: Check admin email uniqueness ──
+    if (hasAllAdminFields) {
+      const existingAdmin = await db.admin.findUnique({
+        where: { email: data.adminEmail! },
+        select: { id: true },
+      });
+      if (existingAdmin) {
+        return NextResponse.json({ error: "Cet email administrateur est déjà utilisé." }, { status: 400 });
+      }
+    }
+
     const baseSlug = data.slug || generateSlug(data.name);
     const slug = await ensureUniqueSlug(baseSlug);
 
-    // Create secondary restaurant
-    const restaurant = await db.restaurant.create({
-      data: {
-        name: data.name,
-        slug,
-        phone: data.phone,
-        email: data.email,
-        address: data.address,
-        currency: data.currency,
-        plan: account.plan,
-        accountId: admin.accountId,
-        parentRestaurantId: principalRestaurant.id,
-        type: "secondary",
-        createdByAdminId: admin.id,
-      },
-    });
-
-    // Create default config
-    await db.restaurantConfig.create({ data: { restaurantId: restaurant.id } });
-
-    // Create admin for secondary restaurant if provided
-    if (data.adminEmail && data.adminPassword && data.adminName) {
-      const hashedPassword = await hashPassword(data.adminPassword);
-      await db.admin.create({
+    // ── Mission 3: Transaction for atomic creation ──
+    const restaurant = await db.$transaction(async (tx) => {
+      const newRestaurant = await tx.restaurant.create({
         data: {
-          email: data.adminEmail,
-          password: hashedPassword,
-          name: data.adminName,
-          role: "admin",
-          restaurantId: restaurant.id,
+          name: data.name,
+          slug,
+          phone: data.phone,
+          email: data.email,
+          address: data.address,
+          currency: data.currency,
+          plan: account.plan,
           accountId: admin.accountId,
+          parentRestaurantId: principalRestaurant.id,
+          type: "secondary",
+          createdByAdminId: admin.id,
         },
       });
-    }
 
-    // Increment admin's restaurantsCreatedCount
-    await db.admin.update({
-      where: { id: admin.id },
-      data: { restaurantsCreatedCount: { increment: 1 } },
+      await tx.restaurantConfig.create({ data: { restaurantId: newRestaurant.id } });
+
+      if (hasAllAdminFields) {
+        const hashedPassword = await hashPassword(data.adminPassword!);
+        await tx.admin.create({
+          data: {
+            email: data.adminEmail!,
+            password: hashedPassword,
+            name: data.adminName!,
+            role: "admin",
+            restaurantId: newRestaurant.id,
+            accountId: admin.accountId,
+          },
+        });
+      }
+
+      await tx.admin.update({
+        where: { id: admin.id },
+        data: { restaurantsCreatedCount: { increment: 1 } },
+      });
+
+      return newRestaurant;
     });
 
     await logAudit({
@@ -137,7 +160,7 @@ export async function POST(request: Request) {
       entityId: restaurant.id,
       accountId: admin.accountId,
       restaurantId: restaurant.id,
-      after: { name: data.name, slug, type: "secondary" },
+      after: { name: data.name, slug, type: "secondary", adminCreated: hasAllAdminFields },
       request,
     });
 

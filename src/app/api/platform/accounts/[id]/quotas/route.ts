@@ -5,10 +5,10 @@ import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 
 const quotaSchema = z.object({
-  maxRestaurants: z.number().min(0).optional(),
-  maxSecondaryRestaurants: z.number().min(0).optional(),
-  maxAdmins: z.number().min(0).optional(),
-  maxUsers: z.number().min(0).optional(),
+  maxRestaurants: z.number().int().min(1, "Le nombre maximum de restaurants doit être au moins 1").optional(),
+  maxSecondaryRestaurants: z.number().int().min(0).optional(),
+  maxAdmins: z.number().int().min(1, "Le nombre maximum d'administrateurs doit être au moins 1").optional(),
+  maxUsers: z.number().int().min(1).optional(),
   plan: z.enum(["free", "starter", "pro", "enterprise", "custom"]).optional(),
   status: z.enum(["active", "trial", "suspended", "cancelled", "over_quota"]).optional(),
 });
@@ -33,14 +33,36 @@ export async function PATCH(
     const account = await db.account.findUnique({ where: { id } });
     if (!account) return NextResponse.json({ error: "Compte non trouvé" }, { status: 404 });
 
-    const before = { maxRestaurants: account.maxRestaurants, maxSecondaryRestaurants: account.maxSecondaryRestaurants, plan: account.plan, status: account.status };
+    // ── Mission 6: Quota coherence validation ──
+    const newMaxRestaurants = validation.data.maxRestaurants ?? account.maxRestaurants;
+    const newMaxSecondary = validation.data.maxSecondaryRestaurants ?? account.maxSecondaryRestaurants;
+    const newMaxAdmins = validation.data.maxAdmins ?? account.maxAdmins;
+    const newMaxUsers = validation.data.maxUsers ?? account.maxUsers;
 
-    // Check if new quota is below current usage
+    if (newMaxSecondary > newMaxRestaurants - 1) {
+      return NextResponse.json(
+        { error: "Le nombre de restaurants secondaires ne peut pas dépasser maxRestaurants - 1." },
+        { status: 400 }
+      );
+    }
+    if (newMaxUsers < newMaxAdmins) {
+      return NextResponse.json(
+        { error: "Le nombre maximum d'utilisateurs doit être supérieur ou égal au nombre maximum d'administrateurs." },
+        { status: 400 }
+      );
+    }
+
+    const before = {
+      maxRestaurants: account.maxRestaurants,
+      maxSecondaryRestaurants: account.maxSecondaryRestaurants,
+      plan: account.plan,
+      status: account.status,
+    };
+
+    // Check if new quota is below current usage → over_quota
     const restaurantCount = await db.restaurant.count({ where: { accountId: id } });
-    const newMax = validation.data.maxRestaurants ?? account.maxRestaurants;
-    
     let finalStatus = validation.data.status;
-    if (newMax < restaurantCount && !finalStatus) {
+    if (newMaxRestaurants < restaurantCount && !finalStatus) {
       finalStatus = "over_quota";
     }
 
@@ -57,9 +79,24 @@ export async function PATCH(
       entityId: id,
       accountId: id,
       before,
-      after: validation.data,
+      after: { ...validation.data, ...(finalStatus && { status: finalStatus }) },
       request,
     });
+
+    // Audit: over_quota transition
+    if (finalStatus === "over_quota" && account.status !== "over_quota") {
+      await logAudit({
+        actorId: admin.id,
+        actorType: "platform_admin",
+        action: "account_over_quota",
+        entityType: "Account",
+        entityId: id,
+        accountId: id,
+        before: { status: account.status },
+        after: { status: "over_quota", restaurantCount, newMax: newMaxRestaurants },
+        request,
+      });
+    }
 
     return NextResponse.json(bigIntToNumber(updated));
   } catch (error) {

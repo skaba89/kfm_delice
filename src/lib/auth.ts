@@ -250,7 +250,7 @@ export async function authenticateDriver(request: Request): Promise<Authenticate
 }
 
 // Authenticate either admin, customer, driver, or platform_admin
-export async function authenticateAny(request: Request): Promise<{ id: string; email: string; role: string; type: 'admin' | 'customer' | 'driver' | 'platform_admin'; restaurantId?: string; restaurantSlug?: string } | null> {
+export async function authenticateAny(request: Request): Promise<{ id: string; email: string; role: string; type: 'admin' | 'customer' | 'driver' | 'platform_admin'; restaurantId?: string; restaurantSlug?: string; accountId?: string; canCreateRestaurant?: boolean; restaurantCreationLimit?: number; restaurantsCreatedCount?: number } | null> {
   const token = extractToken(request);
   if (!token) return null;
   const payload = verifyToken(token);
@@ -265,12 +265,34 @@ export async function authenticateAny(request: Request): Promise<{ id: string; e
       return { ...payload };
     }
     if (payload.type === 'admin') {
-      const admin = await db.admin.findUnique({
-        where: { id: payload.id },
-        select: { id: true, status: true, restaurantId: true },
-      });
+      // ── Mission 5: Enrich authenticateAny with account fields ──
+      // Try with SaaS fields first; fall back to basic if columns don't exist
+      let admin: { id: string; status: string; restaurantId: string; accountId?: string | null; canCreateRestaurant?: boolean; restaurantCreationLimit?: number; restaurantsCreatedCount?: number } | null = null;
+      try {
+        admin = await db.admin.findUnique({
+          where: { id: payload.id },
+          select: {
+            id: true, status: true, restaurantId: true,
+            accountId: true, canCreateRestaurant: true,
+            restaurantCreationLimit: true, restaurantsCreatedCount: true,
+          },
+        });
+      } catch {
+        const basic = await db.admin.findUnique({
+          where: { id: payload.id },
+          select: { id: true, status: true, restaurantId: true },
+        });
+        admin = basic ? { ...basic, accountId: null, canCreateRestaurant: false, restaurantCreationLimit: 0, restaurantsCreatedCount: 0 } : null;
+      }
       if (!admin || admin.status === 'inactive') return null;
-      return { ...payload, restaurantId: admin.restaurantId };
+      return {
+        ...payload,
+        restaurantId: admin.restaurantId,
+        accountId: admin.accountId ?? undefined,
+        canCreateRestaurant: admin.canCreateRestaurant ?? false,
+        restaurantCreationLimit: admin.restaurantCreationLimit ?? 0,
+        restaurantsCreatedCount: admin.restaurantsCreatedCount ?? 0,
+      };
     } else if (payload.type === 'driver') {
       const driver = await db.driver.findUnique({
         where: { id: payload.id },
