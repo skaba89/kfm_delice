@@ -192,57 +192,91 @@ if (isServer && !globalForPrisma.schemaFixed) {
     ];
 
     (async () => {
-      for (const [table, column, def] of pgColumns) {
-        try {
-          await db.$executeRawUnsafe(
-            `ALTER TABLE "${table}" ADD COLUMN IF NOT EXISTS "${column}" ${def}`
-          );
-        } catch (e: unknown) {
-          const msg = e instanceof Error ? e.message : String(e);
-          if (!msg.includes('already exists') && !msg.includes('does not exist')) {
-            console.warn(`[db:pg-fix] Could not add ${table}.${column}: ${msg}`);
+      try {
+        for (const [table, column, def] of pgColumns) {
+          try {
+            await db.$executeRawUnsafe(
+              `ALTER TABLE "${table}" ADD COLUMN IF NOT EXISTS "${column}" ${def}`
+            );
+          } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : String(e);
+            if (!msg.includes('already exists') && !msg.includes('does not exist')) {
+              console.warn(`[db:pg-fix] Could not add ${table}.${column}: ${msg}`);
+            }
           }
         }
+
+        // ── Fix: link existing Admin records to the first Restaurant ──
+        try {
+          await db.$executeRawUnsafe(`
+            UPDATE "Admin" SET "restaurantId" = (
+              SELECT "id" FROM "Restaurant" LIMIT 1
+            )
+            WHERE "restaurantId" = '' OR "restaurantId" IS NULL
+          `);
+          console.log('[db:pg-fix] Linked orphan admins to first restaurant');
+        } catch (e: unknown) {
+          // Non-fatal — might fail if Restaurant table is empty
+        }
+
+        // Same for Customer and Driver
+        try {
+          await db.$executeRawUnsafe(`
+            UPDATE "Customer" SET "restaurantId" = (
+              SELECT "id" FROM "Restaurant" LIMIT 1
+            )
+            WHERE "restaurantId" = '' OR "restaurantId" IS NULL
+          `);
+        } catch {}
+
+        try {
+          await db.$executeRawUnsafe(`
+            UPDATE "Driver" SET "restaurantId" = (
+              SELECT "id" FROM "Restaurant" LIMIT 1
+            )
+            WHERE "restaurantId" = '' OR "restaurantId" IS NULL
+          `);
+        } catch {}
+
+        // ── Create Account and AuditLog tables if they don't exist ──
+        try {
+          await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "Account" (
+            "id" TEXT NOT NULL, "name" TEXT NOT NULL,
+            "ownerName" TEXT NOT NULL DEFAULT '', "ownerEmail" TEXT NOT NULL DEFAULT '',
+            "ownerPhone" TEXT NOT NULL DEFAULT '', "status" TEXT NOT NULL DEFAULT 'active',
+            "plan" TEXT NOT NULL DEFAULT 'starter',
+            "maxRestaurants" INTEGER NOT NULL DEFAULT 1,
+            "maxSecondaryRestaurants" INTEGER NOT NULL DEFAULT 0,
+            "maxAdmins" INTEGER NOT NULL DEFAULT 3, "maxUsers" INTEGER NOT NULL DEFAULT 10,
+            "maxOrdersPerMonth" INTEGER NOT NULL DEFAULT 1000,
+            "contractStartDate" TEXT NOT NULL DEFAULT '', "contractEndDate" TEXT NOT NULL DEFAULT '',
+            "trialEndsAt" TEXT NOT NULL DEFAULT '',
+            "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "updatedAt" TIMESTAMP(3) NOT NULL,
+            CONSTRAINT "Account_pkey" PRIMARY KEY ("id")
+          )`);
+        } catch {}
+
+        try {
+          await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "AuditLog" (
+            "id" TEXT NOT NULL, "actorId" TEXT NOT NULL, "actorType" TEXT NOT NULL,
+            "action" TEXT NOT NULL, "entityType" TEXT NOT NULL, "entityId" TEXT NOT NULL,
+            "accountId" TEXT, "restaurantId" TEXT,
+            "before" JSONB, "after" JSONB,
+            "ipAddress" TEXT NOT NULL DEFAULT '', "userAgent" TEXT NOT NULL DEFAULT '',
+            "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT "AuditLog_pkey" PRIMARY KEY ("id")
+          )`);
+        } catch {}
+
+        console.log('[db:pg-fix] PostgreSQL safety-net schema check complete');
+      } catch (outerError) {
+        console.error('[db:pg-fix] FATAL error in safety net:', outerError);
+      } finally {
+        // ALWAYS resolve dbReady, even if the safety net failed.
+        // Without this, all API routes would hang forever on `await dbReady`.
+        dbReadyResolve();
       }
-
-      // ── Fix: link existing Admin records to the first Restaurant ──
-      // The safety net added restaurantId with DEFAULT '' but the admin
-      // record from auto-seed might have an empty restaurantId. This
-      // UPDATE links any admin with empty restaurantId to the first
-      // restaurant in the DB.
-      try {
-        await db.$executeRawUnsafe(`
-          UPDATE "Admin" SET "restaurantId" = (
-            SELECT "id" FROM "Restaurant" LIMIT 1
-          )
-          WHERE "restaurantId" = '' OR "restaurantId" IS NULL
-        `);
-        console.log('[db:pg-fix] Linked orphan admins to first restaurant');
-      } catch (e: unknown) {
-        // Non-fatal — might fail if Restaurant table is empty
-      }
-
-      // Same for Customer and Driver
-      try {
-        await db.$executeRawUnsafe(`
-          UPDATE "Customer" SET "restaurantId" = (
-            SELECT "id" FROM "Restaurant" LIMIT 1
-          )
-          WHERE "restaurantId" = '' OR "restaurantId" IS NULL
-        `);
-      } catch {}
-
-      try {
-        await db.$executeRawUnsafe(`
-          UPDATE "Driver" SET "restaurantId" = (
-            SELECT "id" FROM "Restaurant" LIMIT 1
-          )
-          WHERE "restaurantId" = '' OR "restaurantId" IS NULL
-        `);
-      } catch {}
-
-      console.log('[db:pg-fix] PostgreSQL safety-net schema check complete');
-      dbReadyResolve();
     })();
   } else {
   const missingColumns: [string, string, string][] = [

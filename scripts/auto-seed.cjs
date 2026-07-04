@@ -64,7 +64,16 @@ async function main() {
     await prisma.$connect();
     console.log('[auto-seed] Database connected.');
 
-    const restaurantCount = await prisma.restaurant.count();
+    // Use raw SQL for count — Prisma Client may have SaaS schema that
+    // doesn't match the DB, causing model queries to fail.
+    let restaurantCount = 0;
+    try {
+      const rows = await prisma.$queryRawUnsafe('SELECT COUNT(*)::int as count FROM "Restaurant"');
+      restaurantCount = rows[0]?.count || 0;
+    } catch {
+      // Table might not exist yet
+      console.log('[auto-seed] Could not count restaurants, trying to seed anyway.');
+    }
     if (restaurantCount > 0) {
       console.log(`[auto-seed] Database already has ${restaurantCount} restaurant(s), skipping.`);
       return;
@@ -74,18 +83,22 @@ async function main() {
 
     // Create platform admin
     const platformPw = hashSync('platform2024', 10);
-    await prisma.platformAdmin.upsert({
-      where: { email: 'admin@restaurantpro.com' },
-      update: { password: platformPw },
-      create: {
-        email: 'admin@restaurantpro.com',
-        password: platformPw,
-        name: 'Super Admin',
-        role: 'super_admin',
-        status: 'active',
-      },
-    });
-    console.log('[auto-seed] Platform admin created.');
+    try {
+      await prisma.platformAdmin.upsert({
+        where: { email: 'admin@restaurantpro.com' },
+        update: { password: platformPw },
+        create: {
+          email: 'admin@restaurantpro.com',
+          password: platformPw,
+          name: 'Super Admin',
+          role: 'super_admin',
+          status: 'active',
+        },
+      });
+      console.log('[auto-seed] Platform admin created.');
+    } catch (e) {
+      console.log('[auto-seed] Platform admin upsert failed (may already exist):', e.message);
+    }
 
     // Create restaurant
     const restaurant = await prisma.restaurant.upsert({
