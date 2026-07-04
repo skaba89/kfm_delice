@@ -129,7 +129,7 @@ function FitBounds({
     if (validDrivers.length === 0 && !destinationLat) return;
 
     const key = [
-      ...validDrivers.map((d) => `${d.id}:${d.lat.toFixed(4)},${d.lng.toFixed(4)}`),
+      ...validDrivers.map((d) => `${d.id}:${((d.lat ?? 0)).toFixed(4)},${((d.lng ?? 0)).toFixed(4)}`),
       destinationLat ? `dest:${destinationLat.toFixed(4)},${destinationLng!.toFixed(4)}` : "",
     ].sort().join("|");
 
@@ -154,7 +154,7 @@ function FollowDriver({ driver }: { driver?: DriverDB }) {
 
   useEffect(() => {
     if (!driver || driver.lat === 0 || driver.lng === 0) return;
-    const key = `${driver.lat.toFixed(5)},${driver.lng.toFixed(5)}`;
+    const key = `${((driver.lat ?? 0)).toFixed(5)},${((driver.lng ?? 0)).toFixed(5)}`;
     if (key === prevRef.current) return;
     prevRef.current = key;
     map.panTo([driver.lat, driver.lng], { animate: true, duration: 1.2 });
@@ -420,7 +420,7 @@ export function DeliveryMapInner({
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between" }}>
                       <span style={{ color: "#666" }}>Note</span>
-                      <span>{"\u2B50"} {driver.rating.toFixed(1)}</span>
+                      <span>{"\u2B50"} {(driver.rating ?? 5).toFixed(1)}</span>
                     </div>
                     {driver.lastLocationUpdate && (
                       <div style={{ display: "flex", justifyContent: "space-between" }}>

@@ -152,24 +152,27 @@ export async function getRestaurantConfig(slug: string): Promise<RestaurantConfi
     id: restaurant.id,
     slug: restaurant.slug,
     name: restaurant.name,
-    tagline: restaurant.tagline,
-    description: restaurant.description,
-    phone: restaurant.phone,
-    whatsapp: restaurant.whatsapp,
-    email: restaurant.email,
-    address: restaurant.address,
-    hours: restaurant.hours,
+    tagline: restaurant.tagline || '',
+    description: restaurant.description || '',
+    phone: restaurant.phone || '',
+    whatsapp: restaurant.whatsapp || '',
+    email: restaurant.email || '',
+    address: restaurant.address || '',
+    hours: restaurant.hours || '',
     heroImage: config?.heroImage || '/images/kfm-hero.png',
     logo: config?.logo || '',
     primaryColor: config?.primaryColor || '#ea580c',
     accentColor: config?.accentColor || '#f97316',
     fontFamily: config?.fontFamily || 'Inter',
-    rating: restaurant.rating,
-    tables: restaurant.tables,
+    // Use ?? for rating/tables — they may be undefined if the column
+    // doesn't exist yet (safety net hasn't added it)
+    rating: restaurant.rating ?? 4.5,
+    tables: restaurant.tables ?? 20,
     // Number() wraps BigInt (PostgreSQL) for JSON serialization.
     // On SQLite these are already number (no-op).
-    deliveryFee: Number(restaurant.deliveryFee),
-    minDelivery: Number(restaurant.minDelivery),
+    // Use ?? 0 fallback in case the field is undefined.
+    deliveryFee: Number(restaurant.deliveryFee ?? 5000),
+    minDelivery: Number(restaurant.minDelivery ?? 15000),
     deliveryZones: restaurant.deliveryZones ? restaurant.deliveryZones.split(':') : [],
     menuCategories: parsedCategories,
     openingHours: parsedHours,
@@ -180,7 +183,7 @@ export async function getRestaurantConfig(slug: string): Promise<RestaurantConfi
     socialLinks: parsedSocial,
     customDomain: config?.customDomain || '',
     metaTitle: config?.metaTitle || restaurant.name,
-    metaDescription: config?.metaDescription || restaurant.description,
+    metaDescription: config?.metaDescription || restaurant.description || '',
   };
 
   // Cache

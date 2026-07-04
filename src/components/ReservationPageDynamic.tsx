@@ -336,7 +336,7 @@ export function ReservationPageDynamic() {
                       <div className="flex items-start gap-3 text-sm text-gray-600 dark:text-gray-300">
                         <Star className="w-4 h-4 mt-0.5 shrink-0 fill-amber-400 text-amber-400" />
                         <span>
-                          {restaurant.rating.toFixed(1)} / 5 —{" "}
+                          {(restaurant.rating ?? 4.5).toFixed(1)} / 5 —{" "}
                           <span className="text-gray-400">évaluations clients</span>
                         </span>
                       </div>

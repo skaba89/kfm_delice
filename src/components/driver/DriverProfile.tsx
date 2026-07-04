@@ -37,7 +37,7 @@ export function DriverProfile({ driverProfile }: DriverProfileProps) {
               <p className="text-xs text-gray-500 dark:text-gray-400">Livraisons</p>
             </div>
             <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 text-center">
-              <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{driverProfile.rating.toFixed(1)}</p>
+              <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{(driverProfile.rating ?? 5).toFixed(1)}</p>
               <p className="text-xs text-gray-500 dark:text-gray-400">Note moyenne</p>
             </div>
           </div>

@@ -87,7 +87,7 @@ export function DriverDashboard({ driver, onLogout }: DriverDashboardProps) {
           </div>
           <div className="ml-auto flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
             <span className="flex items-center gap-1">
-              <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" /> {driverProfile.rating.toFixed(1)}
+              <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" /> {(driverProfile.rating ?? 5).toFixed(1)}
             </span>
             <span className="flex items-center gap-1">
               <Package className="w-3.5 h-3.5" /> {driverProfile.totalDeliveries}
