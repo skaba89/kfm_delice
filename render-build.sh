@@ -79,6 +79,11 @@ fi
 # ── Generate Prisma client ─────────────────────────────────────
 # This MUST run AFTER the schema switch above so the client is generated
 # with the correct provider (postgresql or sqlite).
+# Also DELETE the cached client first to force regeneration — Render
+# caches node_modules/.prisma between builds, which can keep a stale
+# SQLite client even after switching to PostgreSQL schema.
+echo "[render-build] Clearing cached Prisma client..."
+rm -rf node_modules/.prisma node_modules/@prisma/client
 echo "[render-build] Generating Prisma client with provider=$PROVIDER..."
 npx prisma generate
 

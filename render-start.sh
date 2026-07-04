@@ -40,6 +40,19 @@ if [ "$PROVIDER" = "postgres" ]; then
     cp prisma/schema.postgres.prisma prisma/schema.prisma
   fi
 
+  # ── CRITICAL: Regenerate Prisma Client at RUNTIME ─────────────
+  # The build may have used a CACHED Prisma Client generated with
+  # provider="sqlite" (from a previous build). This cached client
+  # refuses PostgreSQL URLs at runtime with:
+  #   "the URL must start with the protocol file:"
+  #
+  # To fix this, we regenerate the Prisma Client HERE at startup,
+  # AFTER copying the PostgreSQL schema. This ensures the client
+  # always matches the runtime schema, regardless of build cache.
+  echo "[render-start] Regenerating Prisma Client with PostgreSQL schema..."
+  rm -rf node_modules/.prisma node_modules/@prisma/client
+  npx prisma generate 2>&1 || echo "[render-start] WARNING: prisma generate failed, using existing client"
+
   # Primary path: prisma migrate deploy (safe, never loses data)
   echo "[render-start] Running prisma migrate deploy..."
   if ! npx prisma migrate deploy 2>&1; then
