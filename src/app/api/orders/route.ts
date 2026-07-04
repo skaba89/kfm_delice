@@ -59,7 +59,7 @@ export async function GET(request: Request) {
       ]);
       const totalPages = Math.ceil(total / limit);
       return NextResponse.json({
-        data: orders,
+        data: bigIntToNumber(orders),
         pagination: { page, limit, total, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
       });
     }
@@ -78,7 +78,7 @@ export async function GET(request: Request) {
     ]);
     const totalPages = Math.ceil(total / limit);
     return NextResponse.json({
-      data: orders,
+      data: bigIntToNumber(orders),
       pagination: { page, limit, total, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
     });
   } catch (error) {
@@ -121,8 +121,10 @@ export async function POST(request: Request) {
       if (dbItem) {
         // Use the DB price, not the client-sent price.
         // Number() wraps BigInt (PostgreSQL) and is a no-op for number (SQLite).
+        // Critical: items are JSON.stringify'd below — BigInt is NOT JSON-serializable
+        // so we MUST convert to Number here, otherwise JSON.stringify throws.
         recalculatedTotal += Number(dbItem.price) * itemQty;
-        return { ...item, qty: itemQty, price: dbItem.price };
+        return { ...item, qty: itemQty, price: Number(dbItem.price) };
       }
       // If item not found in DB, keep client price but flag it
       recalculatedTotal += (item.price || 0) * itemQty;

@@ -1,4 +1,4 @@
-import { db, dbReady } from "@/lib/db";
+import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, authenticateAny, hasRole } from "@/lib/auth";
 import { paymentSchema, paymentStatusSchema, webhookSignatureSchema } from "@/lib/validations";
@@ -326,7 +326,7 @@ export async function PATCH(request: Request) {
       });
     } catch {}
 
-    return NextResponse.json(updatedPayment);
+    return NextResponse.json(bigIntToNumber(updatedPayment));
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });

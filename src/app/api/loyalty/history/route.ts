@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateCustomer } from "@/lib/auth";
 import { parsePagination, prismaSkip, prismaTake } from "@/lib/pagination";
@@ -28,7 +28,8 @@ export async function GET(request: Request) {
 
     const totalPages = Math.ceil(total / limit);
     return NextResponse.json({
-      data: history,
+      // bigIntToNumber wraps any BigInt fields for JSON serialization
+      data: bigIntToNumber(history),
       pagination: {
         page,
         limit,

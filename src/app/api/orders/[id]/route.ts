@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { db, bigIntToNumber } from "@/lib/db";
 import { generateReceiptPDF } from "@/lib/pdf-receipt";
 import { authenticateAdmin } from "@/lib/auth";
 
@@ -44,9 +44,11 @@ export async function GET(
           customerName: order.customerName,
           phone: order.phone || undefined,
           items: order.items,
-          total: order.total,
-          discount: order.discount,
-          tax: order.tax,
+          // Number() wraps BigInt fields (PostgreSQL) for PDF rendering.
+          // pdfkit's text() can't handle BigInt directly.
+          total: Number(order.total),
+          discount: Number(order.discount),
+          tax: Number(order.tax),
           status: order.status,
           orderType: order.orderType,
           paymentMethod: order.paymentMethod,
@@ -74,7 +76,10 @@ export async function GET(
     }
 
     // Default: return order as JSON
-    return NextResponse.json(order);
+    // bigIntToNumber wraps BigInt fields (total, deliveryFee, discount, tax,
+    // driverEarning, driver.commissionRate, driver.totalEarnings) for JSON
+    // serialization. On SQLite these are already number (no-op).
+    return NextResponse.json(bigIntToNumber(order));
   } catch (error) {
     console.error("[orders/[id]] Error:", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
