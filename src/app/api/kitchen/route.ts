@@ -168,7 +168,13 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "orderId et action requis" }, { status: 400 });
     }
 
-    const existing = await prisma.order.findUnique({ where: { id: orderId } });
+    // ── Multi-tenant isolation ──────────────────────────────────
+    // Verify the order belongs to the admin's restaurant BEFORE updating.
+    // Without this, a kitchen staff of restaurant A could mark any order
+    // of restaurant B as 'ready' or 'cancelled' by guessing an order UUID.
+    const existing = await prisma.order.findFirst({
+      where: { id: orderId, restaurantId: admin.restaurantId },
+    });
     if (!existing) return NextResponse.json({ error: "Commande introuvable" }, { status: 404 });
 
     let newStatus: string;

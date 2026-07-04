@@ -25,7 +25,27 @@ export async function PATCH(request: Request) {
     }
 
     const { driverId, lat, lng, orderId, status } = validation.data;
-    const targetDriverId = driverAuth ? driverAuth.id : driverId;
+    // If admin is calling, they must specify a driverId AND that driver
+    // must belong to the admin's restaurant (multi-tenant isolation).
+    // If driver is calling, they can only update their own location.
+    let targetDriverId: string | undefined;
+    if (driverAuth) {
+      targetDriverId = driverAuth.id;
+    } else if (admin) {
+      targetDriverId = driverId;
+      if (!targetDriverId) {
+        return NextResponse.json({ error: "driverId requis" }, { status: 400 });
+      }
+      // ── Multi-tenant isolation ────────────────────────────────
+      // Verify the target driver belongs to the admin's restaurant.
+      const targetDriver = await db.driver.findFirst({
+        where: { id: targetDriverId, restaurantId: admin.restaurantId },
+        select: { id: true },
+      });
+      if (!targetDriver) {
+        return NextResponse.json({ error: "Livreur introuvable" }, { status: 404 });
+      }
+    }
     if (!targetDriverId) return NextResponse.json({ error: "driverId requis" }, { status: 400 });
 
     const updateData: Record<string, unknown> = { lat, lng, lastLocationUpdate: new Date() };

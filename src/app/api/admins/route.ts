@@ -119,17 +119,25 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "ID requis" }, { status: 400 });
     }
 
+    // ── Multi-tenant isolation ──────────────────────────────────
+    // Verify the target admin belongs to the requesting admin's restaurant.
+    // Without this, an admin of restaurant A could change the password of
+    // an admin of restaurant B by guessing an admin UUID — full account
+    // takeover across tenants.
+    const targetAdmin = await db.admin.findFirst({
+      where: { id, restaurantId: admin.restaurantId },
+      select: { id: true, password: true },
+    });
+    if (!targetAdmin) {
+      return NextResponse.json({ error: "Administrateur introuvable" }, { status: 404 });
+    }
+
     const updateData: { email?: string; name?: string; password?: string; role?: string; status?: string } = { ...rest };
     if (password) {
       // If the admin is changing their own password, verify current password
       if (admin.id === id) {
         if (!currentPassword) {
           return NextResponse.json({ error: "Mot de passe actuel requis" }, { status: 400 });
-        }
-        // Fetch the admin's current password hash
-        const targetAdmin = await db.admin.findUnique({ where: { id } });
-        if (!targetAdmin) {
-          return NextResponse.json({ error: "Administrateur introuvable" }, { status: 404 });
         }
         const isValid = await verifyPassword(currentPassword, targetAdmin.password);
         if (!isValid) {
