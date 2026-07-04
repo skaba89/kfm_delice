@@ -6,6 +6,7 @@ import {
   ShoppingBag, Bike, Car, RefreshCw,
   FileText, Wallet, Receipt, UserCog, ClipboardList,
   MessageSquare, CreditCard, Wifi, WifiOff, Package, Settings,
+  QrCode,
 } from "lucide-react";
 import { OverviewTab } from "@/components/admin/OverviewTab";
 import { ReservationsTab } from "@/components/admin/ReservationsTab";
@@ -169,6 +170,7 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
     { id: "inventory", label: "Stock", icon: Package, badge: (safeStats as { lowStockCount?: number })?.lowStockCount || undefined },
     { id: "payments", label: "Paiements", icon: CreditCard, badge: safeStats.pendingPayments || undefined },
     { id: "pos", label: "Caisse POS", icon: Receipt },
+    { id: "tables", label: "QR Tables", icon: QrCode },
     { id: "settings", label: "Paramètres", icon: Settings },
   ];
   const sidebarItems = allSidebarItems.filter(item => {
@@ -276,6 +278,15 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
       {activeTab === "inventory" && <InventoryTab />}
       {activeTab === "payments" && <PaymentsTab payments={payments} apiPatch={apiPatch} />}
       {activeTab === "pos" && <PosTabWithState menuItems={menuItems} orders={orders} loadData={loadData} />}
+      {activeTab === "tables" && (
+        <div className="p-4">
+          <iframe
+            src="/admin/tables"
+            className="w-full h-[80vh] border-0 rounded-xl"
+            title="QR Codes des Tables"
+          />
+        </div>
+      )}
       {activeTab === "settings" && <SettingsTab
         apiFetch={apiFetch}
         apiPatch={async (url, body) => {
