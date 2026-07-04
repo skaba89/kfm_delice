@@ -129,16 +129,29 @@ export async function POST(request: Request) {
     const { email, password } = validation.data;
 
     // Use Prisma client (not raw SQL) for cross-database compatibility.
-    // The previous raw SQL (`SELECT ... FROM Admin WHERE email = ?`) would
-    // fail on PostgreSQL because `Admin` and `restaurantId` are case-folded
-    // to `admin` / `restaurantid` when unquoted.
-    const admin = await db.admin.findUnique({
-      where: { email },
-      select: {
-        id: true, email: true, password: true, name: true,
-        role: true, status: true, restaurantId: true,
-      },
-    });
+    // Try with full select first; if SaaS columns don't exist yet, fall back.
+    let admin: { id: string; email: string; password: string; name: string; role: string; status: string; restaurantId: string } | null = null;
+    try {
+      admin = await db.admin.findUnique({
+        where: { email },
+        select: {
+          id: true, email: true, password: true, name: true,
+          role: true, status: true, restaurantId: true,
+        },
+      });
+    } catch {
+      // Fallback: the Prisma Client may have been generated with SaaS schema
+      // but the DB doesn't have the columns yet. Try a raw SQL query.
+      try {
+        const rows = await db.$queryRawUnsafe<Array<{
+          id: string; email: string; password: string; name: string;
+          role: string; status: string; restaurantId: string;
+        }>>('SELECT id, email, password, name, role, status, "restaurantId" FROM "Admin" WHERE email = $1 LIMIT 1', email);
+        admin = rows[0] || null;
+      } catch {
+        admin = null;
+      }
+    }
 
     if (!admin) {
       return NextResponse.json({ error: "Identifiants incorrects" }, { status: 401 });
