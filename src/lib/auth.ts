@@ -140,17 +140,25 @@ export async function authenticateAdmin(request: Request): Promise<Authenticated
   const payload = verifyToken(token);
   if (!payload || payload.type !== 'admin') return null;
   try {
-    const admin = await db.admin.findUnique({
-      where: { id: payload.id },
-      select: {
-        id: true, email: true, name: true, role: true, status: true, restaurantId: true,
-        // SaaS Account fields
-        accountId: true,
-        canCreateRestaurant: true,
-        restaurantCreationLimit: true,
-        restaurantsCreatedCount: true,
-      },
-    });
+    // Try with SaaS fields first. If the DB doesn't have these columns
+    // yet (safety net hasn't run), fall back to basic fields only.
+    let admin: { id: string; email: string; name: string; role: string; status: string; restaurantId: string; accountId?: string | null; canCreateRestaurant?: boolean; restaurantCreationLimit?: number; restaurantsCreatedCount?: number } | null = null;
+    try {
+      admin = await db.admin.findUnique({
+        where: { id: payload.id },
+        select: {
+          id: true, email: true, name: true, role: true, status: true, restaurantId: true,
+          accountId: true, canCreateRestaurant: true, restaurantCreationLimit: true, restaurantsCreatedCount: true,
+        },
+      });
+    } catch {
+      // Fallback: query without SaaS fields (columns may not exist yet)
+      const basicAdmin = await db.admin.findUnique({
+        where: { id: payload.id },
+        select: { id: true, email: true, name: true, role: true, status: true, restaurantId: true },
+      });
+      admin = basicAdmin ? { ...basicAdmin, accountId: null, canCreateRestaurant: false, restaurantCreationLimit: 0, restaurantsCreatedCount: 0 } : null;
+    }
     if (!admin || admin.status === 'inactive') return null;
     return {
       id: admin.id,
