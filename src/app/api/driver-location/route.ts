@@ -1,4 +1,4 @@
-import { db, dbReady } from "@/lib/db";
+import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, authenticateDriver, hasRole } from "@/lib/auth";
 import { driverLocationPatchSchema } from "@/lib/validations";
@@ -65,7 +65,7 @@ export async function PATCH(request: Request) {
       });
     }
 
-    return NextResponse.json(driver);
+    return NextResponse.json(bigIntToNumber(driver));
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
@@ -95,7 +95,7 @@ export async function GET(request: Request) {
         select: { id: true, name: true, phone: true, lat: true, lng: true, status: true, vehicle: true, currentOrderId: true, lastLocationUpdate: true },
       });
       if (!driver) return NextResponse.json({ error: "Livreur non trouvé" }, { status: 404 });
-      return NextResponse.json(driver);
+      return NextResponse.json(bigIntToNumber(driver));
     }
 
     if (driverId) {
@@ -104,7 +104,7 @@ export async function GET(request: Request) {
         select: { id: true, name: true, phone: true, lat: true, lng: true, status: true, vehicle: true, currentOrderId: true, lastLocationUpdate: true },
       });
       if (!driver) return NextResponse.json({ error: "Livreur non trouvé" }, { status: 404 });
-      return NextResponse.json(driver);
+      return NextResponse.json(bigIntToNumber(driver));
     }
 
     // All drivers with locations (admin only)
@@ -113,7 +113,7 @@ export async function GET(request: Request) {
       where: { restaurantId },
       select: { id: true, name: true, phone: true, lat: true, lng: true, status: true, vehicle: true, currentOrderId: true, lastLocationUpdate: true },
     });
-    return NextResponse.json(drivers);
+    return NextResponse.json(bigIntToNumber(drivers));
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });

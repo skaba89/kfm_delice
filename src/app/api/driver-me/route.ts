@@ -1,4 +1,4 @@
-import { db, dbReady } from "@/lib/db";
+import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateDriver } from "@/lib/auth";
 import { driverMePatchSchema } from "@/lib/validations";
@@ -19,7 +19,7 @@ export async function GET(request: Request) {
 
     if (!driver) return NextResponse.json({ error: "Livreur non trouvé" }, { status: 404 });
 
-    return NextResponse.json({
+    return NextResponse.json(bigIntToNumber({
       id: driver.id,
       email: driver.email,
       name: driver.name,
@@ -32,7 +32,10 @@ export async function GET(request: Request) {
       lat: driver.lat,
       lng: driver.lng,
       currentOrderId: driver.currentOrderId,
-    });
+      // Include commissionRate + totalEarnings from the driver record
+      commissionRate: (driver as { commissionRate?: unknown }).commissionRate ?? 10,
+      totalEarnings: (driver as { totalEarnings?: unknown }).totalEarnings ?? 0,
+    }));
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });

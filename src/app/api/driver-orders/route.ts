@@ -1,4 +1,4 @@
-import { db, dbReady } from "@/lib/db";
+import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateDriver } from "@/lib/auth";
 import { parsePagination, prismaSkip, prismaTake } from "@/lib/pagination";
@@ -39,7 +39,7 @@ export async function GET(request: Request) {
     ]);
     const totalPages = Math.ceil(total / limit);
     return NextResponse.json({
-      data: orders,
+      data: bigIntToNumber(orders),
       pagination: { page, limit, total, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
     });
   } catch (error) {
@@ -160,7 +160,7 @@ export async function PATCH(request: Request) {
       broadcastToType('admin', WSEvents.DRIVER_STATUS_CHANGED, { driverId: driverAuth.id, status: status === 'delivered' ? 'available' : (status === 'picking_up' ? 'busy' : undefined) });
     } catch (e) { /* WS not available, fall back to polling */ }
 
-    return NextResponse.json(updatedOrder);
+    return NextResponse.json(bigIntToNumber(updatedOrder));
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });

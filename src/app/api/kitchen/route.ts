@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db as prisma } from "@/lib/db";
+import { db as prisma, bigIntToNumber } from "@/lib/db";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
 import { parseJsonField } from "@/lib/parse-json";
 
@@ -133,9 +133,9 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       queues: {
-        pending: pendingQueue,
-        preparing: preparingQueue,
-        ready: readyQueue,
+        pending: bigIntToNumber(pendingQueue),
+        preparing: bigIntToNumber(preparingQueue),
+        ready: bigIntToNumber(readyQueue),
       },
       summary: {
         totalToday: todayOrders.length,
@@ -240,7 +240,7 @@ export async function PATCH(request: Request) {
       data: { status: newStatus },
     });
 
-    return NextResponse.json({ order: updated });
+    return NextResponse.json({ order: bigIntToNumber(updated) });
   } catch (e) {
     console.error("[kitchen PATCH]", e);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
