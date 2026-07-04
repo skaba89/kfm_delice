@@ -208,8 +208,9 @@ model Order {
   tax           Int      @default(0)
   note          String   @default("")
   estimatedDeliveryTime String @default("") // ISO string of estimated delivery
-  driverLat     Float    @default(0) // driver live latitude
-  driverLng     Float    @default(0) // driver live longitude
+  driverLat      Float    @default(0) // driver live latitude
+  driverLng      Float    @default(0) // driver live longitude
+  driverEarning  Int      @default(0) // commission credited to driver on delivery
   customerId    String?
   customer      Customer? @relation(fields: [customerId], references: [id])
   driverId      String?

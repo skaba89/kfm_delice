@@ -40,6 +40,26 @@ async function main() {
     // (Don't log DATABASE_URL here — it contains credentials. Provider
     // is already logged above.)
 
+    // ── Production auto-seed gate ────────────────────────────────
+    // In production, automatically seeding a fresh database with known
+    // demo credentials (admin@kfm-delice.com / kfm2024, etc.) is a
+    // security risk: anyone who reads the source code can log in.
+    //
+    // We require an explicit opt-in via ALLOW_AUTO_SEED=true for
+    // production deployments. Dev/staging environments continue to
+    // auto-seed for convenience.
+    //
+    // KFM Delice currently uses ALLOW_AUTO_SEED=true on Render to keep
+    // the demo working. Set it to "false" (or remove it) once real
+    // production data is in place.
+    const isProduction = process.env.NODE_ENV === 'production';
+    const allowAutoSeed = process.env.ALLOW_AUTO_SEED === 'true';
+    if (isProduction && !allowAutoSeed) {
+      console.log('[auto-seed] Production mode + ALLOW_AUTO_SEED not "true" → skipping auto-seed.');
+      console.log('[auto-seed] Set ALLOW_AUTO_SEED=true in Render Environment to enable demo seeding.');
+      return;
+    }
+
     // Test DB connection
     await prisma.$connect();
     console.log('[auto-seed] Database connected.');

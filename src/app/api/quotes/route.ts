@@ -1,4 +1,4 @@
-import { db, dbReady } from "@/lib/db";
+import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
 import { quoteSchema, quotePatchSchema } from "@/lib/validations";
@@ -111,7 +111,7 @@ export async function PATCH(request: Request) {
     if (!existing) return NextResponse.json({ error: "Devis introuvable" }, { status: 404 });
 
     const quote = await db.quote.update({ where: { id }, data });
-    return NextResponse.json(quote);
+    return NextResponse.json(bigIntToNumber(quote));
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });

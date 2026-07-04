@@ -12,37 +12,55 @@ import { rateLimit } from '@/lib/rate-limit';
 //     to verify any token (returns 500 on protected routes). We do NOT throw
 //     at module-load time because Next.js imports middleware in many contexts.
 //   - Dev/build: insecure dev fallback with a warning. Never logged verbatim.
+//
+// SECURITY: In production with an invalid/missing JWT_SECRET, we DO NOT use
+// the dev fallback to verify tokens. Why? Because the dev fallback is
+// committed to the public GitHub repo — an attacker could forge a valid JWT
+// with that known secret and bypass authentication entirely. Instead, we
+// return an explicit 500 on protected routes while still serving public
+// routes (/api/menu, /api/restaurants, /api/status, etc.) so the frontend
+// doesn't completely break.
 const DEV_FALLBACK_SECRET = 'kfm-delice-dev-secret-change-in-prod';
 const isProdEnv = process.env.NODE_ENV === 'production';
 const isNextBuildPhase = process.env.NEXT_BUILD === 'true';
 
-function resolveJwtSecretForEdge(): string {
+function resolveJwtSecretForEdge(): { secret: Uint8Array; valid: boolean } {
   const secret = process.env.JWT_SECRET;
-  if (secret && secret.length >= 16) return secret;
+  if (secret && secret.length >= 16) {
+    return { secret: new TextEncoder().encode(secret), valid: true };
+  }
   if (isProdEnv && !isNextBuildPhase) {
     console.error(
       '[middleware] FATAL: JWT_SECRET missing or too short in production. ' +
-      'All authenticated routes will reject tokens until JWT_SECRET is set.'
+      'All authenticated routes will return 500 until JWT_SECRET is set.'
     );
-    return DEV_FALLBACK_SECRET;
+    // Return an invalid random secret so token verification always fails.
+    // We do NOT use the dev fallback here — it would let attackers forge
+    // valid JWTs with a publicly-known secret.
+    return { secret: new TextEncoder().encode('invalid-missing-jwt-secret-' + Date.now()), valid: false };
   }
   if (!secret) {
     console.warn(
       '[middleware] WARNING: JWT_SECRET not set — using insecure dev fallback.'
     );
   }
-  return DEV_FALLBACK_SECRET;
+  return { secret: new TextEncoder().encode(DEV_FALLBACK_SECRET), valid: true };
 }
 
-const JWT_SECRET = resolveJwtSecretForEdge();
-// jose uses Uint8Array for the secret (Web Crypto API compatible)
-const _JWT_SECRET = new TextEncoder().encode(JWT_SECRET);
+const { secret: _JWT_SECRET, valid: jwtSecretValid } = resolveJwtSecretForEdge();
 
 // ────────────────────────────────────────────────────────────────
 // Route Classification
 // ────────────────────────────────────────────────────────────────
 
-const PUBLIC_GET_ROUTES = ['/api/menu', '/api/reviews', '/api/tracking', '/api/restaurant', '/api/restaurants', '/api/diagnose', '/api/seed', '/api/loyalty/rewards', '/api/health'];
+// Note: /api/seed is intentionally PUBLIC at the middleware level (so the
+// route handler can return proper 401/403/429 responses). The seed route
+// enforces its own authentication: SEED_TOKEN header OR admin JWT, with a
+// strict 3-req/min rate limit. See src/app/api/seed/route.ts.
+//
+// /api/status is the lightweight public Render health check (no DB, no auth).
+// /api/health is the full diagnostic — auth-protected in production.
+const PUBLIC_GET_ROUTES = ['/api/menu', '/api/reviews', '/api/tracking', '/api/restaurant', '/api/restaurants', '/api/diagnose', '/api/seed', '/api/loyalty/rewards', '/api/health', '/api/status'];
 const PUBLIC_POST_ROUTES = ['/api/login', '/api/customer-login', '/api/customer-register', '/api/driver-login', '/api/orders', '/api/reservations', '/api/seed', '/api/register-restaurant', '/api/platform-login', '/api/reviews'];
 const PUBLIC_ANY_ROUTES = ['/api']; // health check
 
@@ -191,6 +209,19 @@ export async function middleware(request: NextRequest) {
   }
 
   // ── Step 6: Protected API routes — require auth ──
+
+  // SECURITY: In production with an invalid JWT_SECRET, refuse ALL protected
+  // routes with a clear 500 error. We do NOT attempt to verify tokens with
+  // the dev fallback secret (which is publicly known and would let attackers
+  // forge valid JWTs).
+  if (!jwtSecretValid) {
+    return addSecurityHeaders(
+      NextResponse.json(
+        { error: 'Configuration serveur invalide (JWT_SECRET manquant). Contactez l\'administrateur.' },
+        { status: 500 }
+      )
+    );
+  }
 
   const authHeader = request.headers.get('authorization');
   if (!authHeader?.startsWith('Bearer ')) {

@@ -43,10 +43,22 @@ if [ "$PROVIDER" = "postgres" ]; then
   # Primary path: prisma migrate deploy (safe, never loses data)
   echo "[render-start] Running prisma migrate deploy..."
   if ! npx prisma migrate deploy 2>&1; then
-    echo "[render-start] WARNING: prisma migrate deploy failed."
-    echo "[render-start] Falling back to 'prisma db push' (no --accept-data-loss)."
+    echo "[render-start] ─────────────────────────────────────────────────"
+    echo "[render-start] ⚠️  WARNING: prisma migrate deploy failed."
+    echo "[render-start] ⚠️  This usually means a migration SQL is invalid"
+    echo "[render-start] ⚠️  OR the database is in an inconsistent state."
+    echo "[render-start] ─────────────────────────────────────────────────"
+    echo "[render-start] Falling back to 'prisma db push' (NO --accept-data-loss)."
+    echo "[render-start] This is a TEMPORARY fallback — investigate the migration"
+    echo "[render-start] error in your logs and fix it before the next deploy."
     # Fallback is intentional but NEVER with --accept-data-loss in production.
-    npx prisma db push --skip-generate 2>&1 || echo "[render-start] prisma db push warning"
+    if ! npx prisma db push --skip-generate 2>&1; then
+      echo "[render-start] ─────────────────────────────────────────────────"
+      echo "[render-start] ❌ FATAL: prisma db push also failed."
+      echo "[render-start] ❌ The database schema cannot be applied."
+      echo "[render-start] ❌ The server will start but most API routes will return 500."
+      echo "[render-start] ─────────────────────────────────────────────────"
+    fi
   fi
 else
   echo "[render-start] Switching schema to SQLite..."

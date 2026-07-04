@@ -1,4 +1,4 @@
-import { db, dbReady } from "@/lib/db";
+import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
 import { invoiceSchema, invoicePatchSchema } from "@/lib/validations";
@@ -111,7 +111,7 @@ export async function PATCH(request: Request) {
     if (!existing) return NextResponse.json({ error: "Facture introuvable" }, { status: 404 });
 
     const invoice = await db.invoice.update({ where: { id }, data });
-    return NextResponse.json(invoice);
+    return NextResponse.json(bigIntToNumber(invoice));
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
