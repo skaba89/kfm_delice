@@ -37,12 +37,16 @@ export const MENU_CATS = [
   { id: "boissons", name: "Boissons", icon: CupSoda },
 ];
 
-export function formatPrice(p: number, currency: string = "GNF"): string {
-  if (currency === "GNF") return p.toLocaleString("fr-FR") + " GNF";
-  if (currency === "XOF") return p.toLocaleString("fr-FR") + " FCFA";
-  if (currency === "EUR") return p.toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
-  if (currency === "USD") return p.toLocaleString("en-US", { style: "currency", currency: "USD" });
-  return p.toLocaleString("fr-FR") + " " + currency;
+export function formatPrice(p: number | undefined | null, currency: string = "GNF"): string {
+  // Guard against undefined/null/NaN — can happen when BigInt conversion
+  // fails or when a field doesn't exist in the DB yet
+  const num = Number(p ?? 0);
+  if (isNaN(num)) return `0 ${currency}`;
+  if (currency === "GNF") return num.toLocaleString("fr-FR") + " GNF";
+  if (currency === "XOF") return num.toLocaleString("fr-FR") + " FCFA";
+  if (currency === "EUR") return num.toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
+  if (currency === "USD") return num.toLocaleString("en-US", { style: "currency", currency: "USD" });
+  return num.toLocaleString("fr-FR") + " " + currency;
 }
 
 // ────────────────────────────────────────────────────────────────

@@ -226,7 +226,7 @@ export function DriverMapTab({ driverProfile, activeOrder }: DriverMapTabProps) 
             <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 pt-2 border-t dark:border-gray-700">
               <span className="flex items-center gap-1">
                 <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
-                Position: {driverPosition.lat.toFixed(5)}, {driverPosition.lng.toFixed(5)}
+                Position: {(driverPosition.lat ?? 0).toFixed(5)}, {(driverPosition.lng ?? 0).toFixed(5)}
               </span>
             </div>
           </CardContent>
