@@ -119,8 +119,9 @@ export async function POST(request: Request) {
       const itemQty = item.qty ?? item.quantity ?? 1;
       const dbItem = menuItemsFromDB.find(m => m.name === item.name);
       if (dbItem) {
-        // Use the DB price, not the client-sent price
-        recalculatedTotal += dbItem.price * itemQty;
+        // Use the DB price, not the client-sent price.
+        // Number() wraps BigInt (PostgreSQL) and is a no-op for number (SQLite).
+        recalculatedTotal += Number(dbItem.price) * itemQty;
         return { ...item, qty: itemQty, price: dbItem.price };
       }
       // If item not found in DB, keep client price but flag it
@@ -131,7 +132,7 @@ export async function POST(request: Request) {
     // Add delivery fee if applicable
     if (body.orderType === 'delivery') {
       const restaurant = await db.restaurant.findUnique({ where: { id: restaurantId } });
-      recalculatedTotal += body.deliveryFee || restaurant?.deliveryFee || 0;
+      recalculatedTotal += Number(body.deliveryFee || restaurant?.deliveryFee || 0);
     }
 
     // Subtract discount
@@ -231,6 +232,16 @@ export async function PATCH(request: Request) {
           select: { id: true, commissionRate: true },
         });
         if (driver) {
+          // Convert BigInt fields to Number before arithmetic — PostgreSQL
+          // returns BigInt for monetary fields; SQLite returns number.
+          // Number() is a no-op on number and wraps BigInt safely.
+          const orderTotal = Number(existingOrder.total);
+          const orderDeliveryFee = Number(existingOrder.deliveryFee);
+          const commissionRate = Number(driver.commissionRate);
+          const computedEarning = Math.max(
+            Math.round(orderTotal * (commissionRate / 100)),
+            orderDeliveryFee
+          );
           await db.driver.update({
             where: { id: existingOrder.driverId },
             data: {
@@ -238,20 +249,13 @@ export async function PATCH(request: Request) {
               totalDeliveries: { increment: 1 },
               // Credit earnings on delivery: commission % of order total (or delivery fee, whichever is higher)
               ...(data.status === "delivered" ? {
-                totalEarnings: { increment: Math.max(
-                  Math.round(existingOrder.total * (driver.commissionRate / 100)),
-                  existingOrder.deliveryFee
-                ) },
+                totalEarnings: { increment: computedEarning },
               } : {}),
             },
           });
           // Persist the earning on the order for history
           if (data.status === "delivered") {
-            const earning = Math.max(
-              Math.round(existingOrder.total * (driver.commissionRate / 100)),
-              existingOrder.deliveryFee
-            );
-            await db.order.update({ where: { id }, data: { driverEarning: earning } });
+            await db.order.update({ where: { id }, data: { driverEarning: computedEarning } });
           }
         }
       }

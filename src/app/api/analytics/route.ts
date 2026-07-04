@@ -85,7 +85,8 @@ export async function GET(request: Request) {
       date.setDate(date.getDate() - (6 - i));
       const dayStr = date.toISOString().split('T')[0];
       const dayOrders = recentOrders.filter(o => o.createdAt.toISOString().split('T')[0] === dayStr);
-      return { date: dayStr, revenue: dayOrders.reduce((sum, o) => sum + o.total, 0), count: dayOrders.length };
+      // Number() wraps BigInt (PostgreSQL) — no-op on number (SQLite).
+      return { date: dayStr, revenue: dayOrders.reduce((sum, o) => sum + Number(o.total), 0), count: dayOrders.length };
     });
 
     // ─── Top selling dishes (JSON parsing — limited dataset) ──
@@ -96,7 +97,7 @@ export async function GET(request: Request) {
         items.forEach(item => {
           if (!dishSales[item.name]) dishSales[item.name] = { name: item.name, qty: 0, revenue: 0 };
           dishSales[item.name].qty += item.qty;
-          dishSales[item.name].revenue += item.price * item.qty;
+          dishSales[item.name].revenue += Number(item.price) * item.qty;
         });
       } catch { /* skip malformed items */ }
     });
@@ -120,11 +121,13 @@ export async function GET(request: Request) {
     }));
 
     // ─── Revenue by payment ───────────────────────────────────
+    // Convert BigInt → Number for JSON serialization (PostgreSQL).
+    // On SQLite these are already number, Number() is a no-op.
     const revenueByPayment = {
-      cash: revenueByPaymentCash._sum.total || 0,
-      orange_money: revenueByPaymentOrange._sum.total || 0,
-      mtn_money: revenueByPaymentMtn._sum.total || 0,
-      card: revenueByPaymentCard._sum.total || 0,
+      cash: Number(revenueByPaymentCash._sum.total || 0),
+      orange_money: Number(revenueByPaymentOrange._sum.total || 0),
+      mtn_money: Number(revenueByPaymentMtn._sum.total || 0),
+      card: Number(revenueByPaymentCard._sum.total || 0),
     };
 
     // ─── Avg delivery time ────────────────────────────────────
@@ -143,8 +146,8 @@ export async function GET(request: Request) {
       avgDeliveryMinutes: Math.round(avgDeliveryMinutes),
       avgRating,
       reviewCount,
-      thisMonthRevenue: thisMonthAgg._sum.total || 0,
-      lastMonthRevenue: lastMonthAgg._sum.total || 0,
+      thisMonthRevenue: Number(thisMonthAgg._sum.total || 0),
+      lastMonthRevenue: Number(lastMonthAgg._sum.total || 0),
       thisMonthOrders: thisMonthAgg._count,
       lastMonthOrders: lastMonthAgg._count,
     });

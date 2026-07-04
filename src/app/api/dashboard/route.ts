@@ -82,9 +82,16 @@ export async function GET(request: Request) {
       }),
     ]);
 
-    const todayRevenue = todayOrderStats.reduce((sum, o) => sum + o.total + (o.deliveryFee || 0), 0);
+    // Convert BigInt → Number for arithmetic. On SQLite these fields are
+    // `number` (Int) and Number() is a no-op. On PostgreSQL they are
+    // `bigint` and Number() is required for `+` to work correctly
+    // (otherwise bigint + bigint = bigint, which would silently truncate).
+    const todayRevenue = todayOrderStats.reduce(
+      (sum, o) => sum + Number(o.total) + Number(o.deliveryFee || 0),
+      0
+    );
     const avgRating = reviewAgg._avg.rating ? Math.round(reviewAgg._avg.rating * 10) / 10 : 0;
-    const deliveryRevenue = deliveryRevenueAgg._sum.deliveryFee || 0;
+    const deliveryRevenue = Number(deliveryRevenueAgg._sum.deliveryFee || 0);
 
     // Popular dishes from recent orders
     const recentOrders = await db.order.findMany({
