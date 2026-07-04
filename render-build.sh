@@ -2,14 +2,24 @@
 set -e
 
 echo "[render-build] Starting build..."
+echo "[render-build] NODE_ENV=$NODE_ENV"
+echo "[render-build] DATABASE_URL is ${DATABASE_URL:+set}${DATABASE_URL:-NOT SET}"
 
 # ── Detect database provider from DATABASE_URL ─────────────────
 # Render injects DATABASE_URL at build time when a database resource is
 # attached. On some Render plans (free tier), DATABASE_URL may NOT be
 # available at build time — only at runtime. In that case, we DEFAULT
-# TO POSTGRESQL in production (since that's the production target),
-# NOT SQLite. Using SQLite at build time would generate a Prisma Client
-# hardcoded for SQLite, which then refuses PostgreSQL URLs at runtime.
+# TO POSTGRESQL (the production target), NOT SQLite.
+#
+# Why PostgreSQL default? If DATABASE_URL is missing at build time:
+#   - On Render (production): DATABASE_URL will be injected at runtime as
+#     postgresql://...  → we MUST generate a PostgreSQL Prisma Client
+#   - In local dev: the developer should have DATABASE_URL=file:... in
+#     their .env file → DATABASE_URL won't be missing
+#
+# So "DATABASE_URL missing" almost always means "Render build time" →
+# default to PostgreSQL. The only way to get SQLite is to explicitly
+# set DATABASE_URL=file:... (local dev).
 detect_provider() {
   case "$DATABASE_URL" in
     postgresql://*|postgres://*)
@@ -24,20 +34,15 @@ detect_provider() {
   esac
 }
 
-# In production, if DATABASE_URL is missing at build time, default to
-# PostgreSQL (the production target). This ensures the Prisma Client is
-# generated with provider="postgresql" even if DATABASE_URL is only
-# injected at runtime.
 if [ -z "$DATABASE_URL" ]; then
-  if [ "$NODE_ENV" = "production" ]; then
-    echo "[render-build] DATABASE_URL not set at build time — defaulting to PostgreSQL schema."
-    echo "[render-build] (DATABASE_URL will be injected at runtime by Render)"
-    PROVIDER="postgres"
-  else
-    echo "[render-build] DATABASE_URL missing in dev — defaulting to SQLite."
-    export DATABASE_URL="file:./data/kfm-delice.db"
-    PROVIDER="sqlite"
-  fi
+  # DATABASE_URL is NOT set at build time → default to PostgreSQL.
+  # This is the Render scenario: DATABASE_URL will be injected at runtime.
+  # Using SQLite here would generate a Prisma Client hardcoded for SQLite
+  # that refuses PostgreSQL URLs at runtime → all DB queries crash with
+  # "the URL must start with the protocol file:".
+  echo "[render-build] DATABASE_URL not set at build time — defaulting to PostgreSQL schema."
+  echo "[render-build] (DATABASE_URL will be injected at runtime by Render)"
+  PROVIDER="postgres"
 else
   PROVIDER=$(detect_provider)
 fi
