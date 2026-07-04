@@ -166,8 +166,10 @@ export async function getRestaurantConfig(slug: string): Promise<RestaurantConfi
     fontFamily: config?.fontFamily || 'Inter',
     rating: restaurant.rating,
     tables: restaurant.tables,
-    deliveryFee: restaurant.deliveryFee,
-    minDelivery: restaurant.minDelivery,
+    // Number() wraps BigInt (PostgreSQL) for JSON serialization.
+    // On SQLite these are already number (no-op).
+    deliveryFee: Number(restaurant.deliveryFee),
+    minDelivery: Number(restaurant.minDelivery),
     deliveryZones: restaurant.deliveryZones ? restaurant.deliveryZones.split(':') : [],
     menuCategories: parsedCategories,
     openingHours: parsedHours,

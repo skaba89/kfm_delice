@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateCustomer, authenticateAdmin, hasRole } from "@/lib/auth";
 
@@ -16,7 +16,10 @@ export async function GET(request: Request) {
       orderBy: { pointsCost: "asc" },
     });
 
-    return NextResponse.json({ data: rewards });
+    // bigIntToNumber wraps BigInt fields (value) for JSON serialization.
+    // On SQLite these are already number (no-op); on PostgreSQL they are
+    // bigint and JSON.stringify would throw without this conversion.
+    return NextResponse.json({ data: bigIntToNumber(rewards) });
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
@@ -82,12 +85,13 @@ export async function POST(request: Request) {
       success: true,
       message: `Récompense "${reward.name}" échangée avec succès !`,
       remainingPoints: result.updatedCustomer.loyaltyPoints,
-      historyEntry: result.historyEntry,
+      historyEntry: bigIntToNumber(result.historyEntry),
       reward: {
         id: reward.id,
         name: reward.name,
         category: reward.category,
-        value: reward.value,
+        // Number() wraps BigInt (value field) for JSON serialization
+        value: Number(reward.value),
       },
     });
   } catch (error) {

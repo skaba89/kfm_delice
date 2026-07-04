@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db as prisma } from "@/lib/db";
+import { db as prisma, bigIntToNumber } from "@/lib/db";
 import { authenticateDriver } from "@/lib/auth";
 
 // GET /api/driver-earnings — earnings summary for the authenticated driver
@@ -52,12 +52,23 @@ export async function GET(request: Request) {
       take: 100,
     });
 
-    // Aggregate by period based on updatedAt (when delivery was completed)
-    const todayOrders = deliveredOrders.filter(o => new Date(o.updatedAt) >= todayStart);
-    const weekOrders = deliveredOrders.filter(o => new Date(o.updatedAt) >= weekStart);
-    const monthOrders = deliveredOrders.filter(o => new Date(o.updatedAt) >= monthStart);
+    // Convert BigInt fields to Number BEFORE arithmetic and JSON serialization.
+    // On PostgreSQL: total, deliveryFee, driverEarning are BigInt — JSON.stringify
+    // throws TypeError without conversion, and bigint + bigint = bigint (truncates).
+    // On SQLite: these are already number, Number() is a no-op.
+    const ordersNorm = deliveredOrders.map(o => ({
+      ...o,
+      total: Number(o.total),
+      deliveryFee: Number(o.deliveryFee),
+      driverEarning: Number(o.driverEarning || 0),
+    }));
 
-    const sum = (arr: typeof deliveredOrders) => arr.reduce((s, o) => s + (o.driverEarning || 0), 0);
+    // Aggregate by period based on updatedAt (when delivery was completed)
+    const todayOrders = ordersNorm.filter(o => new Date(o.updatedAt) >= todayStart);
+    const weekOrders = ordersNorm.filter(o => new Date(o.updatedAt) >= weekStart);
+    const monthOrders = ordersNorm.filter(o => new Date(o.updatedAt) >= monthStart);
+
+    const sum = (arr: typeof ordersNorm) => arr.reduce((s, o) => s + (o.driverEarning || 0), 0);
 
     // Daily earnings for last 14 days (chart)
     const dailyEarnings: { date: string; earnings: number; count: number }[] = [];
@@ -67,7 +78,7 @@ export async function GET(request: Request) {
       dStart.setHours(0, 0, 0, 0);
       const dEnd = new Date(dStart);
       dEnd.setHours(23, 59, 59, 999);
-      const dayOrders = deliveredOrders.filter(o =>
+      const dayOrders = ordersNorm.filter(o =>
         new Date(o.updatedAt) >= dStart && new Date(o.updatedAt) <= dEnd
       );
       dailyEarnings.push({
@@ -78,9 +89,11 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json({
-      profile,
+      // Convert profile BigInt fields (totalEarnings) to Number
+      profile: bigIntToNumber(profile),
       summary: {
-        total: profile.totalEarnings,
+        // Number() wraps BigInt (totalEarnings) for JSON serialization
+        total: Number(profile.totalEarnings),
         today: sum(todayOrders),
         week: sum(weekOrders),
         month: sum(monthOrders),
@@ -89,7 +102,7 @@ export async function GET(request: Request) {
         monthCount: monthOrders.length,
       },
       dailyEarnings,
-      recentOrders: deliveredOrders.slice(0, 50),
+      recentOrders: ordersNorm.slice(0, 50),
     });
   } catch (e) {
     console.error("[driver-earnings GET]", e);

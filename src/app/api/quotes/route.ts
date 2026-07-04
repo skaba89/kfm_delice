@@ -45,7 +45,7 @@ export async function GET(request: Request) {
     ]);
     const totalPages = Math.ceil(total / limit);
     return NextResponse.json({
-      data: quotes,
+      data: bigIntToNumber(quotes),
       pagination: { page, limit, total, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
     });
   } catch (error) {
@@ -76,7 +76,7 @@ export async function POST(request: Request) {
     const quote = await db.quote.create({
       data: { ...validation.data, restaurantId },
     });
-    return NextResponse.json(quote, { status: 201 });
+    return NextResponse.json(bigIntToNumber(quote), { status: 201 });
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
