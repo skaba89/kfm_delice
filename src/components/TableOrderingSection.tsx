@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Star, RefreshCw, MessageCircle, ShoppingCart, Plus, Minus, X, CreditCard } from "lucide-react";
+import { Star, RefreshCw, MessageCircle, ShoppingCart, Plus, Minus, X, CreditCard, CalendarCheck, CheckCircle2, Utensils, Calendar } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { AnimatedSection } from "@/components/AnimatedSection";
 import type { MenuItemDB } from "@/lib/types";
 import { MENU_CATS, formatPrice } from "@/lib/constants";
@@ -28,6 +30,12 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "orange_money" | "mtn_money" | "wave" | "card">("cash");
+
+  // ── Reservation state ──
+  const [activeTab, setActiveTab] = useState<"order" | "reservation">("order");
+  const [resForm, setResForm] = useState({ customerName: "", phone: "", date: "", time: "", guests: 2, zone: "interieur", notes: "" });
+  const [resSubmitted, setResSubmitted] = useState(false);
+  const [resSubmitting, setResSubmitting] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -143,6 +151,26 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
     }
   };
 
+  // ── Reservation submit ──
+  const handleReservation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResSubmitting(true);
+    try {
+      const response = await fetch("/api/reservations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...resForm,
+          status: "pending",
+          loyaltyPoint: 50,
+          notes: `Table ${tableNumber}${resForm.notes ? ' — ' + resForm.notes : ''}`,
+        }),
+      });
+      if (response.ok) setResSubmitted(true);
+    } catch { /* */ }
+    finally { setResSubmitting(false); }
+  };
+
   if (orderResult) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-orange-50 to-amber-50">
@@ -194,8 +222,98 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
         </div>
       </div>
 
-      {/* Catégories */}
+      {/* Onglets Commander / Réserver */}
       <div className="sticky top-[64px] z-20 bg-white border-b shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 py-2 flex gap-2">
+          <button
+            onClick={() => setActiveTab("order")}
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-full text-sm font-bold transition-all ${activeTab === "order" ? "bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-lg" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+          >
+            <Utensils className="w-4 h-4" /> Commander
+          </button>
+          <button
+            onClick={() => setActiveTab("reservation")}
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-full text-sm font-bold transition-all ${activeTab === "reservation" ? "bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-lg" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+          >
+            <Calendar className="w-4 h-4" /> Réserver
+          </button>
+        </div>
+      </div>
+
+      {/* ── Onglet Réservation ── */}
+      {activeTab === "reservation" && (
+        <div className="max-w-2xl mx-auto px-4 py-8">
+          {resSubmitted ? (
+            <Card className="shadow-xl">
+              <CardContent className="p-8 text-center">
+                <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-4" />
+                <h3 className="text-2xl font-bold text-gray-900 mb-2">Réservation Confirmée !</h3>
+                <p className="text-gray-500 mb-2">Table {tableNumber} — {resForm.guests} personne(s)</p>
+                <p className="text-gray-500 mb-4">{resForm.date} à {resForm.time}</p>
+                <p className="text-sm text-gray-400 mb-4">+50 points de fidélité offerts</p>
+                <Button
+                  onClick={() => { setResSubmitted(false); setResForm({ customerName: "", phone: "", date: "", time: "", guests: 2, zone: "interieur", notes: "" }); }}
+                  className="bg-gradient-to-r from-orange-500 to-red-500 text-white"
+                >
+                  Nouvelle réservation
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card className="shadow-xl">
+              <CardContent className="p-6 sm:p-8">
+                <h2 className="text-xl font-bold mb-1">Réserver — Table {tableNumber}</h2>
+                <p className="text-sm text-gray-500 mb-6">Réservez votre table et gagnez 50 points de fidélité</p>
+                <form onSubmit={handleReservation} className="space-y-4">
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-sm font-medium text-gray-700 mb-1 block">Nom complet *</label>
+                      <Input required value={resForm.customerName} onChange={e => setResForm({ ...resForm, customerName: e.target.value })} placeholder="Votre nom" />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-gray-700 mb-1 block">Téléphone *</label>
+                      <Input required value={resForm.phone} onChange={e => setResForm({ ...resForm, phone: e.target.value })} placeholder="+224 6XX XX XX XX" />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-gray-700 mb-1 block">Date *</label>
+                      <Input required type="date" value={resForm.date} onChange={e => setResForm({ ...resForm, date: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-gray-700 mb-1 block">Heure *</label>
+                      <Input required type="time" value={resForm.time} onChange={e => setResForm({ ...resForm, time: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-gray-700 mb-1 block">Nombre de personnes</label>
+                      <Input type="number" min={1} max={20} value={resForm.guests} onChange={e => setResForm({ ...resForm, guests: parseInt(e.target.value) || 2 })} />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-gray-700 mb-1 block">Zone</label>
+                      <select value={resForm.zone} onChange={e => setResForm({ ...resForm, zone: e.target.value })} className="w-full h-9 rounded-md border border-gray-200 bg-white px-3 text-sm">
+                        <option value="interieur">Intérieur</option>
+                        <option value="terrasse">Terrasse</option>
+                        <option value="vip">VIP</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-1 block">Notes spéciales</label>
+                    <Textarea value={resForm.notes} onChange={e => setResForm({ ...resForm, notes: e.target.value })} placeholder="Allergies, occasions spéciales..." rows={3} />
+                  </div>
+                  <Button type="submit" disabled={resSubmitting} className="w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white rounded-xl py-6 text-lg">
+                    {resSubmitting ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : <><CalendarCheck className="mr-2 w-5 h-5" />Réserver la Table {tableNumber}</>}
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* ── Onglet Commander (contenu existant) ── */}
+      {activeTab === "order" && (
+        <>
+      {/* Catégories */}
+      <div className="sticky top-[112px] z-20 bg-white border-b shadow-sm">
         <div className="max-w-7xl mx-auto px-4 py-3">
           <div className="flex justify-start gap-2 overflow-x-auto pb-1">
             {MENU_CATS.map(c => (
@@ -368,6 +486,8 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
             </div>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );
