@@ -46,12 +46,26 @@ if [ "$PROVIDER" = "postgres" ]; then
   # refuses PostgreSQL URLs at runtime with:
   #   "the URL must start with the protocol file:"
   #
-  # To fix this, we regenerate the Prisma Client HERE at startup,
-  # AFTER copying the PostgreSQL schema. This ensures the client
-  # always matches the runtime schema, regardless of build cache.
+  # The standalone server (.next/standalone/server.js) loads
+  # @prisma/client from .next/standalone/node_modules/, NOT from
+  # the root node_modules/. So we must:
+  #   1. Regenerate the client in root node_modules/
+  #   2. COPY it to .next/standalone/node_modules/ (where server.js loads from)
   echo "[render-start] Regenerating Prisma Client with PostgreSQL schema..."
   rm -rf node_modules/.prisma node_modules/@prisma/client
-  npx prisma generate 2>&1 || echo "[render-start] WARNING: prisma generate failed, using existing client"
+  npx prisma generate 2>&1 || echo "[render-start] WARNING: prisma generate failed"
+  
+  # Copy regenerated client to standalone output
+  echo "[render-start] Copying regenerated Prisma Client to standalone..."
+  rm -rf .next/standalone/node_modules/.prisma
+  cp -r node_modules/.prisma .next/standalone/node_modules/ 2>/dev/null || echo "[render-start] WARNING: could not copy .prisma to standalone"
+  rm -rf .next/standalone/node_modules/@prisma/client
+  mkdir -p .next/standalone/node_modules/@prisma
+  cp -r node_modules/@prisma/client .next/standalone/node_modules/@prisma/ 2>/dev/null || echo "[render-start] WARNING: could not copy @prisma/client to standalone"
+  
+  # Also copy the schema.prisma to standalone (prisma client needs it at runtime)
+  mkdir -p .next/standalone/prisma
+  cp prisma/schema.prisma .next/standalone/prisma/ 2>/dev/null || true
 
   # Primary path: prisma migrate deploy (safe, never loses data)
   echo "[render-start] Running prisma migrate deploy..."
