@@ -130,9 +130,11 @@ export function AdminLogin({ onLogin }: { onLogin: () => void }) {
                 </Button>
               </div>
             )}
-            <div className="mt-6 p-3 bg-white/5 rounded-xl border border-white/10">
-              <p className="text-xs text-gray-400 text-center">Identifiants : <span className="text-orange-400">admin@kfm-delice.com</span> / <span className="text-orange-400">kfm2024</span></p>
-            </div>
+            {process.env.NEXT_PUBLIC_SHOW_DEMO_CREDS === 'true' && (
+              <div className="mt-6 p-3 bg-white/5 rounded-xl border border-white/10">
+                <p className="text-xs text-gray-400 text-center">Identifiants : <span className="text-orange-400">admin@kfm-delice.com</span> / <span className="text-orange-400">kfm2024</span></p>
+              </div>
+            )}
           </CardContent>
         </Card>
       </motion.div>
