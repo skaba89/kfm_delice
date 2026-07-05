@@ -155,18 +155,33 @@ export async function POST(request: Request) {
 
     if (!admin) {
       // Emergency re-seed: if no admin found, the auto-seed may have failed.
-      // Try to re-trigger it via raw SQL — create the admin directly.
+      // Try to create restaurant + admin directly via raw SQL.
       try {
-        const restaurantRows = await db.$queryRawUnsafe<Array<{ id: string }>>(
+        // Check if a restaurant exists
+        let restaurantRows = await db.$queryRawUnsafe<Array<{ id: string }>>(
           'SELECT id FROM "Restaurant" LIMIT 1'
         );
-        if (restaurantRows[0]) {
+        
+        let restaurantId = restaurantRows[0]?.id;
+        
+        // If no restaurant, create one
+        if (!restaurantId) {
+          const newRestaurant = await db.$queryRawUnsafe<Array<{ id: string }>>(`
+            INSERT INTO "Restaurant" (id, name, slug, tagline, description, phone, whatsapp, email, address, hours, rating, tables, "deliveryFee", "minDelivery", "deliveryZones", plan, status, currency, locale, "ownerEmail", "ownerName", "ownerPhone", "createdAt", "updatedAt")
+            VALUES (gen_random_uuid()::text, 'KFM Delice', 'kfm-delice', 'L''Art du Goût Guinéen', 'Restaurant', '+224 622 34 56 78', '+224 622 34 56 78', 'reservation@kfm-delice.com', 'Conakry', '11h-23h', 4.9, 25, 5000, 15000, 'Conakry', 'pro', 'active', 'GNF', 'fr', 'admin@kfm-delice.com', 'Admin', '+224', NOW(), NOW())
+            ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
+            RETURNING id
+          `);
+          restaurantId = newRestaurant[0]?.id;
+        }
+
+        if (restaurantId) {
           const hashedPw = await hashPassword('kfm2024');
           await db.$executeRawUnsafe(
             `INSERT INTO "Admin" (id, email, password, name, role, status, "restaurantId", "mustChangePassword", "createdAt", "updatedAt")
              VALUES (gen_random_uuid()::text, $1, $2, $3, 'admin', 'active', $4, false, NOW(), NOW())
-             ON CONFLICT (email) DO NOTHING`,
-            email, hashedPw, 'Admin KFM Delice', restaurantRows[0].id
+             ON CONFLICT (email) DO UPDATE SET password = $2, "restaurantId" = $4`,
+            email, hashedPw, 'Admin KFM Delice', restaurantId
           );
           // Now try to fetch again
           const rows = await db.$queryRawUnsafe<Array<{
@@ -175,8 +190,8 @@ export async function POST(request: Request) {
           }>>('SELECT id, email, password, name, role, status, "restaurantId" FROM "Admin" WHERE email = $1 LIMIT 1', email);
           admin = rows[0] || null;
         }
-      } catch {
-        // Emergency re-seed failed — return normal error
+      } catch (e) {
+        console.error('[login] Emergency re-seed failed:', e instanceof Error ? e.message : String(e));
       }
     }
 
