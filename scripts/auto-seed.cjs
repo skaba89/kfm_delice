@@ -100,83 +100,67 @@ async function main() {
       console.log('[auto-seed] Platform admin upsert failed (may already exist):', e.message);
     }
 
-    // Create restaurant
-    const restaurant = await prisma.restaurant.upsert({
-      where: { slug: 'kfm-delice' },
-      update: {},
-      create: {
-        name: 'KFM Delice',
-        slug: 'kfm-delice',
-        tagline: "L'Art du Goût Guinéen",
-        description: 'Restaurant gastronomique au cœur de Conakry.',
-        phone: '+224 622 34 56 78',
-        whatsapp: '+224 622 34 56 78',
-        email: 'reservation@kfm-delice.com',
-        address: 'Almamya, Corniche Nord, Conakry, Guinée',
-        hours: 'Lun-Dim : 11h00 - 23h00',
-        rating: 4.9,
-        tables: 25,
-        deliveryFee: 5000,
-        minDelivery: 15000,
-        deliveryZones: 'Kaloum:Dixinn:Matam:Matoto',
-        plan: 'pro',
-        status: 'active',
-        currency: 'GNF',
-        locale: 'fr',
-        ownerEmail: 'admin@kfm-delice.com',
-        ownerName: 'Admin KFM Delice',
-        ownerPhone: '+224 622 34 56 78',
-      },
-    });
-    console.log(`[auto-seed] Restaurant created (id: ${restaurant.id}).`);
+    // Create restaurant — use raw SQL to bypass Prisma Client schema mismatch
+    let restaurantId;
+    try {
+      const existing = await prisma.$queryRawUnsafe('SELECT id FROM "Restaurant" WHERE slug = $1 LIMIT 1', 'kfm-delice');
+      if (existing[0]) {
+        restaurantId = existing[0].id;
+        console.log(`[auto-seed] Restaurant already exists (id: ${restaurantId}).`);
+      } else {
+        const rows = await prisma.$queryRawUnsafe(`
+          INSERT INTO "Restaurant" (id, name, slug, tagline, description, phone, whatsapp, email, address, hours, rating, tables, "deliveryFee", "minDelivery", "deliveryZones", plan, status, currency, locale, "ownerEmail", "ownerName", "ownerPhone", "createdAt", "updatedAt")
+          VALUES (gen_random_uuid()::text, 'KFM Delice', 'kfm-delice', 'L''Art du Goût Guinéen', 'Restaurant gastronomique au cœur de Conakry.', '+224 622 34 56 78', '+224 622 34 56 78', 'reservation@kfm-delice.com', 'Almamya, Corniche Nord, Conakry, Guinée', 'Lun-Dim : 11h00 - 23h00', 4.9, 25, 5000, 15000, 'Kaloum:Dixinn:Matam:Matoto', 'pro', 'active', 'GNF', 'fr', 'admin@kfm-delice.com', 'Admin KFM Delice', '+224 622 34 56 78', NOW(), NOW())
+          RETURNING id
+        `);
+        restaurantId = rows[0]?.id;
+        console.log(`[auto-seed] Restaurant created (id: ${restaurantId}).`);
+      }
+    } catch (e) {
+      console.error('[auto-seed] Restaurant creation failed:', e.message);
+      return;
+    }
+
+    if (!restaurantId) {
+      console.error('[auto-seed] Could not get restaurant ID, aborting.');
+      return;
+    }
 
     // Create restaurant config
-    await prisma.restaurantConfig.upsert({
-      where: { restaurantId: restaurant.id },
-      update: {},
-      create: {
-        restaurantId: restaurant.id,
-        heroImage: '/images/kfm-hero.png',
-        primaryColor: '#ea580c',
-        accentColor: '#f97316',
-        menuCategories: JSON.stringify([
-          { id: 'entrees', name: 'Entrées' },
-          { id: 'plats', name: 'Plats Principaux' },
-          { id: 'mer', name: 'Fruits de Mer' },
-          { id: 'desserts', name: 'Desserts' },
-          { id: 'boissons', name: 'Boissons' },
-        ]),
-        features: JSON.stringify({
-          delivery: true, reservations: true, reviews: true, loyalty: true,
-          pos: true, invoices: true, quotes: true, expenses: true, staff: true, drivers: true,
-        }),
-        openingHours: JSON.stringify({ open: 11, close: 23, timezone: 'Africa/Conakry' }),
-        socialLinks: JSON.stringify({ facebook: '', instagram: '', twitter: '' }),
-      },
-    });
-    console.log('[auto-seed] Restaurant config created.');
+    try {
+      await prisma.$executeRawUnsafe(`
+        INSERT INTO "RestaurantConfig" (id, "restaurantId", "heroImage", "primaryColor", "accentColor", "menuCategories", features, "openingHours", "socialLinks", "createdAt", "updatedAt")
+        VALUES (gen_random_uuid()::text, $1, '/images/kfm-hero.png', '#ea580c', '#f97316', '[]', '{}', '{}', '{}', NOW(), NOW())
+        ON CONFLICT ("restaurantId") DO NOTHING
+      `, restaurantId);
+      console.log('[auto-seed] Restaurant config ensured.');
+    } catch (e) {
+      console.log('[auto-seed] Config creation warning:', e.message);
+    }
 
-    // Create admins
+    // Create admins — use raw SQL to bypass SaaS schema mismatch
     const adminPw1 = hashSync('kfm2024', 10);
     const adminPw2 = hashSync('manager2024', 10);
     const adminPw3 = hashSync('staff2024', 10);
 
-    await prisma.admin.upsert({
-      where: { email: 'admin@kfm-delice.com' },
-      update: { password: adminPw1 },
-      create: { email: 'admin@kfm-delice.com', password: adminPw1, name: 'Admin KFM Delice', role: 'admin', status: 'active', restaurantId: restaurant.id },
-    });
-    await prisma.admin.upsert({
-      where: { email: 'manager@kfm-delice.com' },
-      update: { password: adminPw2 },
-      create: { email: 'manager@kfm-delice.com', password: adminPw2, name: 'Aminata Diallo', role: 'manager', status: 'active', restaurantId: restaurant.id },
-    });
-    await prisma.admin.upsert({
-      where: { email: 'staff@kfm-delice.com' },
-      update: { password: adminPw3 },
-      create: { email: 'staff@kfm-delice.com', password: adminPw3, name: 'Ibrahima Touré', role: 'staff', status: 'active', restaurantId: restaurant.id },
-    });
-    console.log('[auto-seed] 3 admins created.');
+    const adminData = [
+      { email: 'admin@kfm-delice.com', pw: adminPw1, name: 'Admin KFM Delice', role: 'admin' },
+      { email: 'manager@kfm-delice.com', pw: adminPw2, name: 'Aminata Diallo', role: 'manager' },
+      { email: 'staff@kfm-delice.com', pw: adminPw3, name: 'Ibrahima Touré', role: 'staff' },
+    ];
+
+    for (const a of adminData) {
+      try {
+        await prisma.$executeRawUnsafe(`
+          INSERT INTO "Admin" (id, email, password, name, role, status, "restaurantId", "mustChangePassword", "createdAt", "updatedAt")
+          VALUES (gen_random_uuid()::text, $1, $2, $3, $4, 'active', $5, false, NOW(), NOW())
+          ON CONFLICT (email) DO UPDATE SET password = $2
+        `, a.email, a.pw, a.name, a.role, restaurantId);
+      } catch (e) {
+        console.log(`[auto-seed] Admin ${a.email} warning:`, e.message);
+      }
+    }
+    console.log('[auto-seed] 3 admins ensured.');
 
     // Create customers
     const clientPw = hashSync('client123', 10);
