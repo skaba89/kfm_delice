@@ -156,7 +156,11 @@ export async function POST(request: Request) {
     if (!admin) {
       // Emergency re-seed: if no admin found, the auto-seed may have failed.
       // Try to create restaurant + admin directly via raw SQL.
+      // Use a simple random ID instead of gen_random_uuid() for compatibility.
       try {
+        const { randomUUID } = await import('crypto');
+        const newId = () => randomUUID();
+
         // Check if a restaurant exists
         let restaurantRows = await db.$queryRawUnsafe<Array<{ id: string }>>(
           'SELECT id FROM "Restaurant" LIMIT 1'
@@ -166,22 +170,23 @@ export async function POST(request: Request) {
         
         // If no restaurant, create one
         if (!restaurantId) {
-          const newRestaurant = await db.$queryRawUnsafe<Array<{ id: string }>>(`
+          const restId = newId();
+          await db.$executeRawUnsafe(`
             INSERT INTO "Restaurant" (id, name, slug, tagline, description, phone, whatsapp, email, address, hours, rating, tables, "deliveryFee", "minDelivery", "deliveryZones", plan, status, currency, locale, "ownerEmail", "ownerName", "ownerPhone", "createdAt", "updatedAt")
-            VALUES (gen_random_uuid()::text, 'KFM Delice', 'kfm-delice', 'L''Art du Goût Guinéen', 'Restaurant', '+224 622 34 56 78', '+224 622 34 56 78', 'reservation@kfm-delice.com', 'Conakry', '11h-23h', 4.9, 25, 5000, 15000, 'Conakry', 'pro', 'active', 'GNF', 'fr', 'admin@kfm-delice.com', 'Admin', '+224', NOW(), NOW())
+            VALUES ($1, 'KFM Delice', 'kfm-delice', 'Art du Gout Guineen', 'Restaurant', '+224 622 34 56 78', '+224 622 34 56 78', 'reservation@kfm-delice.com', 'Conakry', '11h-23h', 4.9, 25, 5000, 15000, 'Conakry', 'pro', 'active', 'GNF', 'fr', 'admin@kfm-delice.com', 'Admin', '+224', NOW(), NOW())
             ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
-            RETURNING id
-          `);
-          restaurantId = newRestaurant[0]?.id;
+          `, restId);
+          restaurantId = restId;
         }
 
         if (restaurantId) {
           const hashedPw = await hashPassword('kfm2024');
+          const adminId = newId();
           await db.$executeRawUnsafe(
             `INSERT INTO "Admin" (id, email, password, name, role, status, "restaurantId", "mustChangePassword", "createdAt", "updatedAt")
-             VALUES (gen_random_uuid()::text, $1, $2, $3, 'admin', 'active', $4, false, NOW(), NOW())
-             ON CONFLICT (email) DO UPDATE SET password = $2, "restaurantId" = $4`,
-            email, hashedPw, 'Admin KFM Delice', restaurantId
+             VALUES ($1, $2, $3, $4, 'admin', 'active', $5, false, NOW(), NOW())
+             ON CONFLICT (email) DO UPDATE SET password = $3, "restaurantId" = $5`,
+            adminId, email, hashedPw, 'Admin KFM Delice', restaurantId
           );
           // Now try to fetch again
           const rows = await db.$queryRawUnsafe<Array<{

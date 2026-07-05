@@ -101,6 +101,8 @@ async function main() {
     }
 
     // Create restaurant — use raw SQL to bypass Prisma Client schema mismatch
+    const crypto = require('crypto');
+    const newId = () => crypto.randomUUID();
     let restaurantId;
     try {
       const existing = await prisma.$queryRawUnsafe('SELECT id FROM "Restaurant" WHERE slug = $1 LIMIT 1', 'kfm-delice');
@@ -108,12 +110,13 @@ async function main() {
         restaurantId = existing[0].id;
         console.log(`[auto-seed] Restaurant already exists (id: ${restaurantId}).`);
       } else {
-        const rows = await prisma.$queryRawUnsafe(`
+        const restId = newId();
+        await prisma.$executeRawUnsafe(`
           INSERT INTO "Restaurant" (id, name, slug, tagline, description, phone, whatsapp, email, address, hours, rating, tables, "deliveryFee", "minDelivery", "deliveryZones", plan, status, currency, locale, "ownerEmail", "ownerName", "ownerPhone", "createdAt", "updatedAt")
-          VALUES (gen_random_uuid()::text, 'KFM Delice', 'kfm-delice', 'L''Art du Goût Guinéen', 'Restaurant gastronomique au cœur de Conakry.', '+224 622 34 56 78', '+224 622 34 56 78', 'reservation@kfm-delice.com', 'Almamya, Corniche Nord, Conakry, Guinée', 'Lun-Dim : 11h00 - 23h00', 4.9, 25, 5000, 15000, 'Kaloum:Dixinn:Matam:Matoto', 'pro', 'active', 'GNF', 'fr', 'admin@kfm-delice.com', 'Admin KFM Delice', '+224 622 34 56 78', NOW(), NOW())
-          RETURNING id
-        `);
-        restaurantId = rows[0]?.id;
+          VALUES ($1, 'KFM Delice', 'kfm-delice', 'Art du Gout Guineen', 'Restaurant gastronomique', '+224 622 34 56 78', '+224 622 34 56 78', 'reservation@kfm-delice.com', 'Conakry', '11h-23h', 4.9, 25, 5000, 15000, 'Kaloum:Dixinn:Matam:Matoto', 'pro', 'active', 'GNF', 'fr', 'admin@kfm-delice.com', 'Admin KFM Delice', '+224 622 34 56 78', NOW(), NOW())
+          ON CONFLICT (slug) DO NOTHING
+        `, restId);
+        restaurantId = restId;
         console.log(`[auto-seed] Restaurant created (id: ${restaurantId}).`);
       }
     } catch (e) {
@@ -151,11 +154,12 @@ async function main() {
 
     for (const a of adminData) {
       try {
+        const aId = newId();
         await prisma.$executeRawUnsafe(`
           INSERT INTO "Admin" (id, email, password, name, role, status, "restaurantId", "mustChangePassword", "createdAt", "updatedAt")
-          VALUES (gen_random_uuid()::text, $1, $2, $3, $4, 'active', $5, false, NOW(), NOW())
-          ON CONFLICT (email) DO UPDATE SET password = $2
-        `, a.email, a.pw, a.name, a.role, restaurantId);
+          VALUES ($1, $2, $3, $4, $5, 'active', $6, false, NOW(), NOW())
+          ON CONFLICT (email) DO UPDATE SET password = $3
+        `, aId, a.email, a.pw, a.name, a.role, restaurantId);
       } catch (e) {
         console.log(`[auto-seed] Admin ${a.email} warning:`, e.message);
       }
