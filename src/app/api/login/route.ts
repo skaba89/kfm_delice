@@ -156,7 +156,7 @@ export async function POST(request: Request) {
     if (!admin) {
       // Emergency re-seed: if no admin found, the auto-seed may have failed.
       // Try to create restaurant + admin directly via raw SQL.
-      // Use a simple random ID instead of gen_random_uuid() for compatibility.
+      // Use crypto.randomUUID() for ID generation (works on all PG versions).
       try {
         const { randomUUID } = await import('crypto');
         const newId = () => randomUUID();
@@ -173,7 +173,7 @@ export async function POST(request: Request) {
           const restId = newId();
           await db.$executeRawUnsafe(`
             INSERT INTO "Restaurant" (id, name, slug, tagline, description, phone, whatsapp, email, address, hours, rating, tables, "deliveryFee", "minDelivery", "deliveryZones", plan, status, currency, locale, "ownerEmail", "ownerName", "ownerPhone", "createdAt", "updatedAt")
-            VALUES ($1, 'KFM Delice', 'kfm-delice', 'Art du Gout Guineen', 'Restaurant', '+224 622 34 56 78', '+224 622 34 56 78', 'reservation@kfm-delice.com', 'Conakry', '11h-23h', 4.9, 25, 5000, 15000, 'Conakry', 'pro', 'active', 'GNF', 'fr', 'admin@kfm-delice.com', 'Admin', '+224', NOW(), NOW())
+            VALUES ($1, 'KFM Delice', 'kfm-delice', 'Art du Gout', 'Restaurant', '+224', '+224', 'r@kfm.com', 'Conakry', '11h', 4.9, 25, 5000::bigint, 15000::bigint, 'Conakry', 'pro', 'active', 'GNF', 'fr', 'a@kfm.com', 'Admin', '+224', NOW(), NOW())
             ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
           `, restId);
           restaurantId = restId;
