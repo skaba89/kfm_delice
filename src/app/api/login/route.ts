@@ -128,26 +128,27 @@ export async function POST(request: Request) {
 
     const { email, password } = validation.data;
 
-    // Use Prisma client (not raw SQL) for cross-database compatibility.
-    // Try with full select first; if SaaS columns don't exist yet, fall back.
+    // Use raw SQL FIRST — Prisma Client may have wrong provider (sqlite vs postgres)
+    // The Prisma Client on Render is STILL being generated with sqlite schema
+    // despite all our fixes. Raw SQL bypasses Prisma's schema validation.
     let admin: { id: string; email: string; password: string; name: string; role: string; status: string; restaurantId: string } | null = null;
     try {
-      admin = await db.admin.findUnique({
-        where: { email },
-        select: {
-          id: true, email: true, password: true, name: true,
-          role: true, status: true, restaurantId: true,
-        },
-      });
-    } catch {
-      // Fallback: the Prisma Client may have been generated with SaaS schema
-      // but the DB doesn't have the columns yet. Try a raw SQL query.
+      const rows = await db.$queryRawUnsafe<Array<{
+        id: string; email: string; password: string; name: string;
+        role: string; status: string; restaurantId: string;
+      }>>('SELECT id, email, password, name, role, status, "restaurantId" FROM "Admin" WHERE email = $1 LIMIT 1', email);
+      admin = rows[0] || null;
+    } catch (rawErr) {
+      // Raw SQL also failed — probably the table doesn't exist yet.
+      // Try Prisma client as fallback.
       try {
-        const rows = await db.$queryRawUnsafe<Array<{
-          id: string; email: string; password: string; name: string;
-          role: string; status: string; restaurantId: string;
-        }>>('SELECT id, email, password, name, role, status, "restaurantId" FROM "Admin" WHERE email = $1 LIMIT 1', email);
-        admin = rows[0] || null;
+        admin = await db.admin.findUnique({
+          where: { email },
+          select: {
+            id: true, email: true, password: true, name: true,
+            role: true, status: true, restaurantId: true,
+          },
+        });
       } catch {
         admin = null;
       }
