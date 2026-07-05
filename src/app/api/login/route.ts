@@ -156,7 +156,8 @@ export async function POST(request: Request) {
     if (!admin) {
       // Emergency re-seed: if no admin found, the auto-seed may have failed.
       // Try to create restaurant + admin directly via raw SQL.
-      // Use crypto.randomUUID() for ID generation (works on all PG versions).
+      // TEMPORARILY: return the error so we can diagnose what's failing.
+      let reseedError = '';
       try {
         const { randomUUID } = await import('crypto');
         const newId = () => randomUUID();
@@ -167,16 +168,18 @@ export async function POST(request: Request) {
         );
         
         let restaurantId = restaurantRows[0]?.id;
+        reseedError += `restaurantExists=${!!restaurantId};`;
         
         // If no restaurant, create one
         if (!restaurantId) {
           const restId = newId();
           await db.$executeRawUnsafe(`
             INSERT INTO "Restaurant" (id, name, slug, tagline, description, phone, whatsapp, email, address, hours, rating, tables, "deliveryFee", "minDelivery", "deliveryZones", plan, status, currency, locale, "ownerEmail", "ownerName", "ownerPhone", "createdAt", "updatedAt")
-            VALUES ($1, 'KFM Delice', 'kfm-delice', 'Art du Gout', 'Restaurant', '+224', '+224', 'r@kfm.com', 'Conakry', '11h', 4.9, 25, 5000::bigint, 15000::bigint, 'Conakry', 'pro', 'active', 'GNF', 'fr', 'a@kfm.com', 'Admin', '+224', NOW(), NOW())
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::bigint, $14::bigint, $15, $16, $17, $18, $19, $20, $21, $22, NOW(), NOW())
             ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
-          `, restId);
+          `, restId, 'KFM Delice', 'kfm-delice', 'Art du Gout', 'Restaurant', '+224', '+224', 'r@kfm.com', 'Conakry', '11h', 4.9, 25, '5000', '15000', 'Conakry', 'pro', 'active', 'GNF', 'fr', 'a@kfm.com', 'Admin', '+224');
           restaurantId = restId;
+          reseedError += `restaurantCreated=${!!restaurantId};`;
         }
 
         if (restaurantId) {
@@ -188,20 +191,27 @@ export async function POST(request: Request) {
              ON CONFLICT (email) DO UPDATE SET password = $3, "restaurantId" = $5`,
             adminId, email, hashedPw, 'Admin KFM Delice', restaurantId
           );
+          reseedError += `adminCreated=true;`;
           // Now try to fetch again
           const rows = await db.$queryRawUnsafe<Array<{
             id: string; email: string; password: string; name: string;
             role: string; status: string; restaurantId: string;
           }>>('SELECT id, email, password, name, role, status, "restaurantId" FROM "Admin" WHERE email = $1 LIMIT 1', email);
           admin = rows[0] || null;
+          reseedError += `adminFetched=${!!admin};`;
         }
       } catch (e) {
-        console.error('[login] Emergency re-seed failed:', e instanceof Error ? e.message : String(e));
+        reseedError += `error=${e instanceof Error ? e.message : String(e)};`;
+        console.error('[login] Emergency re-seed failed:', reseedError);
       }
-    }
 
-    if (!admin) {
-      return NextResponse.json({ error: "Identifiants incorrects" }, { status: 401 });
+      if (!admin) {
+        // TEMPORARY: return diagnostic info so we can see what's failing
+        return NextResponse.json(
+          { error: "Identifiants incorrects", _debug: reseedError },
+          { status: 401 }
+        );
+      }
     }
 
     // Verify password with bcrypt
