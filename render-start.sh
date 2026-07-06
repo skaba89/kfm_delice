@@ -96,4 +96,4 @@ node scripts/auto-seed.cjs 2>&1 || echo "[render-start] Auto-seed warning, conti
 echo "[render-start] Starting Next.js server on $HOSTNAME:$PORT..."
 export HOSTNAME="${HOSTNAME:-0.0.0.0}"
 export PORT="${PORT:-3000}"
-exec node .next/standalone/server.js
+exec npx next start -p "$PORT" -H "$HOSTNAME"
