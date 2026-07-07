@@ -200,6 +200,7 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
       inventory: ["admin", "manager", "kitchen"],
       payments: ["admin", "manager", "cashier", "accountant"],
       pos: ["admin", "manager", "staff", "cashier"],
+      tables: ["admin", "manager", "staff"], // QR codes for tables — visible to admin, manager, staff
       settings: ["admin", "manager"],
     };
     return rolesMap[item.id]?.includes(admin.role) ?? false;
