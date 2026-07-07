@@ -20,8 +20,19 @@ export function CustomerLogin({ onLogin, onRegister, onBack }: { onLogin: () => 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setLoading(true); setError("");
     try {
+      // Resolve restaurant slug from localStorage or default to 'kfm-delice'
+      let restaurantSlug = "kfm-delice";
+      try {
+        const stored = localStorage.getItem("kfm-restaurant-slug");
+        if (stored) restaurantSlug = stored;
+      } catch { /* localStorage not available */ }
+
       const res = await fetch("/api/customer-login", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-restaurant-slug": restaurantSlug,
+        },
         body: JSON.stringify({ email, password }),
       });
       if (!res.ok) { const data = await res.json().catch(() => null); setError(data?.error || "Email ou mot de passe incorrect"); return; }
