@@ -53,14 +53,22 @@ export function MenuTab({
   };
 
   const handleSave = async () => {
-    await crud.save();
-    notify.menuItemSaved(crud.form.name, !!crud.editing);
+    try {
+      await crud.save();
+      notify.menuItemSaved(crud.form.name, !!crud.editing);
+    } catch (e) {
+      notify.error(e instanceof Error ? e.message : "Erreur lors de l'enregistrement");
+    }
   };
 
   const handleDelete = async (item: MenuItemDB) => {
-    await apiDelete("/api/menu", { id: item.id });
-    crud.setDeleteConfirm(null);
-    notify.menuItemDeleted(item.name);
+    try {
+      await apiDelete("/api/menu", { id: item.id });
+      crud.setDeleteConfirm(null);
+      notify.menuItemDeleted(item.name);
+    } catch (e) {
+      notify.error(e instanceof Error ? e.message : "Erreur lors de la suppression");
+    }
   };
 
   return (

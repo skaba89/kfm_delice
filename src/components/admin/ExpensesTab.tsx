@@ -24,14 +24,22 @@ export function ExpensesTab({ expenses, crud, apiDelete }: ExpensesTabProps) {
   const { currentPage, setCurrentPage, totalPages, paginatedItems, totalItems, itemsPerPage } = usePagination(expenses, 10);
 
   const handleSave = async () => {
-    await crud.save();
-    notify.expenseSaved(crud.form.description);
+    try {
+      await crud.save();
+      notify.expenseSaved(crud.form.description);
+    } catch (e) {
+      notify.error(e instanceof Error ? e.message : "Erreur lors de l'enregistrement");
+    }
   };
 
   const handleDelete = async (e: ExpenseDB) => {
-    await apiDelete("/api/expenses", { id: e.id });
-    crud.setDeleteConfirm(null);
-    notify.expenseDeleted(e.description);
+    try {
+      await apiDelete("/api/expenses", { id: e.id });
+      crud.setDeleteConfirm(null);
+      notify.expenseDeleted(e.description);
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : "Erreur lors de la suppression");
+    }
   };
 
   const columns: DataTableColumn<ExpenseDB>[] = [

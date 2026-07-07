@@ -25,14 +25,22 @@ export function AdminsTab({ admins, admin, crud, apiPatch, apiDelete }: AdminsTa
   const { currentPage, setCurrentPage, totalPages, paginatedItems, totalItems, itemsPerPage } = usePagination(admins, 10);
 
   const handleSave = async () => {
-    await crud.save();
-    notify.adminSaved(crud.form.name, !!crud.editing);
+    try {
+      await crud.save();
+      notify.adminSaved(crud.form.name, !!crud.editing);
+    } catch (e) {
+      notify.error(e instanceof Error ? e.message : "Erreur lors de l'enregistrement");
+    }
   };
 
   const handleDelete = async (a: AdminDB) => {
-    await apiDelete("/api/admins", { id: a.id });
-    crud.setDeleteConfirm(null);
-    notify.adminDeleted(a.name);
+    try {
+      await apiDelete("/api/admins", { id: a.id });
+      crud.setDeleteConfirm(null);
+      notify.adminDeleted(a.name);
+    } catch (e) {
+      notify.error(e instanceof Error ? e.message : "Erreur lors de la suppression");
+    }
   };
 
   return (
@@ -87,7 +95,7 @@ export function AdminsTab({ admins, admin, crud, apiPatch, apiDelete }: AdminsTa
                 <Badge variant="outline" className={`text-xs ${adminRoleColors[a.role] || "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300"}`}>{adminRoleLabels[a.role] || a.role}</Badge>
               </div>
               <div className="flex items-center gap-1">
-                <Button size="sm" variant="outline" onClick={() => apiPatch("/api/admins", { id: a.id, status: a.status === "active" ? "inactive" : "active" })} className={`flex-1 text-xs rounded-lg ${a.status === "active" ? "text-red-500 border-red-200 dark:border-red-800" : "text-green-500 border-green-200 dark:border-green-800"}`}>
+                <Button size="sm" variant="outline" onClick={async () => { try { await apiPatch("/api/admins", { id: a.id, status: a.status === "active" ? "inactive" : "active" }); } catch (e) { notify.error(e instanceof Error ? e.message : "Erreur"); } }} className={`flex-1 text-xs rounded-lg ${a.status === "active" ? "text-red-500 border-red-200 dark:border-red-800" : "text-green-500 border-green-200 dark:border-green-800"}`}>
                   {a.status === "active" ? "Désactiver" : "Activer"}
                 </Button>
                 <EditButton onClick={() => crud.openEdit(a)} />

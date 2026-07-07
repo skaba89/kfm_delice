@@ -23,14 +23,22 @@ export function StaffTab({ staffList, crud, apiDelete }: StaffTabProps) {
   const { currentPage, setCurrentPage, totalPages, paginatedItems, totalItems, itemsPerPage } = usePagination(staffList, 10);
 
   const handleSave = async () => {
-    await crud.save();
-    notify.staffSaved(crud.form.name, !!crud.editing);
+    try {
+      await crud.save();
+      notify.staffSaved(crud.form.name, !!crud.editing);
+    } catch (e) {
+      notify.error(e instanceof Error ? e.message : "Erreur lors de l'enregistrement");
+    }
   };
 
   const handleDelete = async (s: StaffDB) => {
-    await apiDelete("/api/staff", { id: s.id });
-    crud.setDeleteConfirm(null);
-    notify.staffDeleted(s.name);
+    try {
+      await apiDelete("/api/staff", { id: s.id });
+      crud.setDeleteConfirm(null);
+      notify.staffDeleted(s.name);
+    } catch (e) {
+      notify.error(e instanceof Error ? e.message : "Erreur lors de la suppression");
+    }
   };
 
   const columns: DataTableColumn<StaffDB>[] = [

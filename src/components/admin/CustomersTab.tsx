@@ -25,14 +25,22 @@ export function CustomersTab({ customers, crud, apiPatch, apiDelete }: Customers
   const { currentPage, setCurrentPage, totalPages, paginatedItems, totalItems, itemsPerPage } = usePagination(customers, 10);
 
   const handleSave = async () => {
-    await crud.save();
-    notify.customerSaved(crud.form.name, !!crud.editing);
+    try {
+      await crud.save();
+      notify.customerSaved(crud.form.name, !!crud.editing);
+    } catch (e) {
+      notify.error(e instanceof Error ? e.message : "Erreur lors de l'enregistrement");
+    }
   };
 
   const handleDelete = async (c: CustomerDB) => {
-    await apiDelete("/api/customers", { id: c.id });
-    crud.setDeleteConfirm(null);
-    notify.customerDeleted(c.name);
+    try {
+      await apiDelete("/api/customers", { id: c.id });
+      crud.setDeleteConfirm(null);
+      notify.customerDeleted(c.name);
+    } catch (e) {
+      notify.error(e instanceof Error ? e.message : "Erreur lors de la suppression");
+    }
   };
 
   const totalSpent = customers.reduce((s, c) => s + c.totalSpent, 0);

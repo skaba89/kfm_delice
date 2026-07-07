@@ -27,14 +27,22 @@ export function QuotesTab({ quotes, crud, apiPatch, apiDelete }: QuotesTabProps)
   const { currentPage, setCurrentPage, totalPages, paginatedItems, totalItems, itemsPerPage } = usePagination(quotes, 10);
 
   const handleSave = async () => {
-    await crud.save();
-    notify.quoteSaved(crud.form.number);
+    try {
+      await crud.save();
+      notify.quoteSaved(crud.form.number);
+    } catch (e) {
+      notify.error(e instanceof Error ? e.message : "Erreur lors de l'enregistrement");
+    }
   };
 
   const handleDelete = async (q: QuoteDB) => {
-    await apiDelete("/api/quotes", { id: q.id });
-    crud.setDeleteConfirm(null);
-    notify.quoteDeleted(q.number);
+    try {
+      await apiDelete("/api/quotes", { id: q.id });
+      crud.setDeleteConfirm(null);
+      notify.quoteDeleted(q.number);
+    } catch (e) {
+      notify.error(e instanceof Error ? e.message : "Erreur lors de la suppression");
+    }
   };
 
   return (

@@ -25,14 +25,22 @@ export function DriversTab({ drivers, crud, apiPatch, apiDelete }: DriversTabPro
   const { currentPage, setCurrentPage, totalPages, paginatedItems, totalItems, itemsPerPage } = usePagination(drivers, 10);
 
   const handleSave = async () => {
-    await crud.save();
-    notify.driverSaved(crud.form.name, !!crud.editing);
+    try {
+      await crud.save();
+      notify.driverSaved(crud.form.name, !!crud.editing);
+    } catch (e) {
+      notify.error(e instanceof Error ? e.message : "Erreur lors de l'enregistrement");
+    }
   };
 
   const handleDelete = async (d: DriverDB) => {
-    await apiDelete("/api/drivers", { id: d.id });
-    crud.setDeleteConfirm(null);
-    notify.driverDeleted(d.name);
+    try {
+      await apiDelete("/api/drivers", { id: d.id });
+      crud.setDeleteConfirm(null);
+      notify.driverDeleted(d.name);
+    } catch (e) {
+      notify.error(e instanceof Error ? e.message : "Erreur lors de la suppression");
+    }
   };
 
   return (

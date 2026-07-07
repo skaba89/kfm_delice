@@ -27,14 +27,22 @@ export function InvoicesTab({ invoices, crud, apiPatch, apiDelete }: InvoicesTab
   const { currentPage, setCurrentPage, totalPages, paginatedItems, totalItems, itemsPerPage } = usePagination(invoices, 10);
 
   const handleSave = async () => {
-    await crud.save();
-    notify.invoiceSaved(crud.form.number);
+    try {
+      await crud.save();
+      notify.invoiceSaved(crud.form.number);
+    } catch (e) {
+      notify.error(e instanceof Error ? e.message : "Erreur lors de l'enregistrement");
+    }
   };
 
   const handleDelete = async (inv: InvoiceDB) => {
-    await apiDelete("/api/invoices", { id: inv.id });
-    crud.setDeleteConfirm(null);
-    notify.invoiceDeleted(inv.number);
+    try {
+      await apiDelete("/api/invoices", { id: inv.id });
+      crud.setDeleteConfirm(null);
+      notify.invoiceDeleted(inv.number);
+    } catch (e) {
+      notify.error(e instanceof Error ? e.message : "Erreur lors de la suppression");
+    }
   };
 
   return (
