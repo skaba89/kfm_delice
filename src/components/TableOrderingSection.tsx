@@ -407,69 +407,72 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
         )}
       </div>
 
-      {/* Panier coulissant */}
+      {/* Panier coulissant — mobile-friendly */}
       {showCart && (
         <div className="fixed inset-0 z-50 flex">
           <div className="absolute inset-0 bg-black/50" onClick={() => setShowCart(false)} />
-          <div className="ml-auto w-full max-w-md bg-white h-full overflow-y-auto shadow-2xl">
-            <div className="sticky top-0 bg-gradient-to-r from-orange-500 to-red-500 text-white p-4 flex items-center justify-between">
+          <div className="ml-auto w-full max-w-md bg-white h-full flex flex-col shadow-2xl">
+            {/* Header fixe */}
+            <div className="bg-gradient-to-r from-orange-500 to-red-500 text-white p-4 flex items-center justify-between flex-shrink-0">
               <h2 className="text-lg font-bold">Votre commande — Table {tableNumber}</h2>
-              <button onClick={() => setShowCart(false)} className="p-2 hover:bg-white/20 rounded-full">
+              <button onClick={() => setShowCart(false)} className="p-2 hover:bg-white/20 rounded-full" aria-label="Fermer">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-4 space-y-3">
+
+            {/* Contenu scrollable */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
               {cart.length === 0 ? (
                 <p className="text-center text-gray-500 py-8">Votre panier est vide</p>
               ) : (
                 <>
                   {cart.map(item => (
                     <div key={item.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
-                      <div className="flex-1">
-                        <p className="font-semibold">{item.name}</p>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold truncate">{item.name}</p>
                         <p className="text-sm text-gray-500">{formatPrice(Number(item.price))} × {item.qty}</p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => removeFromCart(item.id)} className="bg-gray-200 rounded-lg p-1.5">
-                          <Minus className="w-3 h-3" />
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <button onClick={() => removeFromCart(item.id)} className="bg-gray-200 rounded-lg p-2" aria-label="Retirer">
+                          <Minus className="w-4 h-4" />
                         </button>
                         <span className="font-bold w-6 text-center">{item.qty}</span>
-                        <button onClick={() => addToCart(item)} className="bg-orange-500 text-white rounded-lg p-1.5">
-                          <Plus className="w-3 h-3" />
+                        <button onClick={() => addToCart(item)} className="bg-orange-500 text-white rounded-lg p-2" aria-label="Ajouter">
+                          <Plus className="w-4 h-4" />
                         </button>
                       </div>
-                      <span className="font-bold text-orange-600 w-20 text-right">{formatPrice(Number(item.price) * item.qty)}</span>
+                      <span className="font-bold text-orange-600 w-20 text-right text-sm">{formatPrice(Number(item.price) * item.qty)}</span>
                     </div>
                   ))}
 
                   {/* Infos client */}
                   <div className="pt-4 space-y-3">
                     <div>
-                      <label className="text-sm font-medium text-gray-700">Nom (optionnel)</label>
+                      <label className="text-sm font-medium text-gray-700 block mb-1">Nom (optionnel)</label>
                       <input
                         type="text"
                         value={customerName}
                         onChange={e => setCustomerName(e.target.value)}
                         placeholder="Votre nom"
-                        className="w-full mt-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                        className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                       />
                     </div>
                     <div>
-                      <label className="text-sm font-medium text-gray-700">Téléphone (pour paiement mobile)</label>
+                      <label className="text-sm font-medium text-gray-700 block mb-1">Téléphone (pour paiement mobile)</label>
                       <input
                         type="tel"
                         value={phone}
                         onChange={e => setPhone(e.target.value)}
                         placeholder="+224 ..."
-                        className="w-full mt-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                        className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                       />
                     </div>
                     <div>
-                      <label className="text-sm font-medium text-gray-700">Mode de paiement</label>
+                      <label className="text-sm font-medium text-gray-700 block mb-1">Mode de paiement</label>
                       <select
                         value={paymentMethod}
                         onChange={e => setPaymentMethod(e.target.value as typeof paymentMethod)}
-                        className="w-full mt-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                        className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                       >
                         <option value="cash">Espèces (à la table)</option>
                         <option value="orange_money">Orange Money</option>
@@ -479,28 +482,31 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
                       </select>
                     </div>
                   </div>
-
-                  {/* Total */}
-                  <div className="border-t pt-4">
-                    <div className="flex justify-between items-center mb-4">
-                      <span className="text-lg font-bold">Total</span>
-                      <span className="text-2xl font-extrabold text-orange-600">{formatPrice(cartTotal)}</span>
-                    </div>
-                    <Button
-                      onClick={submitOrder}
-                      disabled={submitting}
-                      className="w-full bg-gradient-to-r from-orange-500 to-red-500 text-white py-3 rounded-xl font-bold hover:shadow-lg transition-all"
-                    >
-                      {submitting ? (
-                        <><RefreshCw className="w-5 h-5 animate-spin mr-2" /> Envoi...</>
-                      ) : (
-                        <><CreditCard className="w-5 h-5 mr-2" /> Commander — Table {tableNumber}</>
-                      )}
-                    </Button>
-                  </div>
                 </>
               )}
             </div>
+
+            {/* Footer fixe avec Total + Bouton Commander — toujours visible */}
+            {cart.length > 0 && (
+              <div className="border-t bg-white p-4 flex-shrink-0" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
+                <div className="flex justify-between items-center mb-3">
+                  <span className="text-lg font-bold">Total</span>
+                  <span className="text-2xl font-extrabold text-orange-600">{formatPrice(cartTotal)}</span>
+                </div>
+                <button
+                  onClick={submitOrder}
+                  disabled={submitting}
+                  style={{ minHeight: "52px", WebkitTapHighlightColor: "transparent" }}
+                  className="w-full bg-gradient-to-r from-orange-500 to-red-500 text-white py-3 rounded-xl font-bold hover:shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+                >
+                  {submitting ? (
+                    <><RefreshCw className="w-5 h-5 animate-spin" /> Envoi...</>
+                  ) : (
+                    <><CreditCard className="w-5 h-5" /> Commander — Table {tableNumber}</>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
