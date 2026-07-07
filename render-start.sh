@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+echo "[render-start] ─────────────────────────────────────────────"
+echo "[render-start] Starting KFM Delice on Render..."
 echo "[render-start] Current directory: $(pwd)"
 echo "[render-start] PORT=$PORT HOSTNAME=$HOSTNAME"
 echo "[render-start] NODE_ENV=${NODE_ENV:-(not set)}"
@@ -9,6 +11,7 @@ if [ -n "$DATABASE_URL" ]; then
 else
   echo "[render-start] DATABASE_URL is NOT SET"
 fi
+echo "[render-start] ─────────────────────────────────────────────"
 
 # ── Detect database provider from DATABASE_URL ────────────────
 detect_provider() {
@@ -36,13 +39,7 @@ if [ "$PROVIDER" = "unknown" ]; then
   exit 1
 fi
 
-# ── Switch schema + regenerate Prisma Client ──────────────────
-# We regenerate the Prisma Client at RUNTIME. Because we use
-# `next start` (NOT `output: 'standalone'`), the server reads
-# Prisma Client directly from node_modules/.prisma/client/ — so
-# the regenerated client is the one actually loaded. This is the
-# definitive fix for the recurring "URL must start with file:"
-# error caused by a stale SQLite client bundled at build time.
+# ── Switch schema to match the actual DATABASE_URL ────────────
 if [ "$PROVIDER" = "postgres" ]; then
   echo "[render-start] Switching schema to PostgreSQL..."
   cp prisma/schema.postgres.prisma prisma/schema.prisma
@@ -52,22 +49,36 @@ elif [ "$PROVIDER" = "sqlite" ]; then
   mkdir -p data
 fi
 
-# Verify provider before proceeding
-echo "[render-start] Verifying Prisma provider..."
-node scripts/check-prisma-provider.cjs
-
-# Regenerate Prisma Client at RUNTIME — this is the actual source
-# of truth that `next start` will load (no standalone bundle in the way).
-echo "[render-start] Regenerating Prisma Client (provider=$PROVIDER)..."
+# ── Regenerate Prisma Client at RUNTIME ───────────────────────
+# This is the most important step. Even though render-build.sh
+# generated the client with the correct provider, we regenerate it
+# again here to be 100% sure it matches the actual runtime DATABASE_URL.
+# (Render's build-time DATABASE_URL may differ from runtime DATABASE_URL.)
+echo "[render-start] Clearing cached Prisma client..."
 rm -rf node_modules/.prisma node_modules/@prisma/client
+
+echo "[render-start] Regenerating Prisma Client (provider=$PROVIDER)..."
 npx prisma generate 2>&1 || {
   echo "[render-start] FATAL: prisma generate failed. Cannot start with a broken client."
   exit 1
 }
 
+# ── CRITICAL: Verify the generated client matches the expected provider ──
+# This is the guard that FINALLY kills the "URL must start with file:" error.
+# If the generated client has the wrong provider, we refuse to start —
+# better to fail loudly than to serve 500s on every request.
+echo "[render-start] Verifying Prisma provider (schema + generated client)..."
+node scripts/check-prisma-provider.cjs || {
+  echo "[render-start] ─────────────────────────────────────────────"
+  echo "[render-start] FATAL: Prisma Client provider mismatch!"
+  echo "[render-start] The generated client does not match DATABASE_URL."
+  echo "[render-start] Expected provider: $PROVIDER"
+  echo "[render-start] Refusing to start to avoid serving 500 errors."
+  echo "[render-start] ─────────────────────────────────────────────"
+  exit 1
+}
+
 # ── Diagnostics: verify build output BEFORE starting server ────
-# This catches the "503 because .next/ is missing" case at the
-# source rather than letting the server crash on first request.
 echo "[render-start] Checking Next.js build output..."
 test -d .next || echo "[render-start] WARNING: .next directory missing"
 test -f .next/BUILD_ID || echo "[render-start] WARNING: .next/BUILD_ID missing"
@@ -94,33 +105,18 @@ else
 fi
 
 # ── Seed FIRST (creates demo data on empty DB) ─────────────────
-# IMPORTANT: Auto-seed MUST run BEFORE backfill-accounts.
-# On a fresh database:
-#   1. auto-seed creates the demo Restaurant + Admins
-#   2. backfill-accounts then attaches an Account to those rows
-# If we ran backfill first, it would find nothing to link, and the
-# demo restaurant/admins created by auto-seed would stay orphan
-# (no accountId) until the next restart.
 echo "[render-start] Running auto-seed..."
 node scripts/auto-seed.cjs 2>&1 || echo "[render-start] Auto-seed warning, continuing..."
 
 # ── Backfill SECOND (attaches Account to seed data) ────────────
-# For each Restaurant without accountId:
-#   - create an Account
-#   - link Restaurant (accountId + type=principal)
-#   - link all Admins (accountId, canCreateRestaurant, limits)
-# Idempotent — safe to run on every restart.
 echo "[render-start] Running SaaS account backfill..."
 node scripts/backfill-accounts.cjs 2>&1 || echo "[render-start] backfill warning, continuing..."
 
 # ── Start the Next.js server ───────────────────────────────────
-# IMPORTANT: We use `next start` instead of `node .next/standalone/server.js`
-# because `output: 'standalone'` was removed from next.config.ts.
-# `next start` reads Prisma Client from node_modules/.prisma/client/
-# directly — so the runtime regeneration above is what actually gets
-# loaded. This eliminates the entire class of bugs where the standalone
-# bundle keeps loading a stale SQLite client.
+echo "[render-start] ─────────────────────────────────────────────"
 echo "[render-start] Starting Next.js server on ${HOSTNAME:-0.0.0.0}:${PORT:-3000}..."
+echo "[render-start] Provider: $PROVIDER"
+echo "[render-start] ─────────────────────────────────────────────"
 export HOSTNAME="${HOSTNAME:-0.0.0.0}"
 export PORT="${PORT:-3000}"
 exec npx next start -p "$PORT" -H "$HOSTNAME"

@@ -3,6 +3,7 @@ set -e
 
 echo "[render-build] Starting build..."
 echo "[render-build] NODE_ENV=${NODE_ENV:-(not set)}"
+echo "[render-build] PWD=$(pwd)"
 if [ -n "$DATABASE_URL" ]; then
   echo "[render-build] DATABASE_URL is set (value hidden for security)"
 else
@@ -10,14 +11,6 @@ else
 fi
 
 # ── Determine which Prisma schema to use ──────────────────────
-# SIMPLE LOGIC — no NODE_ENV dependency:
-#   1. If DATABASE_URL starts with postgresql:// or postgres:// → PostgreSQL
-#   2. If DATABASE_URL starts with file: → SQLite
-#   3. If DATABASE_URL is NOT SET → PostgreSQL (Render production default)
-#      (local dev should always have DATABASE_URL=file:... in .env)
-#
-# This ensures PostgreSQL is ALWAYS used on Render, even if NODE_ENV
-# is not set at build time.
 case "$DATABASE_URL" in
   postgresql://*|postgres://*)
     PROVIDER="postgres"
@@ -26,11 +19,12 @@ case "$DATABASE_URL" in
     PROVIDER="sqlite"
     ;;
   "")
-    # DATABASE_URL not set → assume PostgreSQL (Render production)
-    # Local dev should have DATABASE_URL in .env
+    # DATABASE_URL not set at build time → assume PostgreSQL (Render production)
+    # Render injects DATABASE_URL at runtime, but NOT necessarily at build time.
+    # We MUST default to PostgreSQL so the build generates the correct Prisma Client.
     PROVIDER="postgres"
-    echo "[render-build] DATABASE_URL not set — defaulting to PostgreSQL (Render production)"
-    export DATABASE_URL="postgresql://build:build@localhost:5432/build_db?schema=public"
+    echo "[render-build] DATABASE_URL not set at build time — defaulting to PostgreSQL"
+    echo "[render-build] (Render injects DATABASE_URL at runtime; this is normal)"
     ;;
   *)
     echo "[render-build] FATAL: DATABASE_URL has unknown format"
@@ -40,6 +34,7 @@ esac
 
 echo "[render-build] Provider: $PROVIDER"
 
+# ── Copy the matching schema ──
 if [ "$PROVIDER" = "postgres" ]; then
   echo "[render-build] Copying PostgreSQL schema..."
   cp prisma/schema.postgres.prisma prisma/schema.prisma
@@ -49,43 +44,50 @@ else
   mkdir -p data
 fi
 
-# ── Verify the schema provider ────────────────────────────────
-echo "[render-build] Verifying Prisma provider..."
-node scripts/check-prisma-provider.cjs
-
-# ── Generate Prisma client ────────────────────────────────────
-# Delete cached client first to force regeneration.
+# ── Generate Prisma client BEFORE the Next.js build ─────────────
+# This is critical: `next build` (especially with Turbopack) bundles the
+# @prisma/client module at build time. If the client in node_modules
+# was generated with the wrong provider, the bundle will be wrong and
+# `next start` will load the wrong client at runtime — no matter what
+# we do in render-start.sh afterwards.
+#
+# So we MUST ensure the Prisma Client is generated with the correct
+# provider BEFORE `next build` runs.
 echo "[render-build] Clearing cached Prisma client..."
 rm -rf node_modules/.prisma node_modules/@prisma/client
+
 echo "[render-build] Running prisma generate (provider=$PROVIDER)..."
 npx prisma generate
 
+# Verify the schema AND the generated client match the expected provider
+echo "[render-build] Verifying Prisma provider (schema + generated client)..."
+node scripts/check-prisma-provider.cjs
+
 # ── Build Next.js ─────────────────────────────────────────────
-echo "[render-build] Building Next.js..."
+# NOTE: do NOT call `npm run build` here because that script does
+# `prisma generate && next build` — and the implicit `prisma generate`
+# would run WITHOUT our schema.prisma override (it would use whatever
+# schema is configured). We've already generated the client above with
+# the correct provider, so we go straight to `next build`.
+echo "[render-build] Building Next.js (no standalone output)..."
 next build
 
-# ── Copy Prisma files to standalone output ────────────────────
-echo "[render-build] Copying Prisma files to standalone output..."
-mkdir -p .next/standalone/prisma
-cp prisma/schema.prisma .next/standalone/prisma/
-cp -r node_modules/.prisma .next/standalone/node_modules/ 2>/dev/null || true
-rm -rf .next/standalone/node_modules/@prisma/client
-mkdir -p .next/standalone/node_modules/@prisma
-cp -r node_modules/@prisma/client .next/standalone/node_modules/@prisma/ 2>/dev/null || true
+# ── Verify the build succeeded ────────────────────────────────
+echo "[render-build] Verifying build output..."
+test -d .next || { echo "[render-build] FATAL: .next directory missing after build"; exit 1; }
+test -f .next/BUILD_ID || { echo "[render-build] FATAL: .next/BUILD_ID missing after build"; exit 1; }
+echo "[render-build] ✓ .next/BUILD_ID present ($(cat .next/BUILD_ID))"
 
-# ── Copy public assets ────────────────────────────────────────
-echo "[render-build] Copying public assets..."
-cp -r public .next/standalone/public 2>/dev/null || true
+# ── Final provider verification ───────────────────────────────
+# After everything is built, verify one more time that the Prisma Client
+# in node_modules is still the correct one (next build shouldn't have
+# changed it, but let's be paranoid).
+echo "[render-build] Final Prisma provider verification..."
+node scripts/check-prisma-provider.cjs
 
-# ── Copy scripts needed at runtime ────────────────────────────
-echo "[render-build] Copying runtime scripts..."
-mkdir -p .next/standalone/scripts
-cp scripts/auto-seed.cjs .next/standalone/scripts/ 2>/dev/null || true
-cp scripts/ensure-postgres-columns.cjs .next/standalone/scripts/ 2>/dev/null || true
-cp scripts/check-prisma-provider.cjs .next/standalone/scripts/ 2>/dev/null || true
-cp scripts/backfill-accounts.cjs .next/standalone/scripts/ 2>/dev/null || true
-
-# ── Copy render-start.sh ──────────────────────────────────────
-cp render-start.sh .next/standalone/render-start.sh 2>/dev/null || true
-
-echo "[render-build] Build complete! Provider=$PROVIDER"
+echo "[render-build] ─────────────────────────────────────────────"
+echo "[render-build] ✓ Build complete! Provider=$PROVIDER"
+echo "[render-build] NOTE: render-start.sh will verify the provider"
+echo "[render-build]       again at runtime and refuse to start if"
+echo "[render-build]       the client doesn't match DATABASE_URL."
+echo "[render-build] ─────────────────────────────────────────────"
