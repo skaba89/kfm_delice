@@ -82,7 +82,14 @@ export async function POST(request: Request) {
       token,
     }, { status: 201 });
   } catch (error) {
-    console.error(error);
-    return NextResponse.json({ error: "Erreur lors de l'inscription" }, { status: 500 });
+    console.error("[customer-register] Error:", error);
+    const errMsg = error instanceof Error ? error.message : "Erreur inconnue";
+    return NextResponse.json(
+      {
+        error: "Erreur lors de l'inscription",
+        ...(process.env.NODE_ENV !== "production" ? { debug: errMsg } : {}),
+      },
+      { status: 500 }
+    );
   }
 }
