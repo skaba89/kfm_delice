@@ -23,7 +23,7 @@ export function CustomerLogin({ onLogin, onRegister, onBack }: { onLogin: () => 
       // Resolve restaurant slug from localStorage or default to 'kfm-delice'
       let restaurantSlug = "kfm-delice";
       try {
-        const stored = localStorage.getItem("kfm-restaurant-slug");
+        const stored = localStorage.getItem("restaurantpro_slug");
         if (stored) restaurantSlug = stored;
       } catch { /* localStorage not available */ }
 

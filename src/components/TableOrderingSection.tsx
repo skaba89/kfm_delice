@@ -40,7 +40,7 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
   useEffect(() => {
     // Resolve restaurant slug for multi-tenant API routing.
     // Defaults to 'kfm-delice' (main deployment) if not set in localStorage.
-    const restaurantSlug = (typeof window !== "undefined" && localStorage.getItem("kfm-restaurant-slug")) || "kfm-delice";
+    const restaurantSlug = (typeof window !== "undefined" && localStorage.getItem("restaurantpro_slug")) || "kfm-delice";
     const slugHeader = { "x-restaurant-slug": restaurantSlug };
 
     Promise.all([
@@ -84,7 +84,7 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
     setOrderResult(null);
 
     try {
-      const restaurantSlug = (typeof window !== "undefined" && localStorage.getItem("kfm-restaurant-slug")) || "kfm-delice";
+      const restaurantSlug = (typeof window !== "undefined" && localStorage.getItem("restaurantpro_slug")) || "kfm-delice";
       const slugHeader = { "x-restaurant-slug": restaurantSlug };
 
       const orderItems = cart.map(item => ({
@@ -164,7 +164,7 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
     e.preventDefault();
     setResSubmitting(true);
     try {
-      const restaurantSlug = (typeof window !== "undefined" && localStorage.getItem("kfm-restaurant-slug")) || "kfm-delice";
+      const restaurantSlug = (typeof window !== "undefined" && localStorage.getItem("restaurantpro_slug")) || "kfm-delice";
       const response = await fetch("/api/reservations", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-restaurant-slug": restaurantSlug },

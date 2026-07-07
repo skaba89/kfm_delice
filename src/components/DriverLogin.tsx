@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth-context";
 import { notify } from "@/lib/notifications";
+import { publicApiFetch } from "@/lib/public-api";
 
 export function DriverLogin({ onLogin, onBack }: { onLogin: () => void; onBack: () => void }) {
   const { loginDriver } = useAuth();
@@ -20,8 +21,10 @@ export function DriverLogin({ onLogin, onBack }: { onLogin: () => void; onBack: 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setLoading(true); setError("");
     try {
+      const restaurantSlug = (typeof window !== "undefined" && localStorage.getItem("restaurantpro_slug")) || "kfm-delice";
       const res = await fetch("/api/driver-login", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-restaurant-slug": restaurantSlug },
         body: JSON.stringify({ email, password }),
       });
       if (!res.ok) { const data = await res.json().catch(() => null); setError(data?.error || "Email ou mot de passe incorrect"); return; }

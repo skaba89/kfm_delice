@@ -19,12 +19,16 @@ export async function POST(request: Request) {
     );
   }
 
+  const steps: string[] = [];
+
   try {
+    steps.push("dbReady");
     await dbReady;
 
+    steps.push("parse-body");
     const body = await request.json();
 
-    // Validate input
+    steps.push("validate");
     const validation = loginSchema.safeParse(body);
     if (!validation.success) {
       const firstError = validation.error.issues[0]?.message || "Données invalides";
@@ -33,25 +37,43 @@ export async function POST(request: Request) {
 
     const { email, password } = validation.data;
 
-    // Resolve tenant from request to scope customer lookup
+    steps.push("get-restaurant-id");
     const restaurantId = await getRestaurantId(request);
     if (!restaurantId) {
-      return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Restaurant non trouvé", debug: `steps=${steps.join(",")}; slug-header=${request.headers.get("x-restaurant-slug") || "(none)"}` },
+        { status: 404 }
+      );
     }
 
-    // Use Prisma client (not raw SQL) — works on both SQLite and PostgreSQL.
-    // Raw SQL `FROM Customer` fails on PostgreSQL because unquoted identifiers
-    // are folded to lowercase; Prisma creates tables as `"Customer"` (quoted).
-    // Customer has @@unique([email, restaurantId]) so findFirst is the right call.
-    const customer = await db.customer.findFirst({
-      where: { email, restaurantId },
-      include: { restaurant: { select: { slug: true } } },
-    });
+    steps.push("find-customer");
+    // Try WITHOUT include first — if the relation is broken, this will still work
+    let customer;
+    try {
+      customer = await db.customer.findFirst({
+        where: { email, restaurantId },
+        include: { restaurant: { select: { slug: true } } },
+      });
+    } catch (includeErr) {
+      // Fallback: query without include (relation may be broken in DB)
+      console.error("[customer-login] findFirst with include failed, trying without:", includeErr);
+      const basicCustomer = await db.customer.findFirst({
+        where: { email, restaurantId },
+      });
+      if (basicCustomer) {
+        const restaurant = await db.restaurant.findUnique({
+          where: { id: basicCustomer.restaurantId },
+          select: { slug: true },
+        });
+        customer = { ...basicCustomer, restaurant };
+      }
+    }
+
     if (!customer) {
       return NextResponse.json({ error: "Identifiants incorrects" }, { status: 401 });
     }
 
-    // Verify password with bcrypt
+    steps.push("verify-password");
     const isValid = await verifyPassword(password, customer.password);
     if (!isValid) {
       return NextResponse.json({ error: "Identifiants incorrects" }, { status: 401 });
@@ -61,9 +83,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Compte désactivé. Contactez le restaurant." }, { status: 403 });
     }
 
+    steps.push("generate-token");
     const restaurantSlug = customer.restaurant?.slug || "";
-
-    // Generate JWT token with tenant context
     const token = generateToken({
       id: customer.id,
       email: customer.email,
@@ -73,6 +94,8 @@ export async function POST(request: Request) {
       restaurantSlug,
     });
 
+    steps.push("done");
+
     return NextResponse.json({
       id: customer.id,
       email: customer.email,
@@ -81,7 +104,7 @@ export async function POST(request: Request) {
       address: customer.address,
       loyaltyPoints: customer.loyaltyPoints,
       totalOrders: customer.totalOrders,
-      totalSpent: customer.totalSpent,
+      totalSpent: Number(customer.totalSpent),
       status: customer.status,
       mustChangePassword: customer.mustChangePassword ?? false,
       restaurantId: customer.restaurantId,
@@ -89,7 +112,18 @@ export async function POST(request: Request) {
       token,
     });
   } catch (error) {
-    console.error(error);
-    return NextResponse.json({ error: "Erreur de connexion" }, { status: 500 });
+    console.error("[customer-login] Error:", error);
+    const errMsg = error instanceof Error ? error.message : "Erreur inconnue";
+    const errStack = error instanceof Error ? error.stack?.split("\n").slice(0, 3).join(" | ") : "";
+    // TEMPORARY: expose full diagnostic to identify the failing step
+    return NextResponse.json(
+      {
+        error: "Erreur de connexion",
+        debug: `steps=${steps.join(",")}`,
+        errorDetail: errMsg,
+        errorStack: errStack,
+      },
+      { status: 500 }
+    );
   }
 }

@@ -23,6 +23,7 @@ import { useAuth } from "@/lib/auth-context";
 import { formatPrice, paymentLabels, orderTypeLabels, isRestaurantOpen } from "@/lib/constants";
 import { getTier } from "@/lib/hooks/use-loyalty";
 import { notify } from "@/lib/notifications";
+import { publicApiFetch, getRestaurantSlug } from "@/lib/public-api";
 import type { MenuItemDB } from "@/lib/types";
 import { PublicNavbarDynamic } from "@/components/PublicNavbarDynamic";
 import { PublicFooterDynamic } from "@/components/PublicFooterDynamic";
@@ -223,9 +224,8 @@ export function MenuOrderingPageDynamic() {
         note,
       };
 
-      const res = await fetch("/api/orders", {
+      const res = await publicApiFetch("/api/orders", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
 

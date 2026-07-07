@@ -8,14 +8,26 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { AnimatedSection } from "@/components/AnimatedSection";
+import { publicApiFetch } from "@/lib/public-api";
 
 export function ReservationSection() {
   const [form, setForm] = useState({ customerName: "", phone: "", date: "", time: "", guests: 2, zone: "interieur", notes: "" });
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault(); setSubmitting(true);
-    try { await fetch("/api/reservations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, status: "pending", loyaltyPoint: 50 }) }); setSubmitted(true); } catch { /* */ }
+    e.preventDefault(); setSubmitting(true); setError("");
+    try {
+      const res = await publicApiFetch("/api/reservations", {
+        method: "POST",
+        body: JSON.stringify({ ...form, status: "pending", loyaltyPoint: 50 }),
+      });
+      if (res.ok) setSubmitted(true);
+      else {
+        const data = await res.json().catch(() => ({}));
+        setError(data?.error || "Erreur lors de la réservation");
+      }
+    } catch { setError("Erreur de connexion"); }
     finally { setSubmitting(false); }
   };
   return (
@@ -46,6 +58,7 @@ export function ReservationSection() {
                     </div>
                   </div>
                   <div><label className="text-sm font-medium text-gray-700 mb-1 block">Notes spéciales</label><Textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Allergies, occasions spéciales..." rows={3} /></div>
+                  {error && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
                   <Button type="submit" disabled={submitting} className="w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white rounded-xl py-6 text-lg">
                     {submitting ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : <><CalendarCheck className="mr-2 w-5 h-5" />Réserver</>}
                   </Button>

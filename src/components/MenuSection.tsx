@@ -7,14 +7,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { AnimatedSection } from "@/components/AnimatedSection";
 import type { MenuItemDB } from "@/lib/types";
 import { MENU_CATS, formatPrice } from "@/lib/constants";
+import { publicApiFetch } from "@/lib/public-api";
 
 // ─── WhatsApp number resolution ──────────────────────────────────
-// For a SaaS multi-restaurant platform, the WhatsApp number MUST NOT be
-// hardcoded in the component. Resolution order:
-//   1. Per-tenant number from /api/restaurant (whatsapp field)
-//   2. NEXT_PUBLIC_WHATSAPP_NUMBER env var (build-time fallback)
-//   3. The historical KFM Delice number (last-resort fallback, never breaks
-//      the existing button)
 const FALLBACK_WHATSAPP = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "224622345678";
 
 export function MenuSection() {
@@ -25,15 +20,12 @@ export function MenuSection() {
   const [whatsappNumber, setWhatsappNumber] = useState<string>(FALLBACK_WHATSAPP);
 
   useEffect(() => {
-    // Fetch menu items + restaurant config (for the per-tenant WhatsApp
-    // number) in parallel. Failures are non-fatal — we fall back to the
-    // env var / hardcoded number so the Commander button always works.
     Promise.all([
-      fetch("/api/menu?limit=1000")
+      publicApiFetch("/api/menu?limit=1000")
         .then(r => r.ok ? r.json() : Promise.reject(new Error("menu " + r.status)))
         .then(d => Array.isArray(d) ? d : (d.data || []))
         .catch(() => { setLoadError(true); return []; }),
-      fetch("/api/restaurant")
+      publicApiFetch("/api/restaurant")
         .then(r => r.ok ? r.json() : null)
         .then(d => d?.whatsapp ? String(d.whatsapp).replace(/[^0-9]/g, "") : null)
         .catch(() => null),

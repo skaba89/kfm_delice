@@ -6,11 +6,12 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { AnimatedSection } from "@/components/AnimatedSection";
 import type { ReviewDB } from "@/lib/types";
+import { publicApiFetch } from "@/lib/public-api";
 
 export function AvisSection() {
   const [reviews, setReviews] = useState<ReviewDB[]>([]);
   const [loading, setLoading] = useState(true);
-  useEffect(() => { fetch("/api/reviews").then(r => r.json()).then(d => { const list = Array.isArray(d) ? d : Array.isArray(d.data) ? d.data : []; setReviews(list); setLoading(false); }).catch(() => { setReviews([]); setLoading(false); }); }, []);
+  useEffect(() => { publicApiFetch("/api/reviews").then(r => r.json()).then(d => { const list = Array.isArray(d) ? d : Array.isArray(d.data) ? d.data : []; setReviews(list); setLoading(false); }).catch(() => { setReviews([]); setLoading(false); }); }, []);
   return (
     <section id="avis" className="py-20 bg-gradient-to-br from-orange-50/50 to-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

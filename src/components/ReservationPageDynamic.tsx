@@ -29,6 +29,7 @@ import { useRestaurant } from "@/lib/restaurant-context";
 import { useAuth } from "@/lib/auth-context";
 import { isRestaurantOpen, zoneLabels } from "@/lib/constants";
 import { notify } from "@/lib/notifications";
+import { publicApiFetch } from "@/lib/public-api";
 import { PublicNavbarDynamic } from "@/components/PublicNavbarDynamic";
 import { PublicFooterDynamic } from "@/components/PublicFooterDynamic";
 
@@ -135,9 +136,8 @@ export function ReservationPageDynamic() {
 
     setSubmitting(true);
     try {
-      const res = await fetch("/api/reservations", {
+      const res = await publicApiFetch("/api/reservations", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...form,
           slug: slug || restaurant.slug,

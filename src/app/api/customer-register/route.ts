@@ -19,11 +19,18 @@ export async function POST(request: Request) {
     );
   }
 
+  // Step-by-step diagnostic — each step logs its name so we can see
+  // exactly where the 500 occurs when the debug field is returned.
+  const steps: string[] = [];
+
   try {
+    steps.push("dbReady");
     await dbReady;
+
+    steps.push("parse-body");
     const body = await request.json();
 
-    // Validate input
+    steps.push("validate");
     const validation = customerRegisterSchema.safeParse(body);
     if (!validation.success) {
       const firstError = validation.error.issues[0]?.message || "Données invalides";
@@ -32,23 +39,31 @@ export async function POST(request: Request) {
 
     const { email, password, name, phone, address } = validation.data;
 
-    // Resolve tenant from request
+    steps.push("get-restaurant-id");
     const restaurantId = await getRestaurantId(request);
     if (!restaurantId) {
-      return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Restaurant non trouvé", debug: `steps=${steps.join(",")}; slug-header=${request.headers.get("x-restaurant-slug") || "(none)"}` },
+        { status: 404 }
+      );
     }
 
+    steps.push("check-existing");
     const existing = await db.customer.findFirst({ where: { email, restaurantId } });
     if (existing) {
       return NextResponse.json({ error: "Cet email est déjà utilisé" }, { status: 400 });
     }
 
-    // Hash password before storing
+    steps.push("hash-password");
     const hashedPassword = await hashPassword(password);
 
-    // Get restaurant slug for JWT
-    const restaurant = await db.restaurant.findUnique({ where: { id: restaurantId }, select: { slug: true } });
+    steps.push("find-restaurant");
+    const restaurant = await db.restaurant.findUnique({
+      where: { id: restaurantId },
+      select: { slug: true },
+    });
 
+    steps.push("create-customer");
     const customer = await db.customer.create({
       data: {
         email,
@@ -58,14 +73,23 @@ export async function POST(request: Request) {
         address: address || "",
         loyaltyPoints: 100,
         totalOrders: 0,
-        totalSpent: 0,
+        totalSpent: BigInt(0),
         status: "active",
         restaurantId,
       },
     });
 
-    // Generate JWT token with tenant context
-    const token = generateToken({ id: customer.id, email: customer.email, role: "customer", type: "customer", restaurantId, restaurantSlug: restaurant?.slug || "" });
+    steps.push("generate-token");
+    const token = generateToken({
+      id: customer.id,
+      email: customer.email,
+      role: "customer",
+      type: "customer",
+      restaurantId,
+      restaurantSlug: restaurant?.slug || "",
+    });
+
+    steps.push("done");
 
     return NextResponse.json({
       id: customer.id,
@@ -75,7 +99,7 @@ export async function POST(request: Request) {
       address: customer.address,
       loyaltyPoints: customer.loyaltyPoints,
       totalOrders: customer.totalOrders,
-      totalSpent: customer.totalSpent,
+      totalSpent: Number(customer.totalSpent),
       status: customer.status,
       restaurantId: customer.restaurantId,
       restaurantSlug: restaurant?.slug || "",
@@ -84,11 +108,14 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("[customer-register] Error:", error);
     const errMsg = error instanceof Error ? error.message : "Erreur inconnue";
-    // TEMPORARY: expose error in all envs to diagnose the 500 on Render
+    const errStack = error instanceof Error ? error.stack?.split("\n").slice(0, 3).join(" | ") : "";
+    // TEMPORARY: expose full diagnostic in ALL envs to identify the failing step
     return NextResponse.json(
       {
         error: "Erreur lors de l'inscription",
-        debug: errMsg,
+        debug: `steps=${steps.join(",")}`,
+        errorDetail: errMsg,
+        errorStack: errStack,
       },
       { status: 500 }
     );
