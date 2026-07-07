@@ -108,14 +108,10 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("[customer-register] Error:", error);
     const errMsg = error instanceof Error ? error.message : "Erreur inconnue";
-    const errStack = error instanceof Error ? error.stack?.split("\n").slice(0, 3).join(" | ") : "";
-    // TEMPORARY: expose full diagnostic in ALL envs to identify the failing step
     return NextResponse.json(
       {
         error: "Erreur lors de l'inscription",
-        debug: `steps=${steps.join(",")}`,
-        errorDetail: errMsg,
-        errorStack: errStack,
+        ...(process.env.NODE_ENV !== "production" ? { debug: errMsg } : {}),
       },
       { status: 500 }
     );
