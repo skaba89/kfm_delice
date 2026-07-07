@@ -66,3 +66,4 @@ server.log
 /agent-ctx/
 .git-backup-*/
 secrets-production.txt
+prisma/data/*.db

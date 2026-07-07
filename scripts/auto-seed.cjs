@@ -86,17 +86,12 @@ async function main() {
       console.log('[auto-seed] Could not count restaurants:', countErr.message);
       console.log('[auto-seed] Assuming empty database and attempting seed.');
     }
-    if (restaurantCount > 0) {
-      console.log(`[auto-seed] Database already has ${restaurantCount} restaurant(s), skipping.`);
-      return;
-    }
 
-    console.log('[auto-seed] Empty database detected — seeding SaaS-coherent demo data...');
-
-    // ── 1. Create PlatformAdmin (super-admin for the SaaS platform itself) ──
-    // NOTE: This is for the SaaS platform admin (manages ALL accounts),
-    // NOT the restaurant admin. Demo password is "platform2024" — only
-    // safe because ALLOW_AUTO_SEED=true is explicitly opt-in.
+    // ── 1. Always ensure PlatformAdmin exists (even if DB is not empty) ──
+    // The PlatformAdmin is the SaaS super-admin who manages ALL accounts.
+    // It must exist regardless of whether the demo restaurant was created.
+    // Demo password is "platform2024" — only safe because ALLOW_AUTO_SEED=true
+    // is explicitly opt-in.
     const platformPw = hashSync('platform2024', 10);
     try {
       await prisma.platformAdmin.upsert({
@@ -114,6 +109,13 @@ async function main() {
     } catch (e) {
       console.log('[auto-seed] Platform admin upsert warning:', e.message);
     }
+
+    if (restaurantCount > 0) {
+      console.log(`[auto-seed] Database already has ${restaurantCount} restaurant(s), skipping restaurant seed.`);
+      return;
+    }
+
+    console.log('[auto-seed] Empty database detected — seeding SaaS-coherent demo data...');
 
     // ── 2. Create Account (SaaS customer — owns the restaurant) ──
     const plan = 'pro';
