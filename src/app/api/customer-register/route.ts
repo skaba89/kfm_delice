@@ -84,10 +84,11 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("[customer-register] Error:", error);
     const errMsg = error instanceof Error ? error.message : "Erreur inconnue";
+    // TEMPORARY: expose error in all envs to diagnose the 500 on Render
     return NextResponse.json(
       {
         error: "Erreur lors de l'inscription",
-        ...(process.env.NODE_ENV !== "production" ? { debug: errMsg } : {}),
+        debug: errMsg,
       },
       { status: 500 }
     );
