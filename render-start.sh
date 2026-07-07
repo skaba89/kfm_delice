@@ -124,10 +124,17 @@ echo "[render-start] Running SaaS account backfill..."
 node scripts/backfill-accounts.cjs 2>&1 || echo "[render-start] backfill warning, continuing..."
 
 # ── Start the Next.js server ───────────────────────────────────
+# IMPORTANT: Render needs the server to listen on 0.0.0.0 (all interfaces)
+# so its load balancer can route traffic to it. If we use the HOSTNAME
+# env var that Render sets (which is the Kubernetes pod name like
+# 'srv-xxx-hibernate-yyy'), Next.js will only listen on that specific
+# interface and Render's health check will fail with 502.
+# So we ALWAYS use 0.0.0.0 regardless of what HOSTNAME is set to.
 echo "[render-start] ─────────────────────────────────────────────"
-echo "[render-start] Starting Next.js server on ${HOSTNAME:-0.0.0.0}:${PORT:-3000}..."
+echo "[render-start] Starting Next.js server on 0.0.0.0:${PORT:-3000}..."
 echo "[render-start] Provider: $PROVIDER"
+echo "[render-start] (Listening on 0.0.0.0 so Render can route traffic)"
 echo "[render-start] ─────────────────────────────────────────────"
-export HOSTNAME="${HOSTNAME:-0.0.0.0}"
 export PORT="${PORT:-3000}"
-exec npx next start -p "$PORT" -H "$HOSTNAME"
+# Do NOT export HOSTNAME — we pass 0.0.0.0 directly to next start
+exec node_modules/.bin/next start -p "$PORT" -H 0.0.0.0
