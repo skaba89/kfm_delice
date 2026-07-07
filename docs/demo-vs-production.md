@@ -16,7 +16,8 @@ Le mode démo charge automatiquement un restaurant `KFM Delice` avec des comptes
 ```bash
 NODE_ENV=production
 ALLOW_AUTO_SEED=true
-NEXT_PUBLIC_SHOW_DEMO_CREDS=true
+ALLOW_PRISMA_DB_PUSH_FALLBACK=true
+NEXT_PUBLIC_SHOW_DEMO_CREDS=false
 ENABLE_PUBLIC_RESTAURANT_REGISTRATION=false
 JWT_SECRET=<votre-secret-jwt-aleatoire-64-chars>
 DATABASE_URL=postgresql://...  # Render fournit ça
@@ -63,6 +64,7 @@ Le mode production ne charge **aucune donnée de démonstration**. Vous devez cr
 ```bash
 NODE_ENV=production
 ALLOW_AUTO_SEED=false
+ALLOW_PRISMA_DB_PUSH_FALLBACK=false
 NEXT_PUBLIC_SHOW_DEMO_CREDS=false
 ENABLE_PUBLIC_RESTAURANT_REGISTRATION=false
 JWT_SECRET=<secret-jwt-tres-long-et-aleatoire-64+chars>
@@ -149,7 +151,8 @@ Pour le PlatformAdmin et les admins restaurant, activez l'authentification à de
 | Item | Mode démo | Mode prod |
 |------|-----------|-----------|
 | `ALLOW_AUTO_SEED` | `true` | `false` |
-| `NEXT_PUBLIC_SHOW_DEMO_CREDS` | `true` | `false` |
+| `ALLOW_PRISMA_DB_PUSH_FALLBACK` | `true` | `false` |
+| `NEXT_PUBLIC_SHOW_DEMO_CREDS` | `false` | `false` |
 | `ENABLE_PUBLIC_RESTAURANT_REGISTRATION` | `false` | `false` |
 | `JWT_SECRET` | quelconque | 64+ chars aléatoires |
 | Mots de passe admin | hardcoded | 12+ chars, uniques |

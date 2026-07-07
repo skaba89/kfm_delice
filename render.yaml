@@ -92,3 +92,9 @@ services:
       # will create restaurants.
       - key: ENABLE_PUBLIC_RESTAURANT_REGISTRATION
         value: "false"
+      # Mission 8: Allow prisma db push fallback when migrate deploy fails.
+      # Demo/staging: "true" (allows the fallback to keep the demo running)
+      # Real production: "false" (a failed migration is a clear signal
+      #   that something is wrong and should be investigated manually)
+      - key: ALLOW_PRISMA_DB_PUSH_FALLBACK
+        value: "true"

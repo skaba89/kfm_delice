@@ -199,6 +199,67 @@ See `docs/demo-vs-production.md` for the full guide. Quick summary:
 | Setting | Demo (Render actuel) | Vraie production |
 |---------|---------------------|-------------------|
 | `ALLOW_AUTO_SEED` | `true` | `false` |
-| `NEXT_PUBLIC_SHOW_DEMO_CREDS` | `true` | `false` |
+| `ALLOW_PRISMA_DB_PUSH_FALLBACK` | `true` | `false` |
+| `NEXT_PUBLIC_SHOW_DEMO_CREDS` | `false` | `false` |
 | PlatformAdmin créé par | auto-seed | `scripts/create-platform-admin.cjs` |
 | Mots de passe | hardcoded (`kfm2024`, etc.) | 12+ chars, uniques |
+
+## E2E Tests
+
+After a successful deploy, run the E2E test suites to verify everything works end-to-end.
+
+### E2E Live (general API tests)
+
+```bash
+BASE_URL=https://kfm-delice-ggb4.onrender.com \
+E2E_SLUG=kfm-delice \
+E2E_PLATFORM_EMAIL=admin@restaurantpro.com \
+E2E_PLATFORM_PASSWORD=platform2024 \
+E2E_ADMIN_EMAIL=admin@kfm-delice.com \
+E2E_ADMIN_PASSWORD=kfm2024 \
+E2E_MANAGER_EMAIL=manager@kfm-delice.com \
+E2E_MANAGER_PASSWORD=manager2024 \
+E2E_CUSTOMER_EMAIL=aminata@gmail.com \
+E2E_CUSTOMER_PASSWORD=client123 \
+E2E_DRIVER_EMAIL=moussa@kfm-delice.com \
+E2E_DRIVER_PASSWORD=driver123 \
+E2E_SAFE_MODE=true \
+python3 scripts/e2e-live.py
+```
+
+Set `E2E_SAFE_MODE=true` when running against production to skip destructive tests (create/delete).
+
+### E2E SaaS (Account / quotas / secondary restaurants)
+
+```bash
+BASE_URL=https://kfm-delice-ggb4.onrender.com \
+E2E_PLATFORM_EMAIL=admin@restaurantpro.com \
+E2E_PLATFORM_PASSWORD=platform2024 \
+E2E_TEST_PREFIX="E2E KFM $(date +%s)" \
+E2E_SAFE_MODE=true \
+python3 scripts/e2e-saas.py
+```
+
+This script tests:
+1. Platform admin login
+2. Account creation
+3. Main restaurant creation
+4. Admin SaaS fields verification (accountId, canCreateRestaurant, limit)
+5. Quota endpoint
+6. Secondary restaurant creation
+7. Quota decrease verification
+8. Denial of second main restaurant
+9. Over-quota blocking
+
+## 503 Troubleshooting
+
+If you see HTTP 503, see `docs/render-503-troubleshooting.md` for a comprehensive guide covering:
+- Wrong host (not 0.0.0.0)
+- Wrong port
+- Prisma Client wrong provider
+- Prisma 7 downloaded by npx
+- Missing .next/BUILD_ID
+- Missing DATABASE_URL
+- Blocking migration
+- Seed crash
+- Service hibernation (free tier)

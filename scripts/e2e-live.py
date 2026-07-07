@@ -18,19 +18,40 @@ import urllib.error
 from typing import Any
 
 BASE = os.environ.get("BASE_URL", "http://127.0.0.1:3000")
-SLUG = "mon-restaurant"
+SLUG = os.environ.get("E2E_SLUG", "kfm-delice")
+
+# E2E_SAFE_MODE=true → skip destructive tests (deletes, schema changes)
+# Use this when running against production to avoid data loss.
+SAFE_MODE = os.environ.get("E2E_SAFE_MODE", "false").lower() == "true"
 
 # Disable any system proxies that may route localhost away
 proxy_handler = urllib.request.ProxyHandler({})
 urllib.request.install_opener(urllib.request.build_opener(proxy_handler))
 
-# ---- Test accounts (created by prisma/clean-seed.ts) ----
+# ---- Test accounts (aligned with scripts/auto-seed.cjs) ----
+# All values are configurable via environment variables so the same script
+# can run against local dev, staging, or production.
 ACCOUNTS = {
-    "platform": {"email": "admin@platform.com", "password": "Platform2024!"},
-    "admin": {"email": "admin@monrestaurant.com", "password": "Admin2024!"},
-    "manager": {"email": "manager@monrestaurant.com", "password": "Manager2024!"},
-    "customer": {"email": "client@test.com", "password": "Client2024!"},
-    "driver": {"email": "driver@test.com", "password": "Driver2024!"},
+    "platform": {
+        "email": os.environ.get("E2E_PLATFORM_EMAIL", "admin@restaurantpro.com"),
+        "password": os.environ.get("E2E_PLATFORM_PASSWORD", "platform2024"),
+    },
+    "admin": {
+        "email": os.environ.get("E2E_ADMIN_EMAIL", "admin@kfm-delice.com"),
+        "password": os.environ.get("E2E_ADMIN_PASSWORD", "kfm2024"),
+    },
+    "manager": {
+        "email": os.environ.get("E2E_MANAGER_EMAIL", "manager@kfm-delice.com"),
+        "password": os.environ.get("E2E_MANAGER_PASSWORD", "manager2024"),
+    },
+    "customer": {
+        "email": os.environ.get("E2E_CUSTOMER_EMAIL", "aminata@gmail.com"),
+        "password": os.environ.get("E2E_CUSTOMER_PASSWORD", "client123"),
+    },
+    "driver": {
+        "email": os.environ.get("E2E_DRIVER_EMAIL", "moussa@kfm-delice.com"),
+        "password": os.environ.get("E2E_DRIVER_PASSWORD", "driver123"),
+    },
 }
 
 # Collected tokens
@@ -179,6 +200,9 @@ def test_menu_list():
 
 
 def test_menu_create_update_delete():
+    if SAFE_MODE:
+        print("      (skipped: E2E_SAFE_MODE=true)")
+        return
     # Create
     status, body = req("POST", "/api/menu", body={
         "name": "Test Plat E2E",
@@ -338,6 +362,9 @@ def test_staff_list():
 
 
 def test_staff_create_delete():
+    if SAFE_MODE:
+        print("      (skipped: E2E_SAFE_MODE=true)")
+        return
     status, body = req("POST", "/api/staff", body={
         "name": "Employé E2E",
         "role": "serveur",
@@ -419,6 +446,9 @@ def test_quotes_create_list():
 # ---- Expenses ----
 
 def test_expenses_create_list():
+    if SAFE_MODE:
+        print("      (skipped: E2E_SAFE_MODE=true)")
+        return
     status, body = req("POST", "/api/expenses", body={
         "category": "Test",
         "description": "Dépense E2E",
@@ -651,6 +681,13 @@ def main():
     print("=" * 60)
     print(f"KFM Delice / Restaurant Pro — E2E Live Test Suite")
     print(f"Target: {BASE}  (restaurant slug: {SLUG})")
+    if SAFE_MODE:
+        print(f"⚠️  E2E_SAFE_MODE=true → destructive tests will be SKIPPED")
+    print(f"Admin:     {ACCOUNTS['admin']['email']}")
+    print(f"Manager:   {ACCOUNTS['manager']['email']}")
+    print(f"Customer:  {ACCOUNTS['customer']['email']}")
+    print(f"Driver:    {ACCOUNTS['driver']['email']}")
+    print(f"Platform:  {ACCOUNTS['platform']['email']}")
     print("=" * 60)
 
     # 1) Warmup — hit lightweight health endpoint (root page is heavy and may OOM dev server)

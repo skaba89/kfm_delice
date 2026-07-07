@@ -2,6 +2,7 @@ import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { verifyPassword, generateToken } from "@/lib/auth";
 import { rateLimit } from "@/lib/rate-limit";
+import { logAudit } from "@/lib/audit";
 
 // ────────────────────────────────────────────────────────────────
 // Platform Admin Login — super-admin for SaaS platform management
@@ -53,6 +54,16 @@ export async function POST(request: Request) {
       role: platformAdmin.role,
       type: "platform_admin",
     });
+
+    // Audit log: platform admin login success (non-blocking)
+    await logAudit({
+      actorId: platformAdmin.id,
+      actorType: "platform_admin",
+      action: "platform_login_success",
+      entityType: "PlatformAdmin",
+      entityId: platformAdmin.id,
+      request,
+    }).catch(() => { /* non-blocking */ });
 
     return NextResponse.json({
       id: platformAdmin.id,

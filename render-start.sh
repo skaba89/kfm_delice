@@ -70,20 +70,35 @@ fi
 echo "[render-start] Verifying Prisma provider..."
 node scripts/check-prisma-provider.cjs 2>&1 || echo "[render-start] WARNING: provider verification failed (continuing anyway)"
 
-# ── Diagnostics ────────────────────────────────────────────────
+# ── Diagnostics: verify Next.js build output BEFORE starting ───
+# These checks catch the "503 because .next/ is missing" case at the
+# source rather than letting the server crash on first request.
 echo "[render-start] Checking Next.js build output..."
 test -d .next || echo "[render-start] WARNING: .next directory missing"
 test -f .next/BUILD_ID || echo "[render-start] WARNING: .next/BUILD_ID missing"
+test -d node_modules || echo "[render-start] WARNING: node_modules missing"
+test -x node_modules/.bin/next || echo "[render-start] WARNING: next binary missing"
+test -x node_modules/.bin/prisma || echo "[render-start] WARNING: prisma binary missing"
 test -d node_modules/@prisma/client || echo "[render-start] WARNING: @prisma/client missing"
 test -d node_modules/.prisma/client || echo "[render-start] WARNING: .prisma/client missing"
+echo "[render-start] Build output check complete."
 
-# ── Apply schema & migrations (non-fatal on failure) ──────────
+# ── Apply schema & migrations ──────────────────────────────────
+# Mission 8: enclose db push fallback with ALLOW_PRISMA_DB_PUSH_FALLBACK.
+# In real production, this should be 'false' (or unset) so that a failed
+# migration is a clear signal. In demo/staging, 'true' allows the fallback.
 if [ "$PROVIDER" = "postgres" ]; then
   echo "[render-start] Running prisma migrate deploy..."
-  node_modules/.bin/prisma migrate deploy 2>&1 || {
-    echo "[render-start] ⚠️  prisma migrate deploy failed — falling back to db push"
-    node_modules/.bin/prisma db push --skip-generate 2>&1 || echo "[render-start] ⚠️  prisma db push also failed"
-  }
+  if ! node_modules/.bin/prisma migrate deploy 2>&1; then
+    echo "[render-start] prisma migrate deploy failed"
+    if [ "$ALLOW_PRISMA_DB_PUSH_FALLBACK" = "true" ]; then
+      echo "[render-start] ALLOW_PRISMA_DB_PUSH_FALLBACK=true → running db push --skip-generate"
+      node_modules/.bin/prisma db push --skip-generate 2>&1 || echo "[render-start] prisma db push also failed"
+    else
+      echo "[render-start] db push fallback disabled (ALLOW_PRISMA_DB_PUSH_FALLBACK not 'true')."
+      echo "[render-start] Continuing to start app, but DB schema may be outdated."
+    fi
+  fi
 
   echo "[render-start] Running ensure-postgres-columns safety check..."
   node scripts/ensure-postgres-columns.cjs 2>&1 || echo "[render-start] ensure-columns warning, continuing..."

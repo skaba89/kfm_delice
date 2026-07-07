@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { verifyPassword, generateToken } from "@/lib/auth";
 import { loginSchema } from "@/lib/validations";
 import { rateLimit } from "@/lib/rate-limit";
+import { logAudit } from "@/lib/audit";
 
 // Auto-seed lock to prevent concurrent seeding
 let _seedPromise: Promise<void> | null = null;
@@ -118,6 +119,17 @@ export async function POST(request: Request) {
       type: "admin", restaurantId: admin.restaurantId,
       restaurantSlug,
     });
+
+    // Audit log: admin login success (non-blocking)
+    await logAudit({
+      actorId: admin.id,
+      actorType: "admin",
+      action: "admin_login_success",
+      entityType: "Admin",
+      entityId: admin.id,
+      restaurantId: admin.restaurantId,
+      request,
+    }).catch(() => { /* non-blocking */ });
 
     return NextResponse.json({
       id: admin.id,
