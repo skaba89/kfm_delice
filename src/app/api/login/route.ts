@@ -1,6 +1,6 @@
 import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
-import { verifyPassword, generateToken, hashPassword } from "@/lib/auth";
+import { verifyPassword, generateToken } from "@/lib/auth";
 import { loginSchema } from "@/lib/validations";
 import { rateLimit } from "@/lib/rate-limit";
 
@@ -11,79 +11,21 @@ async function ensureDbSeeded() {
   if (_seedPromise) return _seedPromise;
   _seedPromise = (async () => {
     try {
-      // Use Prisma client (not raw SQL) — works on both SQLite and PostgreSQL.
-      // Raw SQL like `FROM Restaurant` fails on PostgreSQL because unquoted
-      // identifiers are folded to lowercase, but Prisma creates tables as
-      // `"Restaurant"` (quoted).
       const count = await db.restaurant.count();
-      if (count === 0) {
-        console.log("[auto-seed] Empty DB detected, seeding on first login...");
-        const { hashSync } = await import("bcryptjs");
-
-        // Create restaurant
-        const restaurant = await db.restaurant.create({
-          data: {
-            name: "KFM Delice", slug: "kfm-delice", tagline: "L'Art du Goût Guinéen",
-            description: "Restaurant gastronomique au cœur de Conakry.",
-            phone: "+224 622 34 56 78", whatsapp: "+224 622 34 56 78",
-            email: "reservation@kfm-delice.com",
-            address: "Almamya, Corniche Nord, Conakry, Guinée",
-            hours: "Lun-Dim : 11h00 - 23h00", rating: 4.9, tables: 25,
-            deliveryFee: 5000, minDelivery: 15000,
-            deliveryZones: "Kaloum:Dixinn:Matam:Matoto",
-            plan: "pro", status: "active", currency: "GNF", locale: "fr",
-            ownerEmail: "admin@kfm-delice.com", ownerName: "Admin KFM Delice",
-          },
-        });
-
-        // Create restaurant config
-        await db.restaurantConfig.create({
-          data: {
-            restaurantId: restaurant.id,
-            heroImage: "/images/kfm-hero.png",
-            primaryColor: "#ea580c", accentColor: "#f97316",
-            menuCategories: JSON.stringify([
-              { id: "entrees", name: "Entrées" },
-              { id: "plats", name: "Plats Principaux" },
-              { id: "mer", name: "Fruits de Mer" },
-              { id: "desserts", name: "Desserts" },
-              { id: "boissons", name: "Boissons" },
-            ]),
-            features: JSON.stringify({
-              delivery: true, reservations: true, reviews: true, loyalty: true,
-              pos: true, invoices: true, quotes: true, expenses: true, staff: true, drivers: true,
-            }),
-            openingHours: JSON.stringify({ open: 11, close: 23, timezone: "Africa/Conakry" }),
-            socialLinks: JSON.stringify({ facebook: "", instagram: "", twitter: "" }),
-          },
-        });
-
-        // Create admin user
-        await db.admin.create({
-          data: {
-            email: "admin@kfm-delice.com",
-            password: hashSync("kfm2024", 10),
-            name: "Admin KFM Delice",
-            role: "admin",
-            status: "active",
-            restaurantId: restaurant.id,
-          },
-        });
-
-        // Create manager
-        await db.admin.create({
-          data: {
-            email: "manager@kfm-delice.com",
-            password: hashSync("manager2024", 10),
-            name: "Aminata Diallo",
-            role: "manager",
-            status: "active",
-            restaurantId: restaurant.id,
-          },
-        });
-
-        console.log("[auto-seed] Database seeded successfully on first login!");
+      if (count > 0) {
+        console.log(`[auto-seed] DB already has ${count} restaurant(s), skipping login-time seed.`);
+        return;
       }
+      // NOTE: Login-time auto-seed is intentionally minimal — it does NOT
+      // create the full demo dataset (no menu, no customers, no drivers,
+      // no SaaS Account linkage). The authoritative seed is scripts/auto-seed.cjs
+      // called from render-start.sh, which creates a SaaS-coherent structure:
+      // Account -> Restaurant (principal) -> Admins (with accountId, quotas).
+      //
+      // This login-time fallback only exists for emergency local-dev
+      // scenarios and is gated by ALLOW_LOGIN_AUTO_SEED=true (off by default).
+      console.log("[auto-seed] Empty DB detected — login-time seed is minimal.");
+      console.log("[auto-seed] For full demo data, run scripts/auto-seed.cjs or set ALLOW_AUTO_SEED=true on Render.");
     } catch (err) {
       console.error("[auto-seed] Failed:", err);
       _seedPromise = null; // Allow retry
@@ -108,10 +50,10 @@ export async function POST(request: Request) {
 
   try {
     await dbReady;
-    // Auto-seed from login is DISABLED — it was a security risk in production
-    // (anyone could trigger demo account creation by hitting /api/login).
-    // Seeding is now exclusively handled by scripts/auto-seed.cjs (called
-    // from render-start.sh), gated by ALLOW_AUTO_SEED=true.
+
+    // Auto-seed from login is disabled in production by default.
+    // Seeding is normally handled by scripts/auto-seed.cjs (called from
+    // render-start.sh), gated by ALLOW_AUTO_SEED=true.
     // To re-enable for dev/testing: set ALLOW_LOGIN_AUTO_SEED=true
     if (process.env.ALLOW_LOGIN_AUTO_SEED === "true") {
       await ensureDbSeeded();
@@ -128,104 +70,42 @@ export async function POST(request: Request) {
 
     const { email, password } = validation.data;
 
-    // Use raw SQL FIRST — Prisma Client may have wrong provider (sqlite vs postgres)
-    // The Prisma Client on Render is STILL being generated with sqlite schema
-    // despite all our fixes. Raw SQL bypasses Prisma's schema validation.
-    let admin: { id: string; email: string; password: string; name: string; role: string; status: string; restaurantId: string } | null = null;
-    try {
-      const rows = await db.$queryRawUnsafe<Array<{
-        id: string; email: string; password: string; name: string;
-        role: string; status: string; restaurantId: string;
-      }>>('SELECT id, email, password, name, role, status, "restaurantId" FROM "Admin" WHERE email = $1 LIMIT 1', email);
-      admin = rows[0] || null;
-    } catch (rawErr) {
-      // Raw SQL also failed — probably the table doesn't exist yet.
-      // Try Prisma client as fallback.
-      try {
-        admin = await db.admin.findUnique({
-          where: { email },
-          select: {
-            id: true, email: true, password: true, name: true,
-            role: true, status: true, restaurantId: true,
-          },
-        });
-      } catch {
-        admin = null;
-      }
-    }
+    // Use the Prisma Client directly. Now that `output: 'standalone'`
+    // is removed (commit 0ad1589) and render-start.sh regenerates the
+    // client at runtime with the correct provider (postgres on Render),
+    // Prisma model queries work reliably. No more raw SQL workarounds.
+    const admin = await db.admin.findUnique({
+      where: { email },
+      select: {
+        id: true, email: true, password: true, name: true,
+        role: true, status: true, restaurantId: true,
+      },
+    });
 
     if (!admin) {
-      // Emergency re-seed: if no admin found, the auto-seed may have failed.
-      // Try to create restaurant + admin directly via raw SQL.
-      // TEMPORARILY: return the error so we can diagnose what's failing.
-      let reseedError = '';
-      try {
-        const { randomUUID } = await import('crypto');
-        const newId = () => randomUUID();
-
-        // Check if a restaurant exists
-        let restaurantRows = await db.$queryRawUnsafe<Array<{ id: string }>>(
-          'SELECT id FROM "Restaurant" LIMIT 1'
-        );
-        
-        let restaurantId = restaurantRows[0]?.id;
-        reseedError += `restaurantExists=${!!restaurantId};`;
-        
-        // If no restaurant, create one
-        if (!restaurantId) {
-          const restId = newId();
-          await db.$executeRawUnsafe(`
-            INSERT INTO "Restaurant" (id, name, slug, tagline, description, phone, whatsapp, email, address, hours, rating, tables, "deliveryFee", "minDelivery", "deliveryZones", plan, status, currency, locale, "ownerEmail", "ownerName", "ownerPhone", "createdAt", "updatedAt")
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::bigint, $14::bigint, $15, $16, $17, $18, $19, $20, $21, $22, NOW(), NOW())
-            ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
-          `, restId, 'KFM Delice', 'kfm-delice', 'Art du Gout', 'Restaurant', '+224', '+224', 'r@kfm.com', 'Conakry', '11h', 4.9, 25, '5000', '15000', 'Conakry', 'pro', 'active', 'GNF', 'fr', 'a@kfm.com', 'Admin', '+224');
-          restaurantId = restId;
-          reseedError += `restaurantCreated=${!!restaurantId};`;
-        }
-
-        if (restaurantId) {
-          const hashedPw = await hashPassword('kfm2024');
-          const adminId = newId();
-          await db.$executeRawUnsafe(
-            `INSERT INTO "Admin" (id, email, password, name, role, status, "restaurantId", "mustChangePassword", "createdAt", "updatedAt")
-             VALUES ($1, $2, $3, $4, 'admin', 'active', $5, false, NOW(), NOW())
-             ON CONFLICT (email) DO UPDATE SET password = $3, "restaurantId" = $5`,
-            adminId, email, hashedPw, 'Admin KFM Delice', restaurantId
-          );
-          reseedError += `adminCreated=true;`;
-          // Now try to fetch again
-          const rows = await db.$queryRawUnsafe<Array<{
-            id: string; email: string; password: string; name: string;
-            role: string; status: string; restaurantId: string;
-          }>>('SELECT id, email, password, name, role, status, "restaurantId" FROM "Admin" WHERE email = $1 LIMIT 1', email);
-          admin = rows[0] || null;
-          reseedError += `adminFetched=${!!admin};`;
-        }
-      } catch (e) {
-        reseedError += `error=${e instanceof Error ? e.message : String(e)};`;
-        console.error('[login] Emergency re-seed failed:', reseedError);
-      }
-
-      if (!admin) {
-        // TEMPORARY: return diagnostic info so we can see what's failing
-        return NextResponse.json(
-          { error: "Identifiants incorrects", _debug: reseedError },
-          { status: 401 }
-        );
-      }
+      return NextResponse.json(
+        { error: "Identifiants incorrects" },
+        { status: 401 }
+      );
     }
 
     // Verify password with bcrypt
     const isValid = await verifyPassword(password, admin.password);
     if (!isValid) {
-      return NextResponse.json({ error: "Identifiants incorrects" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Identifiants incorrects" },
+        { status: 401 }
+      );
     }
 
     if (admin.status === "inactive") {
-      return NextResponse.json({ error: "Compte désactivé. Contactez l'administrateur." }, { status: 403 });
+      return NextResponse.json(
+        { error: "Compte désactivé. Contactez l'administrateur." },
+        { status: 403 }
+      );
     }
 
-    // Get restaurant slug — use Prisma client for cross-DB compatibility.
+    // Get restaurant slug
     const restaurant = await db.restaurant.findUnique({
       where: { id: admin.restaurantId },
       select: { slug: true },
@@ -254,7 +134,6 @@ export async function POST(request: Request) {
     console.error("[login] Error:", error);
     const message = error instanceof Error ? error.message : "Erreur inconnue";
     // In production, never expose technical error details to the client.
-    // The debug field is only included in development for easier debugging.
     return NextResponse.json(
       {
         error: "Erreur de connexion",
