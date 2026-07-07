@@ -38,12 +38,17 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
   const [resSubmitting, setResSubmitting] = useState(false);
 
   useEffect(() => {
+    // Resolve restaurant slug for multi-tenant API routing.
+    // Defaults to 'kfm-delice' (main deployment) if not set in localStorage.
+    const restaurantSlug = (typeof window !== "undefined" && localStorage.getItem("kfm-restaurant-slug")) || "kfm-delice";
+    const slugHeader = { "x-restaurant-slug": restaurantSlug };
+
     Promise.all([
-      fetch("/api/menu?limit=1000")
+      fetch("/api/menu?limit=1000", { headers: slugHeader })
         .then(r => r.ok ? r.json() : Promise.reject(new Error("menu " + r.status)))
         .then(d => Array.isArray(d) ? d : (d.data || []))
         .catch(() => { setLoadError(true); return []; }),
-      fetch("/api/restaurant")
+      fetch("/api/restaurant", { headers: slugHeader })
         .then(r => r.ok ? r.json() : null)
         .then(d => d?.whatsapp ? String(d.whatsapp).replace(/[^0-9]/g, "") : null)
         .catch(() => null),
@@ -79,6 +84,9 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
     setOrderResult(null);
 
     try {
+      const restaurantSlug = (typeof window !== "undefined" && localStorage.getItem("kfm-restaurant-slug")) || "kfm-delice";
+      const slugHeader = { "x-restaurant-slug": restaurantSlug };
+
       const orderItems = cart.map(item => ({
         name: item.name,
         price: Number(item.price),
@@ -87,7 +95,7 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
 
       const response = await fetch("/api/orders", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...slugHeader },
         body: JSON.stringify({
           items: JSON.stringify(orderItems),
           total: cartTotal,
@@ -99,7 +107,7 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
         }),
       });
 
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
 
       if (response.ok) {
         setOrderResult({
@@ -115,7 +123,7 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
           try {
             const payResponse = await fetch("/api/payment", {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: { "Content-Type": "application/json", ...slugHeader },
               body: JSON.stringify({
                 orderId: data.id,
                 method: paymentMethod,
@@ -123,7 +131,7 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
                 customerName: customerName || `Table ${tableNumber}`,
               }),
             });
-            const payData = await payResponse.json();
+            const payData = await payResponse.json().catch(() => ({}));
             if (payData.payment) {
               setOrderResult({
                 success: true,
@@ -156,9 +164,10 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
     e.preventDefault();
     setResSubmitting(true);
     try {
+      const restaurantSlug = (typeof window !== "undefined" && localStorage.getItem("kfm-restaurant-slug")) || "kfm-delice";
       const response = await fetch("/api/reservations", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-restaurant-slug": restaurantSlug },
         body: JSON.stringify({
           ...resForm,
           status: "pending",
@@ -167,6 +176,11 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
         }),
       });
       if (response.ok) setResSubmitted(true);
+      else {
+        const errData = await response.json().catch(() => ({}));
+        setResSubmitted(false);
+        alert(errData.error || "Erreur lors de la réservation. Réessayez.");
+      }
     } catch { /* */ }
     finally { setResSubmitting(false); }
   };
