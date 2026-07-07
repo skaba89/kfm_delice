@@ -144,15 +144,18 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
           }
         }
       } else {
+        // Show the EXACT error from the server (not a generic message)
+        const errorMsg = data.error || data.message || `Erreur ${response.status}`;
         setOrderResult({
           success: false,
-          message: data.error || "Erreur lors de la commande",
+          message: errorMsg,
         });
       }
     } catch (e) {
+      const errMsg = e instanceof Error ? e.message : "Erreur inconnue";
       setOrderResult({
         success: false,
-        message: "Erreur de connexion. Réessayez.",
+        message: `Erreur de connexion: ${errMsg}`,
       });
     } finally {
       setSubmitting(false);
