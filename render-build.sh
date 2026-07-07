@@ -34,6 +34,32 @@ esac
 
 echo "[render-build] Provider: $PROVIDER"
 
+# ── Verify Prisma version (CRITICAL) ───────────────────────────
+# Prisma 7+ has breaking changes (datasource url no longer supported
+# in schema files). We MUST use Prisma 6.x as pinned in package.json.
+# If `npx prisma generate` is used instead of `node_modules/.bin/prisma`,
+# it may download Prisma 7+ and break the build.
+if [ -f node_modules/.bin/prisma ]; then
+  PRISMA_VERSION=$(node_modules/.bin/prisma --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+  echo "[render-build] Prisma CLI version: $PRISMA_VERSION"
+  case "$PRISMA_VERSION" in
+    6.*)
+      echo "[render-build] ✓ Prisma 6.x detected (compatible)"
+      ;;
+    7.*)
+      echo "[render-build] FATAL: Prisma 7.x detected — has breaking schema changes."
+      echo "[render-build] The schema uses 'url = env(...)' which is no longer supported in Prisma 7."
+      echo "[render-build] Fix: ensure package.json pins prisma@^6.x and run 'bun install' or 'npm install' again."
+      exit 1
+      ;;
+    *)
+      echo "[render-build] WARNING: Unknown Prisma version ($PRISMA_VERSION) — may not be compatible"
+      ;;
+  esac
+else
+  echo "[render-build] WARNING: node_modules/.bin/prisma not found — dependencies may not be installed yet"
+fi
+
 # ── Copy the matching schema ──
 if [ "$PROVIDER" = "postgres" ]; then
   echo "[render-build] Copying PostgreSQL schema..."
@@ -57,7 +83,15 @@ echo "[render-build] Clearing cached Prisma client..."
 rm -rf node_modules/.prisma node_modules/@prisma/client
 
 echo "[render-build] Running prisma generate (provider=$PROVIDER)..."
-npx prisma generate
+# Use node_modules/.bin/prisma (NOT npx prisma) — npx may download Prisma 7+
+# which has breaking changes (datasource url no longer supported in schema).
+# We must use the version pinned in package.json (6.x).
+if [ -x node_modules/.bin/prisma ]; then
+  node_modules/.bin/prisma generate
+else
+  echo "[render-build] WARNING: node_modules/.bin/prisma not found, falling back to npx"
+  npx --no-install prisma generate || npx prisma@6 generate
+fi
 
 # Verify the schema AND the generated client match the expected provider
 echo "[render-build] Verifying Prisma provider (schema + generated client)..."

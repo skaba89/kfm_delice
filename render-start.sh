@@ -58,10 +58,21 @@ echo "[render-start] Clearing cached Prisma client..."
 rm -rf node_modules/.prisma node_modules/@prisma/client
 
 echo "[render-start] Regenerating Prisma Client (provider=$PROVIDER)..."
-npx prisma generate 2>&1 || {
-  echo "[render-start] FATAL: prisma generate failed. Cannot start with a broken client."
-  exit 1
-}
+# Use node_modules/.bin/prisma (NOT npx prisma) — npx may download Prisma 7+
+# which has breaking changes (datasource url no longer supported in schema).
+# We must use the version pinned in package.json (6.x).
+if [ -x node_modules/.bin/prisma ]; then
+  node_modules/.bin/prisma generate 2>&1 || {
+    echo "[render-start] FATAL: prisma generate failed. Cannot start with a broken client."
+    exit 1
+  }
+else
+  echo "[render-start] WARNING: node_modules/.bin/prisma not found, falling back to npx"
+  npx --no-install prisma generate 2>&1 || npx prisma@6 generate 2>&1 || {
+    echo "[render-start] FATAL: prisma generate failed. Cannot start with a broken client."
+    exit 1
+  }
+fi
 
 # ── CRITICAL: Verify the generated client matches the expected provider ──
 # This is the guard that FINALLY kills the "URL must start with file:" error.
@@ -90,9 +101,9 @@ echo "[render-start] Build output check complete."
 # ── Apply schema & migrations ──────────────────────────────────
 if [ "$PROVIDER" = "postgres" ]; then
   echo "[render-start] Running prisma migrate deploy..."
-  if ! npx prisma migrate deploy 2>&1; then
+  if ! node_modules/.bin/prisma migrate deploy 2>&1; then
     echo "[render-start] ⚠️  prisma migrate deploy failed — falling back to db push (NO --accept-data-loss)"
-    npx prisma db push --skip-generate 2>&1 || echo "[render-start] ⚠️  prisma db push also failed"
+    node_modules/.bin/prisma db push --skip-generate 2>&1 || echo "[render-start] ⚠️  prisma db push also failed"
   fi
 
   # Safety net: ensure critical columns/tables exist (in case migrate
@@ -101,7 +112,7 @@ if [ "$PROVIDER" = "postgres" ]; then
   node scripts/ensure-postgres-columns.cjs 2>&1 || echo "[render-start] ensure-columns warning, continuing..."
 else
   echo "[render-start] Pushing SQLite schema..."
-  npx prisma db push --skip-generate 2>&1 || echo "[render-start] prisma db push warning"
+  node_modules/.bin/prisma db push --skip-generate 2>&1 || echo "[render-start] prisma db push warning"
 fi
 
 # ── Seed FIRST (creates demo data on empty DB) ─────────────────
