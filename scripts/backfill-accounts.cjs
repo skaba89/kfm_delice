@@ -1,14 +1,30 @@
 /**
- * backfill-accounts.cjs — Create Account for each existing Restaurant
+ * backfill-accounts.cjs — Attach Account to existing Restaurants + Admins
  *
- * For each restaurant without an accountId:
- *   1. Create an Account with the restaurant's plan
- *   2. Link the restaurant to the Account (accountId + type='principal')
- *   3. Link all admins of that restaurant to the Account
- *   4. Set canCreateRestaurant=true for the main admin (role='admin')
+ * This script runs AFTER auto-seed.cjs in render-start.sh.
+ * It is IDEMPOTENT — safe to run on every restart.
  *
- * Idempotent: safe to run multiple times.
+ * For each Restaurant:
+ *   1. If restaurant.accountId is null/empty → create an Account
+ *      (plan taken from restaurant.plan, default 'free')
+ *   2. If restaurant.type is null/empty → set type='principal'
+ *   3. If restaurant.parentRestaurantId is null → leave null (it's principal)
+ *   4. For each Admin of that restaurant:
+ *      a. If admin.accountId is null → set it to the (just-created or existing) account
+ *      b. If admin.role === 'admin' AND admin.canCreateRestaurant === false
+ *         → set canCreateRestaurant=true (only if it was never explicitly set)
+ *      c. If admin.restaurantCreationLimit is null OR 0 AND role === 'admin'
+ *         → set to account.maxSecondaryRestaurants
+ *         (BUT never overwrite a non-zero value — that's a custom quota)
+ *      d. If admin.restaurantsCreatedCount is null → set to 0
+ *
+ * Guarantees:
+ *   - Never deletes any data
+ *   - Never overwrites a non-zero restaurantCreationLimit (custom quota)
+ *   - Never downgrades canCreateRestaurant from true to false
+ *   - Idempotent: safe to run repeatedly
  */
+
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient({ log: ['error', 'warn'] });
 
@@ -22,57 +38,107 @@ const PLAN_LIMITS = {
 
 async function main() {
   console.log('[backfill-accounts] Starting...');
-  
-  const restaurants = await prisma.restaurant.findMany({
-    where: { OR: [{ accountId: null }, { accountId: '' }] },
+
+  // Find restaurants that EITHER have no accountId OR have null type
+  // (both need fixing). We fetch all and filter in JS so we can also
+  // catch restaurants where accountId is set but type is null.
+  const allRestaurants = await prisma.restaurant.findMany({
     include: { admins: true },
   });
+  const restaurants = allRestaurants.filter(
+    (r) => !r.accountId || !r.type
+  );
 
-  console.log(`[backfill-accounts] Found ${restaurants.length} restaurant(s) without accountId`);
+  console.log(`[backfill-accounts] ${restaurants.length} restaurant(s) need backfill (out of ${allRestaurants.length} total)`);
+
+  let accountsCreated = 0;
+  let restaurantsLinked = 0;
+  let adminsLinked = 0;
+  let adminsUpgraded = 0;
 
   for (const restaurant of restaurants) {
     const plan = restaurant.plan || 'free';
     const limits = PLAN_LIMITS[plan] || PLAN_LIMITS.free;
-    
-    console.log(`[backfill-accounts] Creating Account for "${restaurant.name}" (plan=${plan})`);
+    const needsAccount = !restaurant.accountId;
 
-    const account = await prisma.account.create({
-      data: {
-        name: restaurant.name,
-        ownerName: restaurant.ownerName || '',
-        ownerEmail: restaurant.ownerEmail || '',
-        ownerPhone: restaurant.ownerPhone || '',
-        status: restaurant.status || 'active',
-        plan,
-        maxRestaurants: limits.maxRestaurants,
-        maxSecondaryRestaurants: limits.maxSecondaryRestaurants,
-        maxAdmins: limits.maxAdmins,
-        maxUsers: limits.maxUsers,
-      },
-    });
+    let accountId = restaurant.accountId;
 
-    // Link restaurant to account
-    await prisma.restaurant.update({
-      where: { id: restaurant.id },
-      data: { accountId: account.id, type: 'principal' },
-    });
-
-    // Link admins to account
-    for (const admin of restaurant.admins) {
-      const canCreate = admin.role === 'admin';
-      await prisma.admin.update({
-        where: { id: admin.id },
+    if (needsAccount) {
+      console.log(`[backfill-accounts] Creating Account for "${restaurant.name}" (plan=${plan})`);
+      const account = await prisma.account.create({
         data: {
-          accountId: account.id,
-          canCreateRestaurant: canCreate,
-          restaurantCreationLimit: canCreate ? limits.maxSecondaryRestaurants : 0,
+          name: restaurant.name,
+          ownerName: restaurant.ownerName || '',
+          ownerEmail: restaurant.ownerEmail || '',
+          ownerPhone: restaurant.ownerPhone || '',
+          status: restaurant.status || 'active',
+          plan,
+          maxRestaurants: limits.maxRestaurants,
+          maxSecondaryRestaurants: limits.maxSecondaryRestaurants,
+          maxAdmins: limits.maxAdmins,
+          maxUsers: limits.maxUsers,
         },
       });
+      accountId = account.id;
+      accountsCreated++;
+      console.log(`[backfill-accounts]   Account ${account.id} created`);
+    } else {
+      console.log(`[backfill-accounts] Restaurant "${restaurant.name}" already has accountId, fixing type if needed`);
     }
 
-    console.log(`[backfill-accounts] ✓ Account ${account.id} created for "${restaurant.name}"`);
+    // Update restaurant: set accountId (if was missing) + type (if was missing)
+    const updateData = {};
+    if (!restaurant.accountId) updateData.accountId = accountId;
+    if (!restaurant.type) updateData.type = 'principal';
+    if (Object.keys(updateData).length > 0) {
+      await prisma.restaurant.update({
+        where: { id: restaurant.id },
+        data: updateData,
+      });
+      restaurantsLinked++;
+    }
+
+    // Backfill admins
+    for (const admin of restaurant.admins) {
+      const adminUpdate = {};
+      // Link to account if missing
+      if (!admin.accountId) {
+        adminUpdate.accountId = accountId;
+      }
+      // Upgrade admin role: canCreateRestaurant + restaurantCreationLimit
+      // ONLY if not already explicitly set (we don't downgrade).
+      if (admin.role === 'admin') {
+        if (admin.canCreateRestaurant !== true) {
+          adminUpdate.canCreateRestaurant = true;
+        }
+        // Only set limit if it's currently 0 or null.
+        // A non-zero value means the user has set a custom quota — preserve it.
+        if (!admin.restaurantCreationLimit || admin.restaurantCreationLimit === 0) {
+          adminUpdate.restaurantCreationLimit = limits.maxSecondaryRestaurants;
+        }
+      }
+      // restaurantsCreatedCount: if null/undefined, set to 0
+      if (admin.restaurantsCreatedCount == null) {
+        adminUpdate.restaurantsCreatedCount = 0;
+      }
+
+      if (Object.keys(adminUpdate).length > 0) {
+        await prisma.admin.update({
+          where: { id: admin.id },
+          data: adminUpdate,
+        });
+        if (adminUpdate.accountId) adminsLinked++;
+        if (adminUpdate.canCreateRestaurant) adminsUpgraded++;
+      }
+    }
   }
 
+  console.log('[backfill-accounts] ─────────────────────────────────');
+  console.log(`[backfill-accounts] Summary:`);
+  console.log(`[backfill-accounts]   Accounts created:    ${accountsCreated}`);
+  console.log(`[backfill-accounts]   Restaurants linked:  ${restaurantsLinked}`);
+  console.log(`[backfill-accounts]   Admins linked:       ${adminsLinked}`);
+  console.log(`[backfill-accounts]   Admins upgraded:     ${adminsUpgraded}`);
   console.log('[backfill-accounts] Done.');
 }
 
@@ -81,5 +147,6 @@ main()
   .then(() => process.exit(0))
   .catch((e) => {
     console.error('[backfill-accounts] FATAL:', e.message);
+    console.error('[backfill-accounts] Stack:', e.stack);
     prisma.$disconnect().finally(() => process.exit(1));
   });

@@ -37,9 +37,12 @@ if [ "$PROVIDER" = "unknown" ]; then
 fi
 
 # ── Switch schema + regenerate Prisma Client ──────────────────
-# The build may have cached a stale Prisma Client. We regenerate it
-# at runtime to ensure it matches the actual DATABASE_URL provider.
-# This is the definitive fix for the "URL must start with file:" error.
+# We regenerate the Prisma Client at RUNTIME. Because we use
+# `next start` (NOT `output: 'standalone'`), the server reads
+# Prisma Client directly from node_modules/.prisma/client/ — so
+# the regenerated client is the one actually loaded. This is the
+# definitive fix for the recurring "URL must start with file:"
+# error caused by a stale SQLite client bundled at build time.
 if [ "$PROVIDER" = "postgres" ]; then
   echo "[render-start] Switching schema to PostgreSQL..."
   cp prisma/schema.postgres.prisma prisma/schema.prisma
@@ -53,20 +56,25 @@ fi
 echo "[render-start] Verifying Prisma provider..."
 node scripts/check-prisma-provider.cjs
 
-# Regenerate Prisma Client at RUNTIME to bypass any build cache.
+# Regenerate Prisma Client at RUNTIME — this is the actual source
+# of truth that `next start` will load (no standalone bundle in the way).
 echo "[render-start] Regenerating Prisma Client (provider=$PROVIDER)..."
 rm -rf node_modules/.prisma node_modules/@prisma/client
-npx prisma generate 2>&1 || echo "[render-start] WARNING: prisma generate failed"
+npx prisma generate 2>&1 || {
+  echo "[render-start] FATAL: prisma generate failed. Cannot start with a broken client."
+  exit 1
+}
 
-# Copy regenerated client to standalone output (server.js loads from there).
-echo "[render-start] Copying regenerated Prisma Client to standalone..."
-rm -rf .next/standalone/node_modules/.prisma
-cp -r node_modules/.prisma .next/standalone/node_modules/ 2>/dev/null || echo "[render-start] WARNING: could not copy .prisma to standalone"
-rm -rf .next/standalone/node_modules/@prisma/client
-mkdir -p .next/standalone/node_modules/@prisma
-cp -r node_modules/@prisma/client .next/standalone/node_modules/@prisma/ 2>/dev/null || echo "[render-start] WARNING: could not copy @prisma/client to standalone"
-mkdir -p .next/standalone/prisma
-cp prisma/schema.prisma .next/standalone/prisma/ 2>/dev/null || true
+# ── Diagnostics: verify build output BEFORE starting server ────
+# This catches the "503 because .next/ is missing" case at the
+# source rather than letting the server crash on first request.
+echo "[render-start] Checking Next.js build output..."
+test -d .next || echo "[render-start] WARNING: .next directory missing"
+test -f .next/BUILD_ID || echo "[render-start] WARNING: .next/BUILD_ID missing"
+test -d node_modules || echo "[render-start] WARNING: node_modules missing"
+test -d node_modules/@prisma/client || echo "[render-start] WARNING: @prisma/client missing"
+test -d node_modules/.prisma/client || echo "[render-start] WARNING: .prisma/client missing"
+echo "[render-start] Build output check complete."
 
 # ── Apply schema & migrations ──────────────────────────────────
 if [ "$PROVIDER" = "postgres" ]; then
@@ -76,24 +84,43 @@ if [ "$PROVIDER" = "postgres" ]; then
     npx prisma db push --skip-generate 2>&1 || echo "[render-start] ⚠️  prisma db push also failed"
   fi
 
-  # Safety net: ensure critical columns/tables exist
+  # Safety net: ensure critical columns/tables exist (in case migrate
+  # was incomplete or schema drift happened).
   echo "[render-start] Running ensure-postgres-columns safety check..."
   node scripts/ensure-postgres-columns.cjs 2>&1 || echo "[render-start] ensure-columns warning, continuing..."
-
-  # SaaS backfill: create Account for each existing restaurant without one
-  echo "[render-start] Running SaaS account backfill..."
-  node scripts/backfill-accounts.cjs 2>&1 || echo "[render-start] backfill warning, continuing..."
 else
   echo "[render-start] Pushing SQLite schema..."
   npx prisma db push --skip-generate 2>&1 || echo "[render-start] prisma db push warning"
 fi
 
-# ── Seed if empty ──────────────────────────────────────────────
-echo "[render-start] Checking if database needs seeding..."
+# ── Seed FIRST (creates demo data on empty DB) ─────────────────
+# IMPORTANT: Auto-seed MUST run BEFORE backfill-accounts.
+# On a fresh database:
+#   1. auto-seed creates the demo Restaurant + Admins
+#   2. backfill-accounts then attaches an Account to those rows
+# If we ran backfill first, it would find nothing to link, and the
+# demo restaurant/admins created by auto-seed would stay orphan
+# (no accountId) until the next restart.
+echo "[render-start] Running auto-seed..."
 node scripts/auto-seed.cjs 2>&1 || echo "[render-start] Auto-seed warning, continuing..."
 
-# ── Start the Next.js standalone server ────────────────────────
-echo "[render-start] Starting Next.js server on $HOSTNAME:$PORT..."
+# ── Backfill SECOND (attaches Account to seed data) ────────────
+# For each Restaurant without accountId:
+#   - create an Account
+#   - link Restaurant (accountId + type=principal)
+#   - link all Admins (accountId, canCreateRestaurant, limits)
+# Idempotent — safe to run on every restart.
+echo "[render-start] Running SaaS account backfill..."
+node scripts/backfill-accounts.cjs 2>&1 || echo "[render-start] backfill warning, continuing..."
+
+# ── Start the Next.js server ───────────────────────────────────
+# IMPORTANT: We use `next start` instead of `node .next/standalone/server.js`
+# because `output: 'standalone'` was removed from next.config.ts.
+# `next start` reads Prisma Client from node_modules/.prisma/client/
+# directly — so the runtime regeneration above is what actually gets
+# loaded. This eliminates the entire class of bugs where the standalone
+# bundle keeps loading a stale SQLite client.
+echo "[render-start] Starting Next.js server on ${HOSTNAME:-0.0.0.0}:${PORT:-3000}..."
 export HOSTNAME="${HOSTNAME:-0.0.0.0}"
 export PORT="${PORT:-3000}"
 exec npx next start -p "$PORT" -H "$HOSTNAME"
