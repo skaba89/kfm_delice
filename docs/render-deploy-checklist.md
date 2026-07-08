@@ -80,32 +80,32 @@ The startup sequence is critical — getting the order wrong causes SaaS orphans
 
 ```bash
 # 1. Health check (public, no auth)
-curl -i https://kfm-delice-5ail.onrender.com/api/status
+curl -i https://kfm-delice-ggb4.onrender.com/api/status
 # Expected: HTTP 200 {"status":"ok",...}
 
 # 2. Login admin
 curl -s -X POST -H "Content-Type: application/json" \
   -d '{"email":"admin@kfm-delice.com","password":"kfm2024"}' \
-  https://kfm-delice-5ail.onrender.com/api/login | head -c 500
+  https://kfm-delice-ggb4.onrender.com/api/login | head -c 500
 # Expected: {"id":"...","token":"eyJ..."} (no "provider=sqlite" error)
 
 # 3. Frontend
-curl -i https://kfm-delice-5ail.onrender.com/menu
+curl -i https://kfm-delice-ggb4.onrender.com/menu
 # Expected: HTTP 200
 
 # 4. Menu API
-curl -i "https://kfm-delice-5ail.onrender.com/api/menu?limit=1000"
+curl -i "https://kfm-delice-ggb4.onrender.com/api/menu?limit=1000"
 # Expected: HTTP 200 {"data":[...]}
 
 # 5. Verify SaaS Account linking (after login)
 TOKEN="<paste token from step 2>"
 curl -s -H "Authorization: Bearer $TOKEN" \
-  https://kfm-delice-5ail.onrender.com/api/account/me
+  https://kfm-delice-ggb4.onrender.com/api/account/me
 # Expected: {"accountId":"...","restaurantId":"...","type":"principal",...}
 
 # 6. Verify quota endpoint
 curl -s -H "Authorization: Bearer $TOKEN" \
-  https://kfm-delice-5ail.onrender.com/api/account/quota
+  https://kfm-delice-ggb4.onrender.com/api/account/quota
 # Expected: {"maxRestaurants":5,"maxSecondaryRestaurants":4,"maxAdmins":15,...}
 ```
 

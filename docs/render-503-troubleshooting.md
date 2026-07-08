@@ -229,6 +229,47 @@ When you see a 503, follow this order:
 
 ---
 
+## Cause 11: `x-render-routing: no-server` (URL points to no active service)
+
+**Symptoms**: All requests return 404 with header `x-render-routing: no-server`.
+
+```bash
+curl -i https://kfm-delice-5ail.onrender.com/api/status
+# HTTP/1.1 404 Not Found
+# x-render-routing: no-server
+# Not Found
+```
+
+**Cause**: The URL you are testing does NOT correspond to an active Render service. This happens when:
+1. The original Render service was deleted and recreated with a new URL
+2. You are using an old URL from documentation that was never updated
+3. The service was suspended or never deployed
+
+**Important**: This is NOT a Next.js error, NOT a Prisma error, NOT a code error. Render's load balancer cannot find any server to route your request to.
+
+**Diagnostic**:
+```bash
+# Check the headers — if you see this, the URL is wrong
+curl -sI https://YOUR-URL.onrender.com/api/status | grep -i "x-render-routing"
+# x-render-routing: no-server  ← URL is wrong/inactive
+```
+
+**Fix**:
+1. Go to **https://dashboard.render.com**
+2. Find your KFM Delice web service
+3. Click **Open** / **Visit** — this opens the CORRECT URL
+4. Copy that URL (e.g. `https://kfm-delice-ggb4.onrender.com`)
+5. Update all your bookmarks, scripts, and documentation with the correct URL
+6. Test with `curl -i https://CORRECT-URL.onrender.com/api/status` — should return 200
+
+**Current active URL** (as of 2026-07-08): `https://kfm-delice-ggb4.onrender.com`
+
+**Old/inactive URL** (returns `no-server`): `https://kfm-delice-5ail.onrender.com`
+
+If you recreate the service again, the URL will change again — always verify via the Render dashboard.
+
+---
+
 ## Related documentation
 
 - `docs/render-deploy-checklist.md` — step-by-step deploy guide
