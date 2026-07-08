@@ -41,15 +41,14 @@ async function main() {
 
   // Find restaurants that EITHER have no accountId OR have null type
   // (both need fixing). We fetch all and filter in JS so we can also
-  // catch restaurants where accountId is set but type is null.
-  const allRestaurants = await prisma.restaurant.findMany({
-    include: { admins: true },
+  // We process ALL restaurants — even those with accountId and type set —
+  // because we may need to upgrade their account's quotas (e.g. an account
+  // created as 'free' but the restaurant is 'pro').
+  const restaurants = await prisma.restaurant.findMany({
+    include: { admins: true, account: true },
   });
-  const restaurants = allRestaurants.filter(
-    (r) => !r.accountId || !r.type
-  );
 
-  console.log(`[backfill-accounts] ${restaurants.length} restaurant(s) need backfill (out of ${allRestaurants.length} total)`);
+  console.log(`[backfill-accounts] ${restaurants.length} restaurant(s) to check`);
 
   let accountsCreated = 0;
   let restaurantsLinked = 0;
@@ -83,7 +82,35 @@ async function main() {
       accountsCreated++;
       console.log(`[backfill-accounts]   Account ${account.id} created`);
     } else {
-      console.log(`[backfill-accounts] Restaurant "${restaurant.name}" already has accountId, fixing type if needed`);
+      console.log(`[backfill-accounts] Restaurant "${restaurant.name}" already has accountId, checking quotas`);
+      // Upgrade the account's quotas if the restaurant's plan is higher
+      // than the account's current plan (e.g. account was created as 'free'
+      // but the restaurant is 'pro').
+      const existingAccount = restaurant.account;
+      if (existingAccount) {
+        const needsQuotaUpgrade =
+          limits.maxRestaurants > existingAccount.maxRestaurants ||
+          limits.maxSecondaryRestaurants > existingAccount.maxSecondaryRestaurants ||
+          limits.maxAdmins > existingAccount.maxAdmins ||
+          limits.maxUsers > existingAccount.maxUsers;
+        if (needsQuotaUpgrade) {
+          console.log(`[backfill-accounts]   Upgrading account quotas: ${existingAccount.plan} → ${plan}`);
+          try {
+            await prisma.account.update({
+              where: { id: accountId },
+              data: {
+                plan,
+                maxRestaurants: limits.maxRestaurants,
+                maxSecondaryRestaurants: limits.maxSecondaryRestaurants,
+                maxAdmins: limits.maxAdmins,
+                maxUsers: limits.maxUsers,
+              },
+            });
+          } catch (e) {
+            console.log(`[backfill-accounts]   WARNING: could not upgrade account quotas: ${e.message}`);
+          }
+        }
+      }
     }
 
     // Update restaurant: set accountId (if was missing) + type (if was missing)
@@ -111,9 +138,12 @@ async function main() {
         if (admin.canCreateRestaurant !== true) {
           adminUpdate.canCreateRestaurant = true;
         }
-        // Only set limit if it's currently 0 or null.
-        // A non-zero value means the user has set a custom quota — preserve it.
-        if (!admin.restaurantCreationLimit || admin.restaurantCreationLimit === 0) {
+        // Set limit if it's currently 0/null OR if it's below the account's
+        // maxSecondaryRestaurants (e.g. account was just upgraded from free to pro).
+        // A non-zero value ABOVE maxSecondaryRestaurants means the user has set
+        // a custom quota — preserve it.
+        const currentLimit = admin.restaurantCreationLimit || 0;
+        if (currentLimit < limits.maxSecondaryRestaurants) {
           adminUpdate.restaurantCreationLimit = limits.maxSecondaryRestaurants;
         }
       }
