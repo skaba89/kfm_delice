@@ -123,7 +123,7 @@ export async function GET(request: Request) {
       .slice(0, 5)
       .map(([name, count]) => {
         const mi = menuItemsForPopular.find((m) => m.name === name);
-        return { name, count, price: mi?.price || 0, category: mi?.category || "" };
+        return { name, count, price: Number(mi?.price || 0), category: mi?.category || "" };
       });
 
     // Orders by hour for today
@@ -171,7 +171,7 @@ export async function GET(request: Request) {
       // serialization. On SQLite these are already number (no-op); on
       // PostgreSQL they are bigint and JSON.stringify would throw without
       // this conversion.
-      stats,
+      stats: bigIntToNumber(stats),
       reservations: bigIntToNumber(reservations),
       menuItems: bigIntToNumber(menuItems),
       orders: bigIntToNumber(orders),

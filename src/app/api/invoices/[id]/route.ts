@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
 import { generateInvoicePDF } from "@/lib/pdf-invoice";
@@ -11,6 +11,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await dbReady;
     const admin = await authenticateAdmin(request);
     if (!admin) {
       return NextResponse.json({ error: "Non autorise" }, { status: 401 });
@@ -67,8 +68,8 @@ export async function GET(
       });
     }
 
-    // Default: return invoice data as JSON
-    return NextResponse.json(invoice);
+    // Default: return invoice data as JSON (with BigInt converted to Number)
+    return NextResponse.json(bigIntToNumber(invoice));
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });

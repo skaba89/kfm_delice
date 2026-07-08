@@ -1,4 +1,4 @@
-import { db, dbReady } from "@/lib/db";
+import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticatePlatformAdmin } from "@/lib/auth";
 import { z } from "zod";
@@ -46,8 +46,11 @@ export async function GET(request: Request) {
       .filter((r) => r.status === "active" || r.status === "trial")
       .reduce((sum, r) => sum + (planPrices[r.plan] || 0), 0);
 
+    // Convert BigInt fields to Number for JSON serialization.
+    // On PostgreSQL, deliveryFee/minDelivery/etc. are BigInt and
+    // JSON.stringify would throw "Do not know how to serialize a BigInt".
     return NextResponse.json({
-      data: restaurants,
+      data: bigIntToNumber(restaurants),
       stats: { totalRestaurants, activeRestaurants, trialRestaurants, totalRevenue },
     });
   } catch (error) {

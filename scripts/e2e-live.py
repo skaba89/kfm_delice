@@ -117,6 +117,8 @@ def check(name: str, fn) -> None:
         RESULTS.append({"name": name, "status": "FAIL", "error": str(e), "ms": int((time.time() - t0) * 1000)})
         FAIL += 1
         print(f"  ✗ {name}\n      → {e}")
+    # Small delay between tests to avoid hitting the API rate limit (60/min)
+    time.sleep(1.5)
 
 
 # ============================================================
@@ -589,10 +591,11 @@ def test_platform_restaurants():
 
 def test_change_password():
     """Change customer password back to same value (round-trip test)."""
+    # Use the actual customer password (client123, not Client2024!)
     req("POST", "/api/change-password", body={
-        "currentPassword": "Client2024!",
-        "newPassword": "Client2024!",
-        "confirmPassword": "Client2024!",
+        "currentPassword": ACCOUNTS["customer"]["password"],
+        "newPassword": ACCOUNTS["customer"]["password"],
+        "confirmPassword": ACCOUNTS["customer"]["password"],
     }, token=TOKENS["customer"], slug=SLUG, expect=200)
 
 
