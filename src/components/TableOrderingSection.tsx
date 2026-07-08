@@ -79,7 +79,15 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
   const cartCount = cart.reduce((sum, item) => sum + item.qty, 0);
 
   const submitOrder = async () => {
-    if (cart.length === 0) return;
+    console.log("[submitOrder] START — cart.length:", cart.length, "submitting:", submitting);
+    if (cart.length === 0) {
+      console.log("[submitOrder] ABORT — cart is empty");
+      return;
+    }
+    if (submitting) {
+      console.log("[submitOrder] ABORT — already submitting");
+      return;
+    }
     setSubmitting(true);
     setOrderResult(null);
 
@@ -92,6 +100,12 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
         price: Number(item.price),
         qty: item.qty,
       }));
+
+      console.log("[submitOrder] Sending request to /api/orders", {
+        itemsCount: orderItems.length,
+        total: cartTotal,
+        tableNumber,
+      });
 
       const response = await fetch("/api/orders", {
         method: "POST",
@@ -108,6 +122,13 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
       });
 
       const data = await response.json().catch(() => ({}));
+
+      console.log("[submitOrder] Response received", {
+        ok: response.ok,
+        status: response.status,
+        dataId: data?.id,
+        dataError: data?.error,
+      });
 
       if (response.ok) {
         setOrderResult({
@@ -410,8 +431,16 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
       {/* Panier coulissant — mobile-friendly */}
       {showCart && (
         <div className="fixed inset-0 z-50 flex">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setShowCart(false)} />
-          <div className="ml-auto w-full max-w-md bg-white h-full flex flex-col shadow-2xl">
+          {/* Overlay (z-10) — clique pour fermer */}
+          <div
+            className="absolute inset-0 bg-black/50 z-10"
+            onClick={() => setShowCart(false)}
+          />
+          {/* Panier (z-20) — au-dessus de l'overlay pour recevoir les clics */}
+          <div
+            className="relative ml-auto w-full max-w-md bg-white h-full flex flex-col shadow-2xl z-20"
+            style={{ touchAction: "manipulation" }}
+          >
             {/* Header fixe */}
             <div className="bg-gradient-to-r from-orange-500 to-red-500 text-white p-4 flex items-center justify-between flex-shrink-0">
               <h2 className="text-lg font-bold">Votre commande — Table {tableNumber}</h2>
