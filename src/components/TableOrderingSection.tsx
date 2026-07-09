@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { AnimatedSection } from "@/components/AnimatedSection";
 import type { MenuItemDB } from "@/lib/types";
 import { MENU_CATS, formatPrice } from "@/lib/constants";
+import { useLocale } from "@/lib/i18n";
 
 const FALLBACK_WHATSAPP = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "224622345678";
 
@@ -18,6 +19,7 @@ interface CartItem extends MenuItemDB {
 }
 
 export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
+  const { t } = useLocale();
   const [menuItems, setMenuItems] = useState<MenuItemDB[]>([]);
   const [activeCat, setActiveCat] = useState("entrees");
   const [loading, setLoading] = useState(true);
@@ -226,7 +228,7 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
               onClick={() => setOrderResult(null)}
               className="bg-gradient-to-r from-orange-500 to-red-500 text-white"
             >
-              Commander à nouveau
+              {t('cart.checkout')}
             </Button>
           </CardContent>
         </Card>
@@ -267,13 +269,13 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
             onClick={() => setActiveTab("order")}
             className={`flex items-center gap-2 px-6 py-2.5 rounded-full text-sm font-bold transition-all ${activeTab === "order" ? "bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-lg" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
           >
-            <Utensils className="w-4 h-4" /> Commander
+            <Utensils className="w-4 h-4" /> {t('cart.checkout')}
           </button>
           <button
             onClick={() => setActiveTab("reservation")}
             className={`flex items-center gap-2 px-6 py-2.5 rounded-full text-sm font-bold transition-all ${activeTab === "reservation" ? "bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-lg" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
           >
-            <Calendar className="w-4 h-4" /> Réserver
+            <Calendar className="w-4 h-4" /> {t('reservation.title')}
           </button>
         </div>
       </div>
@@ -300,12 +302,12 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
           ) : (
             <Card className="shadow-xl">
               <CardContent className="p-6 sm:p-8">
-                <h2 className="text-xl font-bold mb-1">Réserver — Table {tableNumber}</h2>
+                <h2 className="text-xl font-bold mb-1">{t('reservation.title')} — {t('cart.table')} {tableNumber}</h2>
                 <p className="text-sm text-gray-500 mb-6">Réservez votre table et gagnez 50 points de fidélité</p>
                 <form onSubmit={handleReservation} className="space-y-4">
                   <div className="grid sm:grid-cols-2 gap-4">
                     <div>
-                      <label className="text-sm font-medium text-gray-700 mb-1 block">Nom complet *</label>
+                      <label className="text-sm font-medium text-gray-700 mb-1 block">{t('auth.name')} *</label>
                       <Input required value={resForm.customerName} onChange={e => setResForm({ ...resForm, customerName: e.target.value })} placeholder="Votre nom" />
                     </div>
                     <div>
@@ -321,14 +323,14 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
                       <Input required type="time" value={resForm.time} onChange={e => setResForm({ ...resForm, time: e.target.value })} />
                     </div>
                     <div>
-                      <label className="text-sm font-medium text-gray-700 mb-1 block">Nombre de personnes</label>
+                      <label className="text-sm font-medium text-gray-700 mb-1 block">{t('reservation.guests')}</label>
                       <Input type="number" min={1} max={20} value={resForm.guests} onChange={e => setResForm({ ...resForm, guests: parseInt(e.target.value) || 2 })} />
                     </div>
                     <div>
-                      <label className="text-sm font-medium text-gray-700 mb-1 block">Zone</label>
+                      <label className="text-sm font-medium text-gray-700 mb-1 block">{t('reservation.zone')}</label>
                       <select value={resForm.zone} onChange={e => setResForm({ ...resForm, zone: e.target.value })} className="w-full h-9 rounded-md border border-gray-200 bg-white px-3 text-sm">
-                        <option value="interieur">Intérieur</option>
-                        <option value="terrasse">Terrasse</option>
+                        <option value="interieur">{t('reservation.zone.interieur')}</option>
+                        <option value="terrasse">{t('reservation.zone.terrasse')}</option>
                         <option value="vip">VIP</option>
                       </select>
                     </div>
@@ -338,7 +340,7 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
                     <Textarea value={resForm.notes} onChange={e => setResForm({ ...resForm, notes: e.target.value })} placeholder="Allergies, occasions spéciales..." rows={3} />
                   </div>
                   <Button type="submit" disabled={resSubmitting} className="w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white rounded-xl py-6 text-lg">
-                    {resSubmitting ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : <><CalendarCheck className="mr-2 w-5 h-5" />Réserver la Table {tableNumber}</>}
+                    {resSubmitting ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : <><CalendarCheck className="mr-2 w-5 h-5" />{t('reservation.confirm')} — {t('cart.table')} {tableNumber}</>}
                   </Button>
                 </form>
               </CardContent>
@@ -443,7 +445,7 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
           >
             {/* Header fixe */}
             <div className="bg-gradient-to-r from-orange-500 to-red-500 text-white p-4 flex items-center justify-between flex-shrink-0">
-              <h2 className="text-lg font-bold">Votre commande — Table {tableNumber}</h2>
+              <h2 className="text-lg font-bold">{t('cart.title')} — {t('cart.table')} {tableNumber}</h2>
               <button onClick={() => setShowCart(false)} className="p-2 hover:bg-white/20 rounded-full" aria-label="Fermer">
                 <X className="w-5 h-5" />
               </button>
@@ -452,7 +454,7 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
             {/* Contenu scrollable */}
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
               {cart.length === 0 ? (
-                <p className="text-center text-gray-500 py-8">Votre panier est vide</p>
+                <p className="text-center text-gray-500 py-8">{t('cart.empty')}</p>
               ) : (
                 <>
                   {cart.map(item => (
@@ -477,7 +479,7 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
                   {/* Infos client */}
                   <div className="pt-4 space-y-3">
                     <div>
-                      <label className="text-sm font-medium text-gray-700 block mb-1">Nom (optionnel)</label>
+                      <label className="text-sm font-medium text-gray-700 block mb-1">{t('auth.name')} (optionnel)</label>
                       <input
                         type="text"
                         value={customerName}
@@ -497,17 +499,17 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
                       />
                     </div>
                     <div>
-                      <label className="text-sm font-medium text-gray-700 block mb-1">Mode de paiement</label>
+                      <label className="text-sm font-medium text-gray-700 block mb-1">{t('order.payment.cash').includes('Cash') ? 'Payment method' : 'Mode de paiement'}</label>
                       <select
                         value={paymentMethod}
                         onChange={e => setPaymentMethod(e.target.value as typeof paymentMethod)}
                         className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                       >
-                        <option value="cash">Espèces (à la table)</option>
-                        <option value="orange_money">Orange Money</option>
-                        <option value="mtn_money">MTN Money</option>
-                        <option value="wave">Wave</option>
-                        <option value="card">Carte bancaire</option>
+                        <option value="cash">{t('order.payment.cash')}</option>
+                        <option value="orange_money">{t('order.payment.orange_money')}</option>
+                        <option value="mtn_money">{t('order.payment.mtn_money')}</option>
+                        <option value="wave">{t('order.payment.wave')}</option>
+                        <option value="card">{t('order.payment.card')}</option>
                       </select>
                     </div>
                   </div>
@@ -519,7 +521,7 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
             {cart.length > 0 && (
               <div className="border-t bg-white p-4 flex-shrink-0" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
                 <div className="flex justify-between items-center mb-3">
-                  <span className="text-lg font-bold">Total</span>
+                  <span className="text-lg font-bold">{t('cart.total')}</span>
                   <span className="text-2xl font-extrabold text-orange-600">{formatPrice(cartTotal)}</span>
                 </div>
                 <button
@@ -531,7 +533,7 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
                   {submitting ? (
                     <><RefreshCw className="w-5 h-5 animate-spin" /> Envoi...</>
                   ) : (
-                    <><CreditCard className="w-5 h-5" /> Commander — Table {tableNumber}</>
+                    <><CreditCard className="w-5 h-5" /> {t('cart.checkout')} — {t('cart.table')} {tableNumber}</>
                   )}
                 </button>
               </div>
