@@ -15,6 +15,7 @@ import { PlatformRestaurants } from "@/components/platform/PlatformRestaurants";
 import { PlatformAuditLogs } from "@/components/platform/PlatformAuditLogs";
 import { PlatformOverview } from "@/components/platform/PlatformOverview";
 import { PlatformTwoFactor } from "@/components/platform/PlatformTwoFactor";
+import { useLocale } from "@/lib/i18n";
 
 interface PlatformUser {
   id: string;
@@ -25,6 +26,7 @@ interface PlatformUser {
 }
 
 export default function PlatformPage() {
+  const { t } = useLocale();
   const [user, setUser] = useState<PlatformUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [loginForm, setLoginForm] = useState({ email: "", password: "" });
@@ -99,8 +101,8 @@ export default function PlatformPage() {
                 <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-orange-500/30">
                   <Shield className="w-8 h-8 text-white" />
                 </div>
-                <h1 className="text-2xl font-bold text-white">Platform Admin</h1>
-                <p className="text-gray-400 text-sm mt-1">KFM Delice SaaS — Super Admin</p>
+                <h1 className="text-2xl font-bold text-white">{t('platform.login.title')}</h1>
+                <p className="text-gray-400 text-sm mt-1">{t('platform.login.subtitle')}</p>
               </div>
               <form onSubmit={handleLogin} className="space-y-4">
                 <div>
@@ -133,7 +135,7 @@ export default function PlatformPage() {
                   {loginLoading ? (
                     <><RefreshCw className="w-5 h-5 animate-spin mr-2" /> Connexion...</>
                   ) : (
-                    <><Shield className="w-5 h-5 mr-2" /> Se connecter</>
+                    <><Shield className="w-5 h-5 mr-2" /> {t('platform.login.button')}</>
                   )}
                 </Button>
               </form>
@@ -164,7 +166,7 @@ export default function PlatformPage() {
           </div>
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" onClick={handleLogout} className="text-gray-400 hover:text-white hover:bg-white/5">
-              <LogOut className="w-4 h-4 mr-2" /> Déconnexion
+              <LogOut className="w-4 h-4 mr-2" /> {t('platform.logout')}
             </Button>
           </div>
         </div>
@@ -175,19 +177,19 @@ export default function PlatformPage() {
         <Tabs defaultValue="overview" className="space-y-6">
           <TabsList className="bg-gray-900 border border-white/10 p-1 rounded-xl">
             <TabsTrigger value="overview" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-orange-500 data-[state=active]:to-red-600 data-[state=active]:text-white text-gray-400 rounded-lg">
-              <LayoutDashboard className="w-4 h-4 mr-2" /> Vue d'ensemble
+              <LayoutDashboard className="w-4 h-4 mr-2" /> {t('platform.overview')}
             </TabsTrigger>
             <TabsTrigger value="accounts" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-orange-500 data-[state=active]:to-red-600 data-[state=active]:text-white text-gray-400 rounded-lg">
-              <Building2 className="w-4 h-4 mr-2" /> Comptes
+              <Building2 className="w-4 h-4 mr-2" /> {t('platform.accounts')}
             </TabsTrigger>
             <TabsTrigger value="restaurants" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-orange-500 data-[state=active]:to-red-600 data-[state=active]:text-white text-gray-400 rounded-lg">
-              <UtensilsCrossed className="w-4 h-4 mr-2" /> Restaurants
+              <UtensilsCrossed className="w-4 h-4 mr-2" /> {t('platform.restaurants')}
             </TabsTrigger>
             <TabsTrigger value="audit" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-orange-500 data-[state=active]:to-red-600 data-[state=active]:text-white text-gray-400 rounded-lg">
-              <ScrollText className="w-4 h-4 mr-2" /> Audit
+              <ScrollText className="w-4 h-4 mr-2" /> {t('platform.audit')}
             </TabsTrigger>
             <TabsTrigger value="security" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-orange-500 data-[state=active]:to-red-600 data-[state=active]:text-white text-gray-400 rounded-lg">
-              <Lock className="w-4 h-4 mr-2" /> Sécurité
+              <Lock className="w-4 h-4 mr-2" /> {t('platform.security')}
             </TabsTrigger>
           </TabsList>
 

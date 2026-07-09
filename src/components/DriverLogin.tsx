@@ -9,8 +9,10 @@ import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth-context";
 import { notify } from "@/lib/notifications";
 import { publicApiFetch } from "@/lib/public-api";
+import { useLocale } from "@/lib/i18n";
 
 export function DriverLogin({ onLogin, onBack }: { onLogin: () => void; onBack: () => void }) {
+  const { t } = useLocale();
   const { loginDriver } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -52,16 +54,16 @@ export function DriverLogin({ onLogin, onBack }: { onLogin: () => void; onBack: 
               <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-blue-500/30">
                 <Bike className="w-8 h-8 text-white" />
               </div>
-              <h1 className="text-2xl font-bold text-white">Espace Livreur</h1>
-              <p className="text-gray-400 text-sm mt-1">Connectez-vous pour gérer vos livraisons</p>
+              <h1 className="text-2xl font-bold text-white">{t('driver.login.title')}</h1>
+              <p className="text-gray-400 text-sm mt-1">{t('driver.login.subtitle')}</p>
             </div>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="text-sm font-medium text-gray-300 mb-1 block">Email</label>
+                <label className="text-sm font-medium text-gray-300 mb-1 block">{t('auth.email')}</label>
                 <Input value={email} onChange={e => setEmail(e.target.value)} placeholder="livreur@kfm-delice.com" className="bg-white/10 border-white/20 text-white placeholder:text-gray-500 rounded-xl" />
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-300 mb-1 block">Mot de passe</label>
+                <label className="text-sm font-medium text-gray-300 mb-1 block">{t('auth.password')}</label>
                 <div className="relative">
                   <Input type={showPw ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} className="bg-white/10 border-white/20 text-white placeholder:text-gray-500 rounded-xl pr-10" />
                   <button type="button" onClick={() => setShowPw(!showPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
@@ -75,7 +77,7 @@ export function DriverLogin({ onLogin, onBack }: { onLogin: () => void; onBack: 
                 </div>
               )}
               <Button type="submit" disabled={loading} className="w-full bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white rounded-xl py-6">
-                {loading ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : "Se Connecter"}
+                {loading ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : t('driver.login.button')}
               </Button>
             </form>
             <div className="mt-4">

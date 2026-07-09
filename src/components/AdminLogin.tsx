@@ -8,8 +8,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth-context";
 import { notify } from "@/lib/notifications";
+import { useLocale } from "@/lib/i18n";
 
 export function AdminLogin({ onLogin }: { onLogin: () => void }) {
+  const { t } = useLocale();
   const { loginAdmin } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -95,16 +97,16 @@ export function AdminLogin({ onLogin }: { onLogin: () => void }) {
               <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-orange-500/30">
                 <LayoutDashboard className="w-8 h-8 text-white" />
               </div>
-              <h1 className="text-2xl font-bold text-white">Admin KFM Delice</h1>
-              <p className="text-gray-400 text-sm mt-1">Accédez au tableau de bord</p>
+              <h1 className="text-2xl font-bold text-white">{t('admin.login.title')}</h1>
+              <p className="text-gray-400 text-sm mt-1">{t('admin.login.subtitle')}</p>
             </div>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="text-sm font-medium text-gray-300 mb-1 block">Email</label>
+                <label className="text-sm font-medium text-gray-300 mb-1 block">{t('auth.email')}</label>
                 <Input value={email} onChange={e => setEmail(e.target.value)} className="bg-white/10 border-white/20 text-white placeholder:text-gray-500 rounded-xl" />
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-300 mb-1 block">Mot de passe</label>
+                <label className="text-sm font-medium text-gray-300 mb-1 block">{t('auth.password')}</label>
                 <div className="relative">
                   <Input type={showPw ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} className="bg-white/10 border-white/20 text-white placeholder:text-gray-500 rounded-xl pr-10" />
                   <button type="button" onClick={() => setShowPw(!showPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
@@ -118,7 +120,7 @@ export function AdminLogin({ onLogin }: { onLogin: () => void }) {
                 </div>
               )}
               <Button type="submit" disabled={loading} className="w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white rounded-xl py-6">
-                {loading ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : "Se Connecter"}
+                {loading ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : t('admin.login.button')}
               </Button>
             </form>
             {needsSeed && (

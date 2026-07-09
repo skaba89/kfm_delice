@@ -82,13 +82,45 @@ const translations: Record<Locale, Record<string, string>> = {
     'reservation.confirm': 'Réserver',
     'reservation.confirmed': 'Réservation confirmée !',
 
+    // Customer auth
+    'customer.login.title': 'Connexion Client',
+    'customer.login.subtitle': 'Connectez-vous à votre compte',
+    'customer.register.title': 'Créer un Compte',
+    'customer.register.subtitle': 'Rejoignez KFM Delice',
+    'customer.login.button': 'Se connecter',
+    'customer.register.button': "S'inscrire",
+    'customer.login.noAccount': "Pas de compte ? S'inscrire",
+    'customer.login.hasAccount': 'Déjà un compte ? Se connecter',
+    'customer.login.error': 'Email ou mot de passe incorrect',
+    'customer.register.success': 'Inscription réussie !',
+    'customer.register.error': "Erreur lors de l'inscription",
+    'customer.phone': 'Téléphone',
+    'customer.address': 'Adresse',
+
+    // Admin auth
+    'admin.login.title': 'Administration KFM Delice',
+    'admin.login.subtitle': 'Connectez-vous au tableau de bord',
+    'admin.login.button': 'Se connecter',
+    'admin.login.error': 'Identifiants incorrects',
+    'admin.login.demoCreds': 'Comptes de démonstration',
+
+    // Driver auth
+    'driver.login.title': 'Espace Livreur',
+    'driver.login.subtitle': 'Connectez-vous pour voir vos livraisons',
+    'driver.login.button': 'Se connecter',
+
     // Platform
     'platform.title': 'KFM Delice Platform',
-    'platform.overview': 'Vue d\'ensemble',
+    'platform.overview': "Vue d'ensemble",
     'platform.accounts': 'Comptes',
     'platform.restaurants': 'Restaurants',
     'platform.audit': 'Audit',
     'platform.security': 'Sécurité',
+    'platform.login.title': 'Platform Admin',
+    'platform.login.subtitle': 'KFM Delice SaaS — Super Admin',
+    'platform.login.button': 'Se connecter',
+    'platform.logout': 'Déconnexion',
+    'platform.welcome': 'Bienvenue',
   },
 
   en: {
@@ -162,6 +194,33 @@ const translations: Record<Locale, Record<string, string>> = {
     'reservation.confirm': 'Book',
     'reservation.confirmed': 'Reservation confirmed!',
 
+    // Customer auth
+    'customer.login.title': 'Customer Login',
+    'customer.login.subtitle': 'Sign in to your account',
+    'customer.register.title': 'Create Account',
+    'customer.register.subtitle': 'Join KFM Delice',
+    'customer.login.button': 'Sign in',
+    'customer.register.button': 'Sign up',
+    'customer.login.noAccount': "No account? Sign up",
+    'customer.login.hasAccount': 'Already have an account? Sign in',
+    'customer.login.error': 'Incorrect email or password',
+    'customer.register.success': 'Registration successful!',
+    'customer.register.error': 'Registration failed',
+    'customer.phone': 'Phone',
+    'customer.address': 'Address',
+
+    // Admin auth
+    'admin.login.title': 'KFM Delice Admin',
+    'admin.login.subtitle': 'Sign in to the dashboard',
+    'admin.login.button': 'Sign in',
+    'admin.login.error': 'Invalid credentials',
+    'admin.login.demoCreds': 'Demo accounts',
+
+    // Driver auth
+    'driver.login.title': 'Driver Portal',
+    'driver.login.subtitle': 'Sign in to see your deliveries',
+    'driver.login.button': 'Sign in',
+
     // Platform
     'platform.title': 'KFM Delice Platform',
     'platform.overview': 'Overview',
@@ -169,6 +228,11 @@ const translations: Record<Locale, Record<string, string>> = {
     'platform.restaurants': 'Restaurants',
     'platform.audit': 'Audit',
     'platform.security': 'Security',
+    'platform.login.title': 'Platform Admin',
+    'platform.login.subtitle': 'KFM Delice SaaS — Super Admin',
+    'platform.login.button': 'Sign in',
+    'platform.logout': 'Sign out',
+    'platform.welcome': 'Welcome',
   },
 };
 

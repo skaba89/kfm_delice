@@ -8,8 +8,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth-context";
 import { notify } from "@/lib/notifications";
+import { useLocale } from "@/lib/i18n";
 
 export function CustomerLogin({ onLogin, onRegister, onBack }: { onLogin: () => void; onRegister: () => void; onBack: () => void }) {
+  const { t } = useLocale();
   const { loginCustomer } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -35,7 +37,7 @@ export function CustomerLogin({ onLogin, onRegister, onBack }: { onLogin: () => 
         },
         body: JSON.stringify({ email, password }),
       });
-      if (!res.ok) { const data = await res.json().catch(() => null); setError(data?.error || "Email ou mot de passe incorrect"); return; }
+      if (!res.ok) { const data = await res.json().catch(() => null); setError(data?.error || t('customer.login.error')); return; }
       const data = await res.json();
       // Store token and user data in auth context
       loginCustomer({
@@ -60,16 +62,16 @@ export function CustomerLogin({ onLogin, onRegister, onBack }: { onLogin: () => 
               <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-emerald-500/30">
                 <UserCheck className="w-8 h-8 text-white" />
               </div>
-              <h1 className="text-2xl font-bold text-white">Espace Client</h1>
-              <p className="text-gray-400 text-sm mt-1">Connectez-vous à votre compte</p>
+              <h1 className="text-2xl font-bold text-white">{t('customer.login.title')}</h1>
+              <p className="text-gray-400 text-sm mt-1">{t('customer.login.subtitle')}</p>
             </div>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="text-sm font-medium text-gray-300 mb-1 block">Email</label>
+                <label className="text-sm font-medium text-gray-300 mb-1 block">{t('auth.email')}</label>
                 <Input value={email} onChange={e => setEmail(e.target.value)} placeholder="votre@email.com" className="bg-white/10 border-white/20 text-white placeholder:text-gray-500 rounded-xl" />
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-300 mb-1 block">Mot de passe</label>
+                <label className="text-sm font-medium text-gray-300 mb-1 block">{t('auth.password')}</label>
                 <div className="relative">
                   <Input type={showPw ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} className="bg-white/10 border-white/20 text-white placeholder:text-gray-500 rounded-xl pr-10" />
                   <button type="button" onClick={() => setShowPw(!showPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
@@ -83,11 +85,11 @@ export function CustomerLogin({ onLogin, onRegister, onBack }: { onLogin: () => 
                 </div>
               )}
               <Button type="submit" disabled={loading} className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white rounded-xl py-6">
-                {loading ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : "Se Connecter"}
+                {loading ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : t('customer.login.button')}
               </Button>
             </form>
             <div className="mt-4 text-center">
-              <button onClick={onRegister} className="text-sm text-emerald-400 hover:text-emerald-300 transition-colors">Pas de compte ? Inscrivez-vous</button>
+              <button onClick={onRegister} className="text-sm text-emerald-400 hover:text-emerald-300 transition-colors">{t('customer.login.noAccount')}</button>
             </div>
             <div className="mt-4">
               <button onClick={onBack} className="w-full text-sm text-gray-400 hover:text-white transition-colors flex items-center justify-center gap-2">

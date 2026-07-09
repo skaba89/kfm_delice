@@ -8,8 +8,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth-context";
 import { notify } from "@/lib/notifications";
+import { useLocale } from "@/lib/i18n";
 
 export function CustomerRegister({ onRegister, onLogin, onBack }: { onRegister: () => void; onLogin: () => void; onBack: () => void }) {
+  const { t } = useLocale();
   const { loginCustomer } = useAuth();
   const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", address: "" });
   const [showPw, setShowPw] = useState(false);
@@ -61,24 +63,24 @@ export function CustomerRegister({ onRegister, onLogin, onBack }: { onRegister: 
               <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-emerald-500/30">
                 <UserPlus className="w-8 h-8 text-white" />
               </div>
-              <h1 className="text-2xl font-bold text-white">Créer un Compte</h1>
-              <p className="text-gray-400 text-sm mt-1">Rejoignez KFM Delice</p>
+              <h1 className="text-2xl font-bold text-white">{t('customer.register.title')}</h1>
+              <p className="text-gray-400 text-sm mt-1">{t('customer.register.subtitle')}</p>
             </div>
             <form onSubmit={handleSubmit} className="space-y-3">
               <div>
-                <label className="text-sm font-medium text-gray-300 mb-1 block">Nom complet *</label>
+                <label className="text-sm font-medium text-gray-300 mb-1 block">{t('auth.name')} *</label>
                 <Input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Votre nom" className="bg-white/10 border-white/20 text-white placeholder:text-gray-500 rounded-xl" />
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-300 mb-1 block">Email *</label>
+                <label className="text-sm font-medium text-gray-300 mb-1 block">{t('auth.email')} *</label>
                 <Input required type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="votre@email.com" className="bg-white/10 border-white/20 text-white placeholder:text-gray-500 rounded-xl" />
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-300 mb-1 block">Téléphone</label>
+                <label className="text-sm font-medium text-gray-300 mb-1 block">{t('customer.phone')}</label>
                 <Input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+224 6XX XX XX XX" className="bg-white/10 border-white/20 text-white placeholder:text-gray-500 rounded-xl" />
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-300 mb-1 block">Mot de passe *</label>
+                <label className="text-sm font-medium text-gray-300 mb-1 block">{t('auth.password')} *</label>
                 <div className="relative">
                   <Input required type={showPw ? "text" : "password"} value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} className="bg-white/10 border-white/20 text-white placeholder:text-gray-500 rounded-xl pr-10" />
                   <button type="button" onClick={() => setShowPw(!showPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
@@ -87,7 +89,7 @@ export function CustomerRegister({ onRegister, onLogin, onBack }: { onRegister: 
                 </div>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-300 mb-1 block">Adresse</label>
+                <label className="text-sm font-medium text-gray-300 mb-1 block">{t('customer.address')}</label>
                 <Input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} placeholder="Votre adresse" className="bg-white/10 border-white/20 text-white placeholder:text-gray-500 rounded-xl" />
               </div>
               {error && (
@@ -96,11 +98,11 @@ export function CustomerRegister({ onRegister, onLogin, onBack }: { onRegister: 
                 </div>
               )}
               <Button type="submit" disabled={loading} className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white rounded-xl py-6">
-                {loading ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : "S'inscrire"}
+                {loading ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : t('customer.register.button')}
               </Button>
             </form>
             <div className="mt-4 text-center">
-              <button onClick={onLogin} className="text-sm text-emerald-400 hover:text-emerald-300 transition-colors">Déjà un compte ? Connectez-vous</button>
+              <button onClick={onLogin} className="text-sm text-emerald-400 hover:text-emerald-300 transition-colors">{t('customer.login.hasAccount')}</button>
             </div>
             <div className="mt-4">
               <button onClick={onBack} className="w-full text-sm text-gray-400 hover:text-white transition-colors flex items-center justify-center gap-2">
