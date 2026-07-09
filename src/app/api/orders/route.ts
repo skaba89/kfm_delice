@@ -171,6 +171,19 @@ export async function POST(request: Request) {
       broadcastToType('admin', WSEvents.ORDER_NEW, { orderId: order.id, customerName: order.customerName, orderType: order.orderType, status: order.status });
     } catch (e) { /* WS not available, fall back to polling */ }
 
+    // Email notification to restaurant admins (non-blocking)
+    try {
+      const { notifyNewOrder } = await import('@/lib/notifications-service');
+      notifyNewOrder(restaurantId, {
+        id: order.id,
+        customerName: order.customerName,
+        total: Number(order.total),
+        orderType: order.orderType,
+        tableNumber: order.tableNumber,
+        items: order.items,
+      });
+    } catch { /* email failed — non-blocking */ }
+
     return NextResponse.json(bigIntToNumber(order), { status: 201 });
   } catch (error) {
     console.error(error);

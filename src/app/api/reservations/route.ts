@@ -129,6 +129,20 @@ export async function POST(request: Request) {
       broadcastToType('admin', WSEvents.RESERVATION_NEW, { reservationId: reservation.id, customerName: reservation.customerName, date: reservation.date, time: reservation.time });
     } catch (e) { /* WS not available, fall back to polling */ }
 
+    // Email notification to restaurant admins (non-blocking)
+    try {
+      const { notifyNewReservation } = await import('@/lib/notifications-service');
+      notifyNewReservation(restaurantId, {
+        customerName: reservation.customerName,
+        phone: reservation.phone,
+        date: reservation.date,
+        time: reservation.time,
+        guests: reservation.guests,
+        zone: reservation.zone,
+        notes: reservation.notes,
+      });
+    } catch { /* email failed — non-blocking */ }
+
     return NextResponse.json(bigIntToNumber(reservation), { status: 201 });
   } catch (error) {
     console.error(error);

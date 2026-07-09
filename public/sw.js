@@ -1,177 +1,116 @@
-const CACHE_NAME = 'kfm-delice-v3';
+// KFM Delice Service Worker — PWA offline support
+// Caches static assets + API responses for offline use
+
+const CACHE_NAME = 'kfm-delice-v1';
+const STATIC_CACHE = `${CACHE_NAME}-static`;
+const API_CACHE = `${CACHE_NAME}-api`;
+
+// Assets to cache on install
 const STATIC_ASSETS = [
   '/',
   '/menu',
-  '/reservation',
-  '/tracking',
   '/manifest.json',
-  '/favicon.ico',
-  '/logo.svg',
-  '/images/icon-192.png',
-  '/images/icon-512.png',
-  '/images/favicon-32.png',
-  '/images/apple-touch-icon.png',
-  '/images/logo-512.png',
 ];
 
-// API cache (short-lived, for menu/reviews data)
-const API_CACHE_NAME = 'kfm-api-v1';
-const API_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+// API routes that can be cached (GET only)
+const CACHEABLE_API = [
+  '/api/menu',
+  '/api/restaurant',
+  '/api/status',
+];
 
-// Install: cache static assets
+// ── Install: cache static assets ───────────────────────────────
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS);
-    })
+    caches.open(STATIC_CACHE).then((cache) => cache.addAll(STATIC_ASSETS))
   );
   self.skipWaiting();
 });
 
-// Activate: clean old caches
+// ── Activate: clean old caches ─────────────────────────────────
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames
-          .filter((name) => name !== CACHE_NAME && name !== API_CACHE_NAME)
+    caches.keys().then((names) =>
+      Promise.all(
+        names
+          .filter((name) => name.startsWith('kfm-delice-') && name !== STATIC_CACHE && name !== API_CACHE)
           .map((name) => caches.delete(name))
-      );
-    })
+      )
+    )
   );
   self.clients.claim();
 });
 
-// Fetch: network-first with cache fallback, API caching for GET
+// ── Fetch: cache-first for static, network-first for API ──────
 self.addEventListener('fetch', (event) => {
+  const { request } = event;
+  const url = new URL(request.url);
+
   // Skip non-GET requests
-  if (event.request.method !== 'GET') return;
+  if (request.method !== 'GET') return;
 
-  const url = new URL(event.request.url);
+  // Skip cross-origin requests
+  if (url.origin !== self.location.origin) return;
 
-  // Cache API GET requests (menu, reviews, tracking) for 5 minutes
+  // API requests: network-first, fall back to cache
   if (url.pathname.startsWith('/api/')) {
-    const cacheableAPIs = ['/api/menu', '/api/reviews', '/api/tracking'];
-    const isCacheable = cacheableAPIs.some((path) => url.pathname.startsWith(path));
+    const isCacheable = CACHEABLE_API.some((route) => url.pathname.startsWith(route));
+    if (!isCacheable) return;
 
-    if (isCacheable) {
-      event.respondWith(
-        caches.open(API_CACHE_NAME).then((cache) => {
-          return cache.match(event.request).then((cached) => {
-            if (cached) {
-              const age = Date.now() - parseInt(cached.headers.get('sw-cache-time') || '0');
-              if (age < API_CACHE_TTL) {
-                return cached;
-              }
-            }
-            return fetch(event.request)
-              .then((response) => {
-                if (response.ok) {
-                  const responseClone = response.clone();
-                  const headers = new Headers(responseClone.headers);
-                  headers.set('sw-cache-time', Date.now().toString());
-                  const cachedResponse = new Response(responseClone.body, {
-                    status: responseClone.status,
-                    statusText: responseClone.statusText,
-                    headers,
-                  });
-                  cache.put(event.request, cachedResponse);
-                }
-                return response;
-              })
-              .catch(() => cached || new Response(JSON.stringify({ error: 'Hors ligne' }), {
-                status: 503,
-                headers: { 'Content-Type': 'application/json' },
-              }));
-          });
-        })
-      );
-      return;
-    }
-
-    // Non-cacheable API calls: network only
-    return;
-  }
-
-  // Static assets: cache-first
-  if (url.pathname.match(/\.(png|jpg|jpeg|webp|svg|gif|ico|css|js|woff2?)$/)) {
     event.respondWith(
-      caches.match(event.request).then((cached) => {
-        if (cached) return cached;
-        return fetch(event.request).then((response) => {
+      fetch(request)
+        .then((response) => {
+          // Cache successful responses
           if (response.ok) {
-            const responseClone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
+            const clone = response.clone();
+            caches.open(API_CACHE).then((cache) => cache.put(request, clone));
           }
           return response;
-        });
-      })
+        })
+        .catch(() => caches.match(request))
     );
     return;
   }
 
-  // Pages: network-first with cache fallback
+  // Static assets: cache-first
   event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        const responseClone = response.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(event.request, responseClone);
-        });
+    caches.match(request).then((cached) => {
+      if (cached) return cached;
+      return fetch(request).then((response) => {
+        if (response.ok) {
+          const clone = response.clone();
+          caches.open(STATIC_CACHE).then((cache) => cache.put(request, clone));
+        }
         return response;
-      })
-      .catch(() => {
-        return caches.match(event.request).then((cachedResponse) => {
-          return cachedResponse || caches.match('/').then((fallback) => {
-            return fallback || new Response('Hors ligne — Vérifiez votre connexion internet', {
-              status: 503,
-              headers: { 'Content-Type': 'text/html; charset=utf-8' },
-            });
-          });
-        });
-      })
-  );
-});
-
-// Push notification handler
-self.addEventListener('push', (event) => {
-  const data = event.data ? event.data.json() : {};
-  const title = data.title || 'KFM Delice';
-  const options = {
-    body: data.body || 'Nouvelle notification',
-    icon: '/images/icon-192.png',
-    badge: '/images/favicon-32.png',
-    vibrate: [200, 100, 200],
-    data: data.data || {},
-    actions: data.actions || [
-      { action: 'open', title: 'Ouvrir' },
-      { action: 'close', title: 'Fermer' },
-    ],
-  };
-  event.waitUntil(self.registration.showNotification(title, options));
-});
-
-// Notification click handler
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-
-  if (event.action === 'close') return;
-
-  const url = event.notification.data?.url || '/';
-  event.waitUntil(
-    self.clients.matchAll({ type: 'window' }).then((clients) => {
-      for (const client of clients) {
-        if (client.url === url && 'focus' in client) return client.focus();
-      }
-      return self.clients.openWindow(url);
+      });
     })
   );
 });
 
-// Background sync for offline order submission (future enhancement)
-self.addEventListener('sync', (event) => {
-  if (event.tag === 'sync-orders') {
-    // In production: replay failed order submissions
-    console.log('[SW] Background sync: sync-orders');
+// ── Push notifications ─────────────────────────────────────────
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = { title: 'KFM Delice', body: event.data?.text() || '' };
   }
+
+  const title = data.title || 'KFM Delice';
+  const options = {
+    body: data.body || 'Nouvelle notification',
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
+    data: data.url ? { url: data.url } : {},
+    vibrate: [200, 100, 200],
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+// ── Notification click ─────────────────────────────────────────
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = event.notification.data?.url || '/admin';
+  event.waitUntil(self.clients.openWindow(url));
 });
