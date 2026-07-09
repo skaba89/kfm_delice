@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Shield, LogOut, RefreshCw, Building2, Users, UtensilsCrossed, ScrollText, LayoutDashboard, TrendingUp, AlertTriangle, Eye, Ban, CheckCircle2 } from "lucide-react";
+import { Shield, LogOut, RefreshCw, Building2, Users, UtensilsCrossed, ScrollText, LayoutDashboard, TrendingUp, AlertTriangle, Eye, Ban, CheckCircle2, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,6 +14,7 @@ import { PlatformAccounts } from "@/components/platform/PlatformAccounts";
 import { PlatformRestaurants } from "@/components/platform/PlatformRestaurants";
 import { PlatformAuditLogs } from "@/components/platform/PlatformAuditLogs";
 import { PlatformOverview } from "@/components/platform/PlatformOverview";
+import { PlatformTwoFactor } from "@/components/platform/PlatformTwoFactor";
 
 interface PlatformUser {
   id: string;
@@ -185,6 +186,9 @@ export default function PlatformPage() {
             <TabsTrigger value="audit" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-orange-500 data-[state=active]:to-red-600 data-[state=active]:text-white text-gray-400 rounded-lg">
               <ScrollText className="w-4 h-4 mr-2" /> Audit
             </TabsTrigger>
+            <TabsTrigger value="security" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-orange-500 data-[state=active]:to-red-600 data-[state=active]:text-white text-gray-400 rounded-lg">
+              <Lock className="w-4 h-4 mr-2" /> Sécurité
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview">
@@ -198,6 +202,11 @@ export default function PlatformPage() {
           </TabsContent>
           <TabsContent value="audit">
             <PlatformAuditLogs token={user.token} />
+          </TabsContent>
+          <TabsContent value="security">
+            <div className="max-w-2xl">
+              <PlatformTwoFactor token={user.token} />
+            </div>
           </TabsContent>
         </Tabs>
       </main>

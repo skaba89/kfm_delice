@@ -11,6 +11,7 @@ import { formatPrice, statusColors, statusLabels, orderTypeLabels, paymentLabels
 import { usePagination } from "@/lib/use-pagination";
 import { Pagination } from "@/components/Pagination";
 import { notify } from "@/lib/notifications";
+import { ExportButton } from "@/components/admin/ExportButton";
 
 export interface OrdersTabProps {
   orders: OrderDB[];
@@ -32,6 +33,9 @@ export function OrdersTab({ orders, apiPatch }: OrdersTabProps) {
         <Badge className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">{orders.filter(o => o.status === "preparing").length} En préparation</Badge>
         <Badge className="bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400">{orders.filter(o => o.status === "ready").length} Prêts</Badge>
         <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">{orders.filter(o => o.status === "delivering").length} En livraison</Badge>
+        <div className="ml-auto">
+          <ExportButton type="orders" label="Exporter CSV" />
+        </div>
       </div>
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {orders.length === 0 && (

@@ -108,6 +108,11 @@ const REQUIRED_COLUMNS = [
   ['Payment', 'metadata', 'TEXT NOT NULL DEFAULT \'{}\''],
   ['Payment', 'paidAt', 'TEXT NOT NULL DEFAULT \'\''],
   ['Payment', 'failedReason', 'TEXT NOT NULL DEFAULT \'\''],
+
+  // 2FA TOTP for PlatformAdmin (migration 20260709000000)
+  ['PlatformAdmin', 'twoFactorEnabled', 'BOOLEAN NOT NULL DEFAULT false'],
+  ['PlatformAdmin', 'twoFactorSecret', 'TEXT'],
+  ['PlatformAdmin', 'twoFactorBackupCodes', 'TEXT'],
 ];
 
 /**
