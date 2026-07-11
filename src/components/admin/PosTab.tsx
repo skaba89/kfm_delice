@@ -429,6 +429,30 @@ export function PosTab({
                       });
                       if (res.ok) {
                         const order = await res.json();
+                        // Create a Payment record for non-cash methods
+                        if (posPayment !== "cash" && order.id) {
+                          try {
+                            await apiFetch("/api/payment", {
+                              method: "POST",
+                              body: JSON.stringify({
+                                orderId: order.id,
+                                method: posPayment,
+                                amount: total,
+                                customerName: posCustomerName || "Client POS",
+                                phone: posCustomerPhone || "",
+                              }),
+                            });
+                          } catch { /* non-blocking — order is created */ }
+                        }
+                        // For cash, mark order as paid directly
+                        if (posPayment === "cash" && order.id) {
+                          try {
+                            await apiFetch("/api/orders", {
+                              method: "PATCH",
+                              body: JSON.stringify({ id: order.id, paymentStatus: "paid" }),
+                            });
+                          } catch { /* non-blocking */ }
+                        }
                         setPosReceipt(order);
                         loadData();
                         notify.posOrderSubmitted();

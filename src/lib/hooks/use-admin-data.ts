@@ -256,12 +256,24 @@ export function useAdminData(activeTab: string, adminId: string) {
       setLoading(true);
       const newStats = await loadStats();
       if (!cancelled && newStats) {
-        // Load the initially active tab's data
         await loadTabData(activeTab);
       }
       if (!cancelled) setLoading(false);
     })();
     return () => { cancelled = true; };
+  }, []);
+
+  // ─── Auto-refresh every 15 seconds (polling fallback for production) ───
+  // In production, WebSocket doesn't work (localhost-only guard), so we poll.
+  // This ensures the admin dashboard sees new orders without manual refresh.
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      // Only refresh if the document is visible (saves API calls)
+      if (document.visibilityState === "visible") {
+        await loadStats();
+      }
+    }, 15000); // 15 seconds
+    return () => clearInterval(interval);
   }, []);
 
   // ─── Load tab data when activeTab changes ──────────────────────

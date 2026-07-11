@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { XCircle, Receipt } from "lucide-react";
+import { XCircle, Receipt, FileDown } from "lucide-react";
 import type { InvoiceDB } from "@/lib/types";
 import { formatPrice, invoiceStatusColors, invoiceStatusLabels } from "@/lib/constants";
 import { usePagination } from "@/lib/use-pagination";
@@ -119,10 +119,15 @@ export function InvoicesTab({ invoices, crud, apiPatch, apiDelete }: InvoicesTab
                   <span>Échéance: {inv.dueDate || "-"}</span>
                   {inv.notes && <span>• {inv.notes}</span>}
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
                   {inv.status === "pending" && <Button size="sm" onClick={() => apiPatch("/api/invoices", { id: inv.id, status: "paid" })} className="bg-green-500 hover:bg-green-600 text-white text-xs rounded-lg">Marquer payée</Button>}
                   {inv.status === "pending" && <Button size="sm" variant="outline" onClick={() => apiPatch("/api/invoices", { id: inv.id, status: "overdue" })} className="text-red-500 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/30 text-xs rounded-lg">En retard</Button>}
                   {inv.status === "overdue" && <Button size="sm" onClick={() => apiPatch("/api/invoices", { id: inv.id, status: "paid" })} className="bg-green-500 hover:bg-green-600 text-white text-xs rounded-lg">Marquer payée</Button>}
+                  <a href={`/api/invoices/${inv.id}?format=pdf`} target="_blank" rel="noopener noreferrer">
+                    <Button size="sm" variant="outline" className="text-blue-500 border-blue-200 hover:bg-blue-50 dark:border-blue-800 dark:hover:bg-blue-900/30 text-xs rounded-lg" title="Télécharger PDF">
+                      <FileDown className="w-3 h-3" />
+                    </Button>
+                  </a>
                   {inv.status !== "cancelled" && inv.status !== "paid" && <Button size="sm" variant="outline" onClick={() => apiPatch("/api/invoices", { id: inv.id, status: "cancelled" })} className="text-red-500 border-red-200 dark:border-red-800 text-xs rounded-lg"><XCircle className="w-3 h-3" /></Button>}
                   <EditButton onClick={() => crud.openEdit(inv)} />
                   <DeleteConfirmButton

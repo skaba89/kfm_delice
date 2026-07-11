@@ -278,6 +278,62 @@ export async function PATCH(request: Request) {
       }
     }
 
+    // ── Award loyalty points + update customer stats on delivery ──
+    if (data.status === "delivered") {
+      try {
+        // Fetch the full order to get customerId + total
+        const fullOrder = await db.order.findUnique({
+          where: { id },
+          select: { id: true, customerId: true, total: true, restaurantId: true },
+        });
+
+        if (fullOrder?.customerId) {
+          // Get restaurant's loyalty rate (default 1 point per 1000 GNF)
+          const restaurant = await db.restaurant.findUnique({
+            where: { id: fullOrder.restaurantId },
+            select: { loyaltyPointsRate: true },
+          });
+          const rate = restaurant?.loyaltyPointsRate ?? 1;
+          const orderTotal = Number(fullOrder.total);
+          const pointsEarned = Math.floor(orderTotal / 1000) * rate;
+
+          if (pointsEarned > 0) {
+            // Increment customer loyalty points + totalOrders + totalSpent
+            await db.customer.update({
+              where: { id: fullOrder.customerId },
+              data: {
+                loyaltyPoints: { increment: pointsEarned },
+                totalOrders: { increment: 1 },
+                totalSpent: { increment: fullOrder.total },
+              },
+            });
+
+            // Create loyalty history entry
+            await db.loyaltyPointsHistory.create({
+              data: {
+                customerId: fullOrder.customerId,
+                orderId: fullOrder.id,
+                points: pointsEarned,
+                type: "earned",
+                description: `Commande #${fullOrder.id.slice(-8).toUpperCase()}`,
+              },
+            }).catch(() => {}); // non-blocking — table may not exist on some setups
+          } else {
+            // Even if no points (order < 1000 GNF), still update totalOrders + totalSpent
+            await db.customer.update({
+              where: { id: fullOrder.customerId },
+              data: {
+                totalOrders: { increment: 1 },
+                totalSpent: { increment: fullOrder.total },
+              },
+            });
+          }
+        }
+      } catch (e) {
+        console.warn("[orders] Loyalty award failed (non-blocking):", e instanceof Error ? e.message : String(e));
+      }
+    }
+
     // WebSocket: broadcast order status change
     try {
       const { broadcastToType, sendToUser } = await import('@/lib/websocket-server');
