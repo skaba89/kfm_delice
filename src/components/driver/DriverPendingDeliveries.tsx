@@ -27,22 +27,20 @@ interface PendingDelivery {
   };
 }
 
-export function DriverPendingDeliveries({ driverToken, onAccepted }: { driverToken: string; onAccepted?: () => void }) {
+export function DriverPendingDeliveries({ apiFetch, onAccepted }: { apiFetch: (url: string, options?: RequestInit) => Promise<Response>; onAccepted?: () => void }) {
   const [pending, setPending] = useState<PendingDelivery[]>([]);
   const [loading, setLoading] = useState(false);
 
   const fetchPending = useCallback(async () => {
     try {
-      const res = await fetch("/api/driver-orders/pending", {
-        headers: { Authorization: `Bearer ${driverToken}` },
-      });
+      const res = await apiFetch("/api/driver-orders/pending");
       if (!res.ok) return;
       const data = await res.json();
       setPending(data.data || []);
     } catch {
       // silent
     }
-  }, [driverToken]);
+  }, [apiFetch]);
 
   // Poll every 3 seconds for new proposals
   useEffect(() => {
@@ -54,10 +52,7 @@ export function DriverPendingDeliveries({ driverToken, onAccepted }: { driverTok
   const handleAccept = async (orderId: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/orders/${orderId}/accept`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${driverToken}` },
-      });
+      const res = await apiFetch(`/api/orders/${orderId}/accept`, { method: "POST" });
       const data = await res.json();
       if (!res.ok) {
         toast.error(data.error || "Erreur");
@@ -76,10 +71,7 @@ export function DriverPendingDeliveries({ driverToken, onAccepted }: { driverTok
   const handleReject = async (orderId: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/orders/${orderId}/reject`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${driverToken}` },
-      });
+      const res = await apiFetch(`/api/orders/${orderId}/reject`, { method: "POST" });
       const data = await res.json();
       if (!res.ok) {
         toast.error(data.error || "Erreur");

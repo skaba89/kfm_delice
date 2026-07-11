@@ -22,10 +22,11 @@ interface DriverDashboardProps {
 }
 
 export function DriverDashboard({ driver, onLogout }: DriverDashboardProps) {
+  const { apiFetch } = useAuth();
   const [activeTab, setActiveTab] = useState<"orders" | "map" | "history" | "earnings" | "profile">("orders");
   const {
     driverProfile, loading, updateStatus, acceptOrder, updateOrderStatus,
-    availableOrders, activeOrder, completedOrders,
+    availableOrders, activeOrder, completedOrders, loadData,
   } = useDriverData({ driver });
 
   useDriverGps({ isEnabled: !!driverProfile && driverProfile.status !== "offline" });
@@ -128,7 +129,7 @@ export function DriverDashboard({ driver, onLogout }: DriverDashboardProps) {
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4">
         {/* Pending delivery proposals — shown on all tabs when available */}
-        <DriverPendingDeliveries driverToken={driver.token} onAccepted={loadData} />
+        <DriverPendingDeliveries apiFetch={apiFetch} onAccepted={loadData} />
 
         {activeTab === "orders" && (
           <DriverOrders
