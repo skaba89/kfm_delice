@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { RefreshCw, CreditCard, MapPin, Phone, Bike, ShoppingBag, Utensils, CheckCircle2, ArrowLeft, Wallet } from "lucide-react";
@@ -22,6 +22,14 @@ interface CartItem {
 }
 
 export default function CheckoutPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><RefreshCw className="w-8 h-8 animate-spin text-orange-500" /></div>}>
+      <CheckoutContent />
+    </Suspense>
+  );
+}
+
+function CheckoutContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { customer, apiFetch } = useAuth();
