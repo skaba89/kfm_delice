@@ -65,24 +65,43 @@ async function handleEvent(event: any, request: Request) {
         }).catch(() => {});
 
         // Create or update the payment record
-        await db.payment.upsert({
+        // Note: transactionRef is not unique, so we query first then create/update
+        const existingPayment = await db.payment.findFirst({
           where: { transactionRef: session.id },
-          create: {
-            orderId,
-            method: "card",
-            amount: BigInt(session.amount_total || 0),
-            status: "paid",
-            transactionRef: session.id,
-            customerName: session.customer_details?.name || "",
-            phone: session.customer_details?.phone || "",
-            metadata: JSON.stringify(session),
-            paidAt: new Date().toISOString(),
-          },
-          update: {
-            status: "paid",
-            paidAt: new Date().toISOString(),
-          },
-        }).catch(() => {});
+        }).catch(() => null);
+
+        if (existingPayment) {
+          await db.payment.update({
+            where: { id: existingPayment.id },
+            data: {
+              status: "paid",
+              paidAt: new Date().toISOString(),
+            },
+          }).catch(() => {});
+        } else {
+          // Fetch restaurantId from the order
+          const order = await db.order.findUnique({
+            where: { id: orderId },
+            select: { restaurantId: true },
+          }).catch(() => null);
+
+          if (order) {
+            await db.payment.create({
+              data: {
+                orderId,
+                restaurantId: order.restaurantId,
+                method: "card",
+                amount: Number(session.amount_total || 0) as any,
+                status: "paid",
+                transactionRef: session.id,
+                customerName: session.customer_details?.name || "",
+                phone: session.customer_details?.phone || "",
+                metadata: JSON.stringify(session),
+                paidAt: new Date().toISOString(),
+              },
+            }).catch(() => {});
+          }
+        }
 
         // Audit log
         await logAudit({

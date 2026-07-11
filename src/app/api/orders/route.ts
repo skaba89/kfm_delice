@@ -180,7 +180,7 @@ export async function POST(request: Request) {
         total: Number(order.total),
         orderType: order.orderType,
         tableNumber: order.tableNumber,
-        items: order.items,
+        items: typeof order.items === 'string' ? order.items : JSON.stringify(order.items),
       });
     } catch { /* email failed — non-blocking */ }
 
