@@ -116,6 +116,9 @@ const REQUIRED_COLUMNS = [
   ['Customer', 'lockedUntil', 'TIMESTAMP(3)'],
   ['Driver', 'loginAttempts', 'INTEGER NOT NULL DEFAULT 0'],
   ['Driver', 'lockedUntil', 'TIMESTAMP(3)'],
+
+  // MenuItem stock link (migration 20260711020000)
+  ['MenuItem', 'stockItemId', 'TEXT'],
 ];
 
 /**

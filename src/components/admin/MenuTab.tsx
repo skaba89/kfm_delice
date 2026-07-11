@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -15,7 +16,7 @@ import { notify } from "@/lib/notifications";
 import { AdminFormCard, DeleteConfirmButton, EditButton, EmptyState, FormSelect } from "@/components/admin/shared";
 import type { CrudStateReturn } from "@/lib/hooks/use-crud-state";
 
-type MenuForm = { name: string; description: string; price: number; category: string; image: string; badge: string; popular: boolean; available: boolean };
+type MenuForm = { name: string; description: string; price: number; category: string; image: string; badge: string; popular: boolean; available: boolean; stockItemId: string };
 
 export interface MenuTabProps {
   menuItems: MenuItemDB[];
@@ -36,6 +37,19 @@ export function MenuTab({
   const filteredMenuItems = menuFilter === "all" ? menuItems : menuItems.filter(m => m.category === menuFilter);
   const { currentPage, setCurrentPage, totalPages, paginatedItems, totalItems, itemsPerPage } = usePagination(filteredMenuItems, 12);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [stockItems, setStockItems] = useState<Array<{ id: string; name: string; quantity: number; unit: string; minThreshold: number }>>([]);
+
+  // Fetch stock items for the dropdown
+  useEffect(() => {
+    if (readOnly) return;
+    apiFetch('/api/stock?limit=200')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d?.data) setStockItems(d.data);
+        else if (Array.isArray(d)) setStockItems(d);
+      })
+      .catch(() => {});
+  }, [apiFetch, readOnly, crud.showForm]);
 
   const handleImageUpload = async (file: File) => {
     const formData = new FormData();
@@ -151,6 +165,22 @@ export function MenuTab({
         <div className="flex items-center gap-6 pt-5">
           <div className="flex items-center gap-2"><Switch checked={crud.form.popular} onCheckedChange={v => crud.setForm({ ...crud.form, popular: v })} /><span className="text-sm text-gray-600 dark:text-gray-400">Populaire</span></div>
           <div className="flex items-center gap-2"><Switch checked={crud.form.available} onCheckedChange={v => crud.setForm({ ...crud.form, available: v })} /><span className="text-sm text-gray-600 dark:text-gray-400">Disponible</span></div>
+        </div>
+        <div className="sm:col-span-2">
+          <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Lier à un article en stock (optionnel)</label>
+          <select
+            value={crud.form.stockItemId || ""}
+            onChange={e => crud.setForm({ ...crud.form, stockItemId: e.target.value })}
+            className="w-full h-9 rounded-md border border-gray-200 bg-white px-3 text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-white"
+          >
+            <option value="">— Aucun (stock non suivi) —</option>
+            {stockItems.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} ({s.quantity} {s.unit}{s.quantity <= s.minThreshold ? " ⚠️" : ""})
+              </option>
+            ))}
+          </select>
+          <p className="text-[10px] text-gray-400 mt-0.5">Le stock sera décrémenté automatiquement à chaque commande de ce plat</p>
         </div>
       </AdminFormCard>
 

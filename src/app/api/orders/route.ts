@@ -184,6 +184,13 @@ export async function POST(request: Request) {
       });
     } catch { /* email failed — non-blocking */ }
 
+    // Decrement stock for ordered items (non-blocking)
+    try {
+      const { decrementStockForOrder } = await import('@/lib/stock-manager');
+      const orderedItems = JSON.parse(typeof order.items === 'string' ? order.items : JSON.stringify(order.items)) as { name: string; qty: number }[];
+      decrementStockForOrder(order.id, restaurantId, orderedItems);
+    } catch { /* stock decrement failed — non-blocking */ }
+
     return NextResponse.json(bigIntToNumber(order), { status: 201 });
   } catch (error) {
     console.error(error);
@@ -288,6 +295,25 @@ export async function PATCH(request: Request) {
           }
         }
       }
+    }
+
+    // ── Restore stock on cancellation ──
+    if (data.status === "cancelled") {
+      try {
+        const { restoreStockForOrder } = await import('@/lib/stock-manager');
+        const fullOrderForStock = await db.order.findUnique({
+          where: { id },
+          select: { items: true },
+        });
+        if (fullOrderForStock) {
+          const orderedItems = JSON.parse(
+            typeof fullOrderForStock.items === 'string'
+              ? fullOrderForStock.items
+              : JSON.stringify(fullOrderForStock.items)
+          ) as { name: string; qty: number }[];
+          restoreStockForOrder(id, admin.restaurantId, orderedItems);
+        }
+      } catch { /* stock restore failed — non-blocking */ }
     }
 
     // ── Award loyalty points + update customer stats on delivery ──

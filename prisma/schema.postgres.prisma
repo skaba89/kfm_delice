@@ -245,6 +245,8 @@ model MenuItem {
   popular      Boolean  @default(false)
   available    Boolean  @default(true)
   order        Int      @default(0)
+  stockItemId  String?  // link to StockItem for automatic stock decrement
+  stockItem    StockItem? @relation("MenuItemStock", fields: [stockItemId], references: [id], onDelete: SetNull)
   restaurantId String
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   createdAt    DateTime   @default(now())
@@ -252,6 +254,7 @@ model MenuItem {
 
   @@index([restaurantId, category])
   @@index([restaurantId, available])
+  @@index([stockItemId])
 }
 
 model Reservation {
@@ -540,6 +543,7 @@ model StockItem {
   notes         String   @default("")
   restaurantId  String
   restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  menuItems     MenuItem[] @relation("MenuItemStock")
   movements     StockMovement[]
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
