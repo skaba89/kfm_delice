@@ -99,6 +99,7 @@ model Restaurant {
   minDelivery   BigInt   @default(15000)
   deliveryZones String   @default("Conakry:Kaloum:Dixinn:Matam:Matoto")
   deliveryRadiusKm Int @default(10) // max distance for driver assignment (km)
+  loyaltyPointsRate Int @default(1) // points per 1000 GNF spent (configurable by admin)
   lat           Float    @default(9.5092) // restaurant GPS latitude
   lng           Float    @default(-13.7122) // restaurant GPS longitude
   // SaaS subscription fields

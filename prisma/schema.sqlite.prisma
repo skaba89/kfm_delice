@@ -71,6 +71,7 @@ model Restaurant {
   minDelivery   Int      @default(15000)
   deliveryZones String   @default("Conakry:Kaloum:Dixinn:Matam:Matoto")
   deliveryRadiusKm Int @default(10)
+  loyaltyPointsRate Int @default(1)
   lat           Float    @default(9.5092)
   lng           Float    @default(-13.7122)
   plan          String   @default("free")

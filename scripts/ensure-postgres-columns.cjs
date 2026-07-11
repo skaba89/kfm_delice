@@ -111,6 +111,7 @@ const REQUIRED_COLUMNS = [
 
   // Delivery assignment system (migration 20260711000000)
   ['Restaurant', 'deliveryRadiusKm', 'INTEGER NOT NULL DEFAULT 10'],
+  ['Restaurant', 'loyaltyPointsRate', 'INTEGER NOT NULL DEFAULT 1'],
   ['Order', 'assignmentStatus', 'TEXT NOT NULL DEFAULT \'none\''],
   ['Order', 'proposedToDriverId', 'TEXT'],
   ['Order', 'deliveryLat', 'DOUBLE PRECISION NOT NULL DEFAULT 0'],

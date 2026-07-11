@@ -16,3 +16,5 @@ CREATE INDEX IF NOT EXISTS "Order_assignmentStatus_idx" ON "Order"("assignmentSt
 CREATE INDEX IF NOT EXISTS "Order_proposedToDriverId_idx" ON "Order"("proposedToDriverId");
 ALTER TABLE "Restaurant" ADD COLUMN IF NOT EXISTS "lat" DOUBLE PRECISION NOT NULL DEFAULT 9.5092;
 ALTER TABLE "Restaurant" ADD COLUMN IF NOT EXISTS "lng" DOUBLE PRECISION NOT NULL DEFAULT -13.7122;
+-- Loyalty points rate (configurable by admin)
+ALTER TABLE "Restaurant" ADD COLUMN IF NOT EXISTS "loyaltyPointsRate" INTEGER NOT NULL DEFAULT 1;
