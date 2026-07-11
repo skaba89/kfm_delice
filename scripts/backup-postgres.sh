@@ -1,95 +1,40 @@
 #!/bin/bash
-# ───────────────────────────────────────────────────────────────────
-# scripts/backup-postgres.sh — Backup PostgreSQL DB to a compressed .sql.gz file
-# ───────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────
+# KFM Delice — PostgreSQL Backup Script
 # Usage:
-#   bash scripts/backup-postgres.sh                  # uses $DATABASE_URL
-#   bash scripts/backup-postgres.sh /custom/path     # custom backup dir
-#   BACKUP_RETENTION_DAYS=14 bash scripts/backup-postgres.sh
-#
-# Cron example (daily at 2 AM, keep 14 days):
-#   0 2 * * * cd /home/z/my-project && bash scripts/backup-postgres.sh >> /var/log/kfm-backup.log 2>&1
-#
-# Restoring:
-#   gunzip -c backups/kfm-delice-2026-06-18.sql.gz | psql "$DATABASE_URL"
-# ───────────────────────────────────────────────────────────────────
+#   ./scripts/backup-postgres.sh
+# Or via cron:
+#   0 2 * * * /path/to/scripts/backup-postgres.sh
+# ───────────────────────────────────────────────────────────────
 set -e
 
-BACKUP_DIR="${1:-./backups}"
-RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-30}"
-TIMESTAMP=$(date +%Y-%m-%d_%H%M%S)
-BACKUP_FILE="${BACKUP_DIR}/kfm-delice-${TIMESTAMP}.sql.gz"
+BACKUP_DIR="${BACKUP_DIR:-./backups}"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+BACKUP_FILE="$BACKUP_DIR/kfm-delice-$TIMESTAMP.sql.gz"
 
-# ── Validate env ─────────────────────────────────────────────────
-if [ -z "$DATABASE_URL" ]; then
-  echo "[backup] ERROR: DATABASE_URL not set"
-  exit 1
-fi
-case "$DATABASE_URL" in
-  postgresql://*|postgres://*) ;;
-  *)
-    echo "[backup] ERROR: DATABASE_URL is not a PostgreSQL URL (got: ${DATABASE_URL:0:20}...)"
-    echo "         Set DATABASE_URL=postgresql://user:pass@host:5432/dbname"
-    exit 1
-    ;;
-esac
-
-# ── Prepare backup dir ───────────────────────────────────────────
 mkdir -p "$BACKUP_DIR"
-echo "[backup] Backup directory: $(pwd)/$BACKUP_DIR"
 
-# ── Parse DATABASE_URL ───────────────────────────────────────────
-# Format: postgresql://USER:PASS@HOST:PORT/DBNAME?schema=public
-URL_NO_QUERY="${DATABASE_URL%%\?*}"
-USER_PASS_HOST_PORT_DB="${URL_NO_QUERY#postgresql://}"
-USER_PASS_HOST_PORT_DB="${USER_PASS_HOST_PORT_DB#postgres://}"
+echo "[backup] Starting PostgreSQL backup..."
+echo "[backup] File: $BACKUP_FILE"
 
-DB_NAME="${USER_PASS_HOST_PORT_DB##*/}"
-USER_PASS_HOST_PORT="${USER_PASS_HOST_PORT_DB%/*}"
-HOST_PORT="${USER_PASS_HOST_PORT##*@}"
-DB_USER="${USER_PASS_HOST_PORT%@*}"
-DB_PASS="${DB_USER#*:}"
-DB_USER="${DB_USER%%:*}"
-DB_HOST="${HOST_PORT%%:*}"
-DB_PORT="${HOST_PORT##*:}"
-if [ "$DB_PORT" = "$DB_HOST" ]; then
-  DB_PORT="5432"
-fi
-
-echo "[backup] Host: $DB_HOST:$DB_PORT  DB: $DB_NAME  User: $DB_USER"
-
-# ── Run pg_dump ──────────────────────────────────────────────────
-export PGPASSWORD="$DB_PASS"
-echo "[backup] Starting pg_dump → $BACKUP_FILE"
-pg_dump \
-  --host="$DB_HOST" \
-  --port="$DB_PORT" \
-  --username="$DB_USER" \
-  --dbname="$DB_NAME" \
-  --format=custom \
-  --no-owner \
-  --no-privileges \
-  --compress=9 \
-  --file="$BACKUP_FILE"
-
-unset PGPASSWORD
-
-if [ ! -f "$BACKUP_FILE" ]; then
-  echo "[backup] ERROR: backup file not created"
+if [ -z "$DATABASE_URL" ]; then
+  echo "[backup] FATAL: DATABASE_URL is not set"
   exit 1
 fi
 
-BACKUP_SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
-echo "[backup] ✅ Created: $BACKUP_FILE ($BACKUP_SIZE)"
+# Dump and compress
+pg_dump "$DATABASE_URL" | gzip > "$BACKUP_FILE"
 
-# ── Cleanup old backups ──────────────────────────────────────────
-DELETED=$(find "$BACKUP_DIR" -name "kfm-delice-*.sql.gz" -type f -mtime +$RETENTION_DAYS -print -delete | wc -l)
-if [ "$DELETED" -gt 0 ]; then
-  echo "[backup] 🗑️  Deleted $DELETED backup(s) older than $RETENTION_DAYS days"
-fi
+# Verify
+SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
+echo "[backup] ✓ Backup created ($SIZE)"
 
-# ── List current backups ─────────────────────────────────────────
-echo "[backup] Current backups:"
-ls -lh "$BACKUP_DIR"/kfm-delice-*.sql.gz 2>/dev/null | awk '{printf "  %s  %s\n", $5, $9}'
+# Cleanup old backups (keep last 7 days)
+find "$BACKUP_DIR" -name "kfm-delice-*.sql.gz" -mtime +7 -delete 2>/dev/null || true
+echo "[backup] Old backups cleaned (>7 days)"
+
+# List recent backups
+echo "[backup] Recent backups:"
+ls -lh "$BACKUP_DIR"/kfm-delice-*.sql.gz 2>/dev/null | tail -5
 
 echo "[backup] Done."

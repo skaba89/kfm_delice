@@ -1,0 +1,100 @@
+# ───────────────────────────────────────────────────────────────
+# KFM Delice — Docker Compose for VPS deployment
+# Runs: PostgreSQL 16 + KFM Delice Next.js app
+# ───────────────────────────────────────────────────────────────
+# Usage:
+#   1. Copy .env.production.example to .env.production
+#   2. Edit .env.production with your values
+#   3. docker compose up -d
+#   4. Visit http://your-server-ip:3000
+# ───────────────────────────────────────────────────────────────
+
+version: '3.8'
+
+services:
+  # ── PostgreSQL Database ──────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-kfm_delice}
+      POSTGRES_USER: ${POSTGRES_USER:-kfm_delice}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backups:/backups
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kfm_delice}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── KFM Delice App ───────────────────────────────────────────
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-kfm_delice}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-kfm_delice}?schema=public
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env.production}
+      ALLOW_AUTO_SEED: ${ALLOW_AUTO_SEED:-true}
+      ALLOW_PRISMA_DB_PUSH_FALLBACK: ${ALLOW_PRISMA_DB_PUSH_FALLBACK:-true}
+      ALLOW_DEFAULT_TENANT: ${ALLOW_DEFAULT_TENANT:-true}
+      TENANT_STRATEGY: slug-header
+      ENABLE_PUBLIC_RESTAURANT_REGISTRATION: ${ENABLE_PUBLIC_RESTAURANT_REGISTRATION:-false}
+      NEXT_PUBLIC_SHOW_DEMO_CREDS: ${NEXT_PUBLIC_SHOW_DEMO_CREDS:-false}
+      # Email (optional — defaults to console logging)
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      EMAIL_FROM: ${EMAIL_FROM:-KFM Delice <noreply@kfm-delice.com>}
+      # Payments (optional — defaults to mock mode)
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      ORANGE_MONEY_CLIENT_ID: ${ORANGE_MONEY_CLIENT_ID:-}
+      ORANGE_MONEY_CLIENT_SECRET: ${ORANGE_MONEY_CLIENT_SECRET:-}
+      ORANGE_MONEY_MERCHANT_NUMBER: ${ORANGE_MONEY_MERCHANT_NUMBER:-}
+      MTN_MOMO_SUBSCRIPTION_KEY: ${MTN_MOMO_SUBSCRIPTION_KEY:-}
+      MTN_MOMO_USER_ID: ${MTN_MOMO_USER_ID:-}
+      MTN_MOMO_API_KEY: ${MTN_MOMO_API_KEY:-}
+      WAVE_API_KEY: ${WAVE_API_KEY:-}
+      WAVE_BUSINESS_ID: ${WAVE_BUSINESS_ID:-}
+      # Monitoring (optional)
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      # Push notifications (optional)
+      NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${NEXT_PUBLIC_VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@kfm-delice.com}
+
+  # ── Backup cron (optional — daily pg_dump) ──────────────────
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backups:/backups
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_DB: ${POSTGRES_DB:-kfm_delice}
+      POSTGRES_USER: ${POSTGRES_USER:-kfm_delice}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        echo "0 2 * * * PGPASSWORD=$${POSTGRES_PASSWORD} pg_dump -h db -U $${POSTGRES_USER} $${POSTGRES_DB} | gzip > /backups/kfm-$$(date +\%Y\%m\%d).sql.gz && find /backups -name 'kfm-*.sql.gz' -mtime +7 -delete" > /etc/crontabs/root
+        crond -f
+    # Runs daily at 2am, keeps 7 days of backups
+
+volumes:
+  pgdata:
