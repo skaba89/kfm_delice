@@ -98,6 +98,9 @@ model Restaurant {
   deliveryFee   BigInt   @default(5000)
   minDelivery   BigInt   @default(15000)
   deliveryZones String   @default("Conakry:Kaloum:Dixinn:Matam:Matoto")
+  deliveryRadiusKm Int @default(10) // max distance for driver assignment (km)
+  lat           Float    @default(9.5092) // restaurant GPS latitude
+  lng           Float    @default(-13.7122) // restaurant GPS longitude
   // SaaS subscription fields
   plan          String   @default("free") // free, starter, pro, enterprise
   status        String   @default("active") // active, suspended, trial, cancelled
@@ -287,6 +290,12 @@ model Order {
   driverLat      Float    @default(0) // driver live latitude
   driverLng      Float    @default(0) // driver live longitude
   driverEarning  BigInt   @default(0) // commission credited to driver on delivery
+  // ── Delivery assignment system ──
+  assignmentStatus String @default("none") // none, proposed, accepted, rejected, expired
+  proposedToDriverId String? // which driver the delivery was proposed to
+  proposedAt DateTime? // when the delivery was proposed
+  deliveryLat Float @default(0) // customer delivery location lat
+  deliveryLng Float @default(0) // customer delivery location lng
   customerId    String?
   customer      Customer? @relation(fields: [customerId], references: [id])
   driverId      String?

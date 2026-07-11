@@ -14,6 +14,7 @@ import { DriverMapTab } from "@/components/driver/DriverMapTab";
 import { DriverHistory } from "@/components/driver/DriverHistory";
 import { DriverProfile } from "@/components/driver/DriverProfile";
 import { DriverEarnings } from "@/components/driver/DriverEarnings";
+import { DriverPendingDeliveries } from "@/components/driver/DriverPendingDeliveries";
 
 interface DriverDashboardProps {
   driver: DriverUser;
@@ -126,6 +127,9 @@ export function DriverDashboard({ driver, onLogout }: DriverDashboardProps) {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4">
+        {/* Pending delivery proposals — shown on all tabs when available */}
+        <DriverPendingDeliveries driverToken={driver.token} onAccepted={loadData} />
+
         {activeTab === "orders" && (
           <DriverOrders
             availableOrders={availableOrders}

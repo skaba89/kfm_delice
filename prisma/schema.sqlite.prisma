@@ -70,6 +70,9 @@ model Restaurant {
   deliveryFee   Int      @default(5000)
   minDelivery   Int      @default(15000)
   deliveryZones String   @default("Conakry:Kaloum:Dixinn:Matam:Matoto")
+  deliveryRadiusKm Int @default(10)
+  lat           Float    @default(9.5092)
+  lng           Float    @default(-13.7122)
   plan          String   @default("free")
   status        String   @default("active")
   trialEndsAt   String   @default("")
@@ -251,6 +254,11 @@ model Order {
   driverLat      Float    @default(0) // driver live latitude
   driverLng      Float    @default(0) // driver live longitude
   driverEarning  Int      @default(0) // commission credited to driver on delivery
+  assignmentStatus String @default("none")
+  proposedToDriverId String?
+  proposedAt DateTime?
+  deliveryLat Float @default(0)
+  deliveryLng Float @default(0)
   customerId    String?
   customer      Customer? @relation(fields: [customerId], references: [id])
   driverId      String?
