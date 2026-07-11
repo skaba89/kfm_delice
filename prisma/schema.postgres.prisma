@@ -183,6 +183,9 @@ model Admin {
   role              String   @default("admin") // admin, manager, staff, cashier, kitchen, delivery_manager, driver, host, accountant
   status            String   @default("active") // active, inactive
   mustChangePassword Boolean @default(false) // force password change on first login
+  // ── Account security fields ──
+  loginAttempts     Int      @default(0) // failed login attempts counter
+  lockedUntil       DateTime? // null = not locked; set a future time to lock
   restaurantId      String
   restaurant        Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   // ── SaaS Account fields ──
@@ -214,6 +217,9 @@ model Customer {
   totalSpent        BigInt   @default(0)
   status            String   @default("active") // active, inactive
   mustChangePassword Boolean @default(false) // force password change on first login
+  // ── Account security fields ──
+  loginAttempts     Int      @default(0)
+  lockedUntil       DateTime?
   restaurantId      String
   restaurant        Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   createdAt         DateTime   @default(now())
@@ -330,10 +336,10 @@ model Driver {
   lastLocationUpdate DateTime @default(now()) // last GPS update
   currentOrderId    String   @default("") // current active order
   mustChangePassword Boolean @default(false) // force password change on first login
-  // Driver earnings fields — referenced in code (orders PATCH, driver-earnings,
-  // DriverEarnings.tsx) but were missing from schema. Without these columns,
-  // /api/drivers, /api/dashboard, /api/tracking all crash with:
-  //   "The column main.Driver.commissionRate does not exist in the current database"
+  // ── Account security fields ──
+  loginAttempts     Int      @default(0)
+  lockedUntil       DateTime?
+  // Driver earnings fields
   commissionRate    Float    @default(10) // % commission on each delivery (default 10%)
   totalEarnings     BigInt   @default(0) // cumulative GNF earnings from all deliveries
   restaurantId      String

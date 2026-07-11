@@ -4,6 +4,7 @@ import { verifyPassword, generateToken } from "@/lib/auth";
 import { loginSchema } from "@/lib/validations";
 import { rateLimit } from "@/lib/rate-limit";
 import { logAudit } from "@/lib/audit";
+import { isAccountLocked, recordFailedLogin, resetLoginAttempts, MAX_LOGIN_ATTEMPTS_ADMIN } from "@/lib/account-security";
 
 // Auto-seed lock to prevent concurrent seeding
 let _seedPromise: Promise<void> | null = null;
@@ -80,6 +81,7 @@ export async function POST(request: Request) {
       select: {
         id: true, email: true, password: true, name: true,
         role: true, status: true, restaurantId: true,
+        loginAttempts: true, lockedUntil: true,
       },
     });
 
@@ -90,14 +92,45 @@ export async function POST(request: Request) {
       );
     }
 
+    // Check if account is locked
+    const lockStatus = isAccountLocked(admin.lockedUntil);
+    if (lockStatus.locked) {
+      return NextResponse.json(
+        {
+          error: `Compte bloqué suite à ${MAX_LOGIN_ATTEMPTS_ADMIN} tentatives échouées. Réessayez dans ${lockStatus.remainingMinutes} min ou contactez l'administrateur.`,
+          locked: true,
+          unlockAt: lockStatus.unlockAt,
+        },
+        { status: 423 }
+      );
+    }
+
     // Verify password with bcrypt
     const isValid = await verifyPassword(password, admin.password);
     if (!isValid) {
+      // Record failed attempt — may lock the account
+      const result = await recordFailedLogin('admin', admin.id, true);
+      if (result.locked) {
+        return NextResponse.json(
+          {
+            error: `Compte bloqué après ${result.attempts} tentatives échouées. Réessayez dans 30 min ou contactez l'administrateur.`,
+            locked: true,
+          },
+          { status: 423 }
+        );
+      }
+      const remaining = result.maxAttempts - result.attempts;
       return NextResponse.json(
-        { error: "Identifiants incorrects" },
+        {
+          error: `Identifiants incorrects. ${remaining} tentative(s) restante(s) avant blocage.`,
+          attemptsRemaining: remaining,
+        },
         { status: 401 }
       );
     }
+
+    // Successful login — reset attempts
+    await resetLoginAttempts('admin', admin.id);
 
     if (admin.status === "inactive") {
       return NextResponse.json(

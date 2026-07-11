@@ -150,6 +150,8 @@ model Admin {
   role              String   @default("admin")
   status            String   @default("active")
   mustChangePassword Boolean @default(false)
+  loginAttempts     Int      @default(0)
+  lockedUntil       DateTime?
   restaurantId      String
   restaurant        Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   // ── SaaS Account fields ──
@@ -178,7 +180,9 @@ model Customer {
   totalOrders       Int      @default(0)
   totalSpent        Int      @default(0)
   status            String   @default("active") // active, inactive
-  mustChangePassword Boolean @default(false) // force password change on first login
+  mustChangePassword Boolean @default(false)
+  loginAttempts     Int      @default(0)
+  lockedUntil       DateTime? // force password change on first login
   restaurantId      String
   restaurant        Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   createdAt         DateTime   @default(now())
@@ -292,7 +296,9 @@ model Driver {
   lng               Float    @default(0) // current longitude
   lastLocationUpdate DateTime @default(now()) // last GPS update
   currentOrderId    String   @default("") // current active order
-  mustChangePassword Boolean @default(false) // force password change on first login
+  mustChangePassword Boolean @default(false)
+  loginAttempts     Int      @default(0)
+  lockedUntil       DateTime? // force password change on first login
   // Driver earnings fields — same as PostgreSQL schema (Int on SQLite
   // is sufficient for dev DB; production uses BigInt)
   commissionRate    Float    @default(10)

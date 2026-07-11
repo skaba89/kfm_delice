@@ -109,18 +109,13 @@ const REQUIRED_COLUMNS = [
   ['Payment', 'paidAt', 'TEXT NOT NULL DEFAULT \'\''],
   ['Payment', 'failedReason', 'TEXT NOT NULL DEFAULT \'\''],
 
-  // Delivery assignment system (migration 20260711000000)
-  ['Restaurant', 'deliveryRadiusKm', 'INTEGER NOT NULL DEFAULT 10'],
-  ['Restaurant', 'loyaltyPointsRate', 'INTEGER NOT NULL DEFAULT 1'],
-  ['Order', 'assignmentStatus', 'TEXT NOT NULL DEFAULT \'none\''],
-  ['Order', 'proposedToDriverId', 'TEXT'],
-  ['Order', 'deliveryLat', 'DOUBLE PRECISION NOT NULL DEFAULT 0'],
-  ['Order', 'deliveryLng', 'DOUBLE PRECISION NOT NULL DEFAULT 0'],
-
-  // 2FA TOTP for PlatformAdmin (migration 20260709000000)
-  ['PlatformAdmin', 'twoFactorEnabled', 'BOOLEAN NOT NULL DEFAULT false'],
-  ['PlatformAdmin', 'twoFactorSecret', 'TEXT'],
-  ['PlatformAdmin', 'twoFactorBackupCodes', 'TEXT'],
+  // Account security (migration 20260711010000)
+  ['Admin', 'loginAttempts', 'INTEGER NOT NULL DEFAULT 0'],
+  ['Admin', 'lockedUntil', 'TIMESTAMP(3)'],
+  ['Customer', 'loginAttempts', 'INTEGER NOT NULL DEFAULT 0'],
+  ['Customer', 'lockedUntil', 'TIMESTAMP(3)'],
+  ['Driver', 'loginAttempts', 'INTEGER NOT NULL DEFAULT 0'],
+  ['Driver', 'lockedUntil', 'TIMESTAMP(3)'],
 ];
 
 /**
