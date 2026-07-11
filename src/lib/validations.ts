@@ -203,7 +203,10 @@ export const orderPatchSchema = z.object({
   phone: z.string().optional(),
   items: z.string().optional(),
   total: z.number().min(0).optional(),
-  status: z.string().optional(),
+  status: z.enum([
+    'pending', 'confirmed', 'preparing', 'ready',
+    'picking_up', 'delivering', 'delivered', 'cancelled'
+  ], { message: 'Statut invalide. Statuts autorisés: pending, confirmed, preparing, ready, picking_up, delivering, delivered, cancelled' }).optional(),
   orderType: z.string().optional(),
   paymentMethod: z.enum(['cash', 'orange_money', 'mtn_money', 'wave', 'card']).optional(),
   paymentStatus: z.enum(['pending', 'processing', 'paid', 'failed', 'refunded']).optional(),
@@ -217,6 +220,24 @@ export const orderPatchSchema = z.object({
   estimatedDeliveryTime: z.string().optional(),
   customerId: z.string().optional(),
 });
+
+// ── Order state machine: valid transitions ─────────────────────
+export const ORDER_TRANSITIONS: Record<string, string[]> = {
+  pending: ['confirmed', 'preparing', 'cancelled'],
+  confirmed: ['preparing', 'cancelled'],
+  preparing: ['ready', 'cancelled'],
+  ready: ['picking_up', 'delivering', 'delivered', 'cancelled'],
+  picking_up: ['delivering', 'cancelled'],
+  delivering: ['delivered', 'cancelled'],
+  delivered: [], // terminal
+  cancelled: [], // terminal
+};
+
+export function isValidOrderTransition(from: string, to: string): boolean {
+  const allowed = ORDER_TRANSITIONS[from];
+  if (!allowed) return false;
+  return allowed.includes(to);
+}
 
 export const driverPatchSchema = z.object({
   id: z.string().min(1, 'ID requis'),

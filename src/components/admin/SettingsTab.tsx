@@ -76,9 +76,10 @@ export function SettingsTab({ apiFetch, apiPatch, apiPut, adminRole, admins = []
       const allowedFields = [
         "name", "tagline", "description", "phone", "whatsapp", "email",
         "address", "hours", "tables", "deliveryFee", "minDelivery",
-        "deliveryZones", "logo", "primaryColor", "secondaryColor",
+        "deliveryZones", "deliveryRadiusKm", "loyaltyPointsRate",
+        "logo", "primaryColor", "secondaryColor",
         "taxRate", "currency", "facebook", "instagram", "twitter",
-        "latitude", "longitude",
+        "latitude", "longitude", "lat", "lng",
       ];
       for (const field of allowedFields) {
         if ((settings as Record<string, unknown>)[field] !== undefined) {
@@ -384,6 +385,16 @@ export function SettingsTab({ apiFetch, apiPatch, apiPut, adminRole, admins = []
                   <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Zones de livraison (séparées par :)</label>
                   <Input value={settings.deliveryZones || ""} onChange={e => updateField("deliveryZones", e.target.value)} placeholder="Kaloum:Dixinn:Matam:Matoto" className="dark:bg-gray-800 dark:border-gray-600" />
                   <p className="text-[10px] text-gray-400 mt-0.5">Exemple : Kaloum:Dixinn:Matam:Matoto</p>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Rayon de livraison (km)</label>
+                  <Input type="number" min={1} max={100} value={(settings as any).deliveryRadiusKm || 10} onChange={e => updateField("deliveryRadiusKm" as any, parseInt(e.target.value) || 10)} placeholder="10" className="dark:bg-gray-800 dark:border-gray-600" />
+                  <p className="text-[10px] text-gray-400 mt-0.5">Distance max pour l'assignation des livreurs</p>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Taux de fidélité (pts / 1000 GNF)</label>
+                  <Input type="number" min={0} max={100} value={(settings as any).loyaltyPointsRate || 1} onChange={e => updateField("loyaltyPointsRate" as any, parseInt(e.target.value) || 1)} placeholder="1" className="dark:bg-gray-800 dark:border-gray-600" />
+                  <p className="text-[10px] text-gray-400 mt-0.5">1 pt / 1000 GNF = standard. 2 pts = promo x2</p>
                 </div>
               </div>
               {/* Zones preview */}

@@ -107,6 +107,33 @@ export async function POST(request: Request) {
       }
     } catch { /* not authenticated */ }
 
+    // ── Conflict check: prevent double-booking same zone + date + time ──
+    // Allow max 1 active reservation per zone per 2-hour window
+    const reservationDate = validation.data.date;
+    const reservationTime = validation.data.time;
+    const reservationZone = validation.data.zone ?? "interieur";
+
+    const existingReservations = await db.reservation.findFirst({
+      where: {
+        restaurantId,
+        date: reservationDate,
+        zone: reservationZone,
+        status: { in: ["pending", "confirmed"] },
+        // Check if any reservation overlaps within a 2-hour window
+        // (simplified: same date + same zone + time within 2 hours)
+        time: reservationTime,
+      },
+    });
+
+    if (existingReservations) {
+      return NextResponse.json(
+        {
+          error: `Désolé, la zone "${reservationZone}" est déjà réservée pour le ${reservationDate} à ${reservationTime}. Veuillez choisir un autre horaire ou une autre zone.`,
+        },
+        { status: 409 }
+      );
+    }
+
     const reservation = await db.reservation.create({
       data: {
         customerName: validation.data.customerName,
@@ -150,17 +177,10 @@ export async function POST(request: Request) {
   }
 }
 
-// PATCH: Admin/Manager/Staff auth required
+// PATCH: Admin/Manager/Staff auth required (or customer cancelling own reservation)
 export async function PATCH(request: Request) {
   try {
     await dbReady;
-    const admin = await authenticateAdmin(request);
-    if (!admin) {
-      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
-    }
-    if (!hasRole(admin.role, ["admin", "manager", "staff", "host"])) {
-      return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
-    }
 
     const body = await request.json();
     const validation = reservationPatchSchema.safeParse(body);
@@ -172,6 +192,40 @@ export async function PATCH(request: Request) {
     const { id, ...rawData } = validation.data;
     if (!id) {
       return NextResponse.json({ error: "ID requis" }, { status: 400 });
+    }
+
+    // ── Check if this is a customer cancellation ──
+    // Customers can only cancel their OWN reservations (status → cancelled)
+    const isCustomerCancel =
+      rawData.status === "cancelled" &&
+      Object.keys(rawData).length === 2; // only id + status
+
+    if (isCustomerCancel) {
+      const auth = await authenticateAny(request).catch(() => null);
+      if (auth?.type === "customer") {
+        // Verify the reservation belongs to this customer
+        const reservation = await db.reservation.findFirst({
+          where: { id, customerId: auth.id },
+          select: { id: true, status: true },
+        });
+        if (!reservation) {
+          return NextResponse.json({ error: "Réservation non trouvée" }, { status: 404 });
+        }
+        if (reservation.status === "cancelled") {
+          return NextResponse.json({ error: "Déjà annulée" }, { status: 400 });
+        }
+        await db.reservation.update({ where: { id }, data: { status: "cancelled" } });
+        return NextResponse.json({ success: true, message: "Réservation annulée" });
+      }
+    }
+
+    // ── Admin/Manager/Staff auth ──
+    const admin = await authenticateAdmin(request);
+    if (!admin) {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+    if (!hasRole(admin.role, ["admin", "manager", "staff", "host"])) {
+      return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 
     // ── Multi-tenant isolation ──────────────────────────────────

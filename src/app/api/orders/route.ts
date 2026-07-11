@@ -1,7 +1,7 @@
 import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, authenticateAny, hasRole } from "@/lib/auth";
-import { orderSchema, orderPatchSchema } from "@/lib/validations";
+import { orderSchema, orderPatchSchema, isValidOrderTransition, ORDER_TRANSITIONS } from "@/lib/validations";
 import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, parseStatusFilter } from "@/lib/pagination";
 import { isRestaurantOpen } from "@/lib/constants";
 import { getRestaurantId } from "@/lib/tenant";
@@ -19,7 +19,7 @@ export async function GET(request: Request) {
     const { page, limit } = parsePagination(sp);
     const { sortBy, sortOrder } = parseSorting(sp, ['createdAt', 'total', 'status', 'orderType'] as const, 'createdAt');
     const search = parseSearch(sp);
-    const statusFilter = parseStatusFilter(sp, ['pending', 'preparing', 'ready', 'delivering', 'delivered', 'cancelled']);
+    const statusFilter = parseStatusFilter(sp, ['pending', 'confirmed', 'preparing', 'ready', 'picking_up', 'delivering', 'delivered', 'cancelled']);
     const orderTypeFilter = parseStatusFilter(sp, ['dine_in', 'takeaway', 'delivery'], 'orderType');
     const tableFilter = sp.get("tableNumber");
 
@@ -221,10 +221,22 @@ export async function PATCH(request: Request) {
     // be able to mutate orders of restaurant B by guessing an order UUID).
     const existingOrder = await db.order.findFirst({
       where: { id, restaurantId: admin.restaurantId },
-      select: { id: true, driverId: true, total: true, deliveryFee: true },
+      select: { id: true, driverId: true, total: true, deliveryFee: true, status: true },
     });
     if (!existingOrder) {
       return NextResponse.json({ error: "Commande introuvable" }, { status: 404 });
+    }
+
+    // ── State machine: validate status transition ──────────────
+    if (data.status && data.status !== existingOrder.status) {
+      if (!isValidOrderTransition(existingOrder.status, data.status)) {
+        return NextResponse.json(
+          {
+            error: `Transition invalide: ${existingOrder.status} → ${data.status}. Transitions autorisées depuis "${existingOrder.status}": ${ORDER_TRANSITIONS[existingOrder.status]?.join(', ') || 'aucune (statut terminal)'}`,
+          },
+          { status: 400 }
+        );
+      }
     }
 
     const updateData: Record<string, unknown> = { ...data };
