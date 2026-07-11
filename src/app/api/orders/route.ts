@@ -324,7 +324,7 @@ export async function PATCH(request: Request) {
             await db.loyaltyPointsHistory.create({
               data: {
                 customerId: fullOrder.customerId,
-                orderId: fullOrder.id,
+                referenceId: fullOrder.id,
                 points: pointsEarned,
                 type: "earned",
                 description: `Commande #${fullOrder.id.slice(-8).toUpperCase()}`,
