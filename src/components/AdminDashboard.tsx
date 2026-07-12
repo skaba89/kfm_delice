@@ -24,6 +24,7 @@ import { CustomersTab } from "@/components/admin/CustomersTab";
 import { PaymentsTab } from "@/components/admin/PaymentsTab";
 import { InventoryTab } from "@/components/admin/InventoryTab";
 import { PosTab } from "@/components/admin/PosTab";
+import { TablesTab } from "@/components/admin/TablesTab";
 import { SettingsTab } from "@/components/admin/SettingsTab";
 import { DashboardShell, type SidebarItem } from "@/components/layout/DashboardShell";
 import type { AdminDB, AdminUser, MenuItemDB, OrderDB, DriverDB, StaffDB, InvoiceDB, QuoteDB, ExpenseDB, CustomerDB } from "@/lib/types";
@@ -279,15 +280,7 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
       {activeTab === "inventory" && <InventoryTab />}
       {activeTab === "payments" && <PaymentsTab payments={payments} apiPatch={apiPatch} />}
       {activeTab === "pos" && <PosTabWithState menuItems={menuItems} orders={orders} loadData={loadData} />}
-      {activeTab === "tables" && (
-        <div className="p-4">
-          <iframe
-            src="/admin/tables"
-            className="w-full h-[80vh] border-0 rounded-xl"
-            title="QR Codes des Tables"
-          />
-        </div>
-      )}
+      {activeTab === "tables" && <TablesTab />}
       {activeTab === "settings" && <SettingsTab
         apiFetch={apiFetch}
         apiPatch={async (url, body) => {
