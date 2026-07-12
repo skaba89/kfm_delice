@@ -9,7 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import {
   UtensilsCrossed, ShoppingBag, Search, Leaf, Flame, Fish, CakeSlice,
   Clock, User, CircleDot, Minus, Plus, X, DollarSign, Smartphone,
-  CreditCard, RefreshCw, CheckCircle2, Trash2, Percent, StickyNote, Printer, Receipt,
+  CreditCard, RefreshCw, CheckCircle2, Trash2, Percent, StickyNote, Printer, Receipt, FileDown,
   CupSoda, Bike,
 } from "lucide-react";
 import type { MenuItemDB, OrderDB } from "@/lib/types";
@@ -155,6 +155,11 @@ export function PosTab({
                 <Button onClick={() => window.print()} className="flex-1 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl">
                   <Printer className="w-4 h-4 mr-2" /> Imprimer
                 </Button>
+                <a href={`/api/orders/${posReceipt.id}?format=pdf`} target="_blank" rel="noopener noreferrer" className="flex-1">
+                  <Button variant="outline" className="w-full rounded-xl dark:border-gray-600">
+                    <FileDown className="w-4 h-4 mr-2" /> PDF
+                  </Button>
+                </a>
                 <Button variant="outline" onClick={() => { setPosReceipt(null); setPosCart([]); setPosDiscount(0); setPosCustomerName(""); setPosCustomerPhone(""); setPosNote(""); }} className="flex-1 rounded-xl dark:border-gray-600">
                   Nouvelle commande
                 </Button>

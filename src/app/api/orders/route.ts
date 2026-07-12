@@ -372,6 +372,14 @@ export async function PATCH(request: Request) {
       }
     }
 
+    // ── Auto-generate invoice on delivery ──
+    if (data.status === "delivered") {
+      try {
+        const { autoGenerateInvoice } = await import('@/lib/invoice-utils');
+        autoGenerateInvoice(id, admin.restaurantId, admin.id, request);
+      } catch { /* invoice generation failed — non-blocking */ }
+    }
+
     // WebSocket: broadcast order status change
     try {
       const { broadcastToType, sendToUser } = await import('@/lib/websocket-server');

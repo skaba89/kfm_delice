@@ -14,9 +14,70 @@ export const RESTO_HOURS = {
 export function isRestaurantOpen(hours?: { open: number; close: number; timezone: string }): boolean {
   const config = hours || RESTO_HOURS;
   const now = new Date();
-  // For simplicity, use UTC hours. For production, use proper timezone conversion.
+  // Use Africa/Conakry timezone (UTC+0, no DST)
   const currentHour = now.getUTCHours();
+  const currentDay = now.getUTCDay(); // 0=Sunday, 1=Monday, ..., 6=Saturday
   return currentHour >= config.open && currentHour < config.close;
+}
+
+/**
+ * Structured weekly hours — each day has open/close or is closed.
+ * Stored as JSON in RestaurantConfig.openingHours.
+ */
+export interface WeeklyHours {
+  monday:    { open: number; close: number; closed: boolean };
+  tuesday:   { open: number; close: number; closed: boolean };
+  wednesday: { open: number; close: number; closed: boolean };
+  thursday:  { open: number; close: number; closed: boolean };
+  friday:    { open: number; close: number; closed: boolean };
+  saturday:  { open: number; close: number; closed: boolean };
+  sunday:    { open: number; close: number; closed: boolean };
+}
+
+export const DEFAULT_WEEKLY_HOURS: WeeklyHours = {
+  monday:    { open: 11, close: 23, closed: false },
+  tuesday:   { open: 11, close: 23, closed: false },
+  wednesday: { open: 11, close: 23, closed: false },
+  thursday:  { open: 11, close: 23, closed: false },
+  friday:    { open: 11, close: 23, closed: false },
+  saturday:  { open: 11, close: 23, closed: false },
+  sunday:    { open: 11, close: 23, closed: false },
+};
+
+export const DAY_NAMES = [
+  { key: 'sunday', label: 'Dimanche' },
+  { key: 'monday', label: 'Lundi' },
+  { key: 'tuesday', label: 'Mardi' },
+  { key: 'wednesday', label: 'Mercredi' },
+  { key: 'thursday', label: 'Jeudi' },
+  { key: 'friday', label: 'Vendredi' },
+  { key: 'saturday', label: 'Samedi' },
+];
+
+/**
+ * Check if restaurant is open based on structured weekly hours.
+ * Uses Africa/Conakry timezone (UTC+0).
+ */
+export function isRestaurantOpenWeekly(weeklyHours: WeeklyHours): boolean {
+  const now = new Date();
+  const currentDay = now.getUTCDay(); // 0=Sunday
+  const currentHour = now.getUTCHours();
+  const dayKey = DAY_NAMES[currentDay].key as keyof WeeklyHours;
+  const dayConfig = weeklyHours[dayKey];
+  if (dayConfig.closed) return false;
+  return currentHour >= dayConfig.open && currentHour < dayConfig.close;
+}
+
+/**
+ * Get today's hours as a readable string.
+ */
+export function getTodayHoursLabel(weeklyHours: WeeklyHours): string {
+  const now = new Date();
+  const currentDay = now.getUTCDay();
+  const dayKey = DAY_NAMES[currentDay].key as keyof WeeklyHours;
+  const dayConfig = weeklyHours[dayKey];
+  if (dayConfig.closed) return "Fermé aujourd'hui";
+  return `${dayConfig.open}h - ${dayConfig.close}h`;
 }
 
 export const RESTO = {
