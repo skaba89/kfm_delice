@@ -32,24 +32,19 @@ export async function DELETE(
     }
 
     // Prevent deleting the last principal restaurant of an account
-    if (restaurant.accountId) {
-      const principalCount = await db.restaurant.count({
+    // (only if the account still has other restaurants)
+    if (restaurant.accountId && restaurant.type === "principal") {
+      const otherRestaurants = await db.restaurant.count({
         where: {
           accountId: restaurant.accountId,
-          type: "principal",
+          id: { not: id },
         },
       });
-      if (principalCount <= 1 && restaurant.type !== "secondary") {
-        // Check if this IS the principal
-        const isPrincipal = await db.restaurant.findFirst({
-          where: { id, type: "principal" },
-        });
-        if (isPrincipal) {
-          return NextResponse.json(
-            { error: "Impossible de supprimer le restaurant principal. Supprimez d'abord les restaurants secondaires, puis le compte." },
-            { status: 400 }
-          );
-        }
+      if (otherRestaurants > 0) {
+        return NextResponse.json(
+          { error: "Supprimez d'abord les restaurants secondaires de ce compte avant de supprimer le restaurant principal." },
+          { status: 400 }
+        );
       }
     }
 
