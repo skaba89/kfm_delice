@@ -189,6 +189,9 @@ if (isServer && !globalForPrisma.schemaFixed) {
       ['Admin', 'canCreateRestaurant', 'BOOLEAN NOT NULL DEFAULT false'],
       ['Admin', 'restaurantCreationLimit', 'INTEGER NOT NULL DEFAULT 0'],
       ['Admin', 'restaurantsCreatedCount', 'INTEGER NOT NULL DEFAULT 0'],
+      // ── Mission 11: Order.tableId + Order.tableNumberStr ──
+      ['Order', 'tableId', 'TEXT'],
+      ['Order', 'tableNumberStr', "TEXT NOT NULL DEFAULT ''"],
     ];
 
     (async () => {
@@ -269,6 +272,45 @@ if (isServer && !globalForPrisma.schemaFixed) {
           )`);
         } catch {}
 
+        // ── Mission 11: Create RestaurantTable table if missing (PostgreSQL) ──
+        try {
+          await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "RestaurantTable" (
+            "id" TEXT NOT NULL,
+            "restaurantId" TEXT NOT NULL,
+            "name" TEXT NOT NULL,
+            "number" TEXT NOT NULL,
+            "capacity" INTEGER NOT NULL DEFAULT 4,
+            "zone" TEXT NOT NULL DEFAULT '',
+            "status" TEXT NOT NULL DEFAULT 'available',
+            "active" BOOLEAN NOT NULL DEFAULT true,
+            "qrToken" TEXT NOT NULL,
+            "qrVersion" INTEGER NOT NULL DEFAULT 1,
+            "qrEnabled" BOOLEAN NOT NULL DEFAULT true,
+            "qrGeneratedAt" TIMESTAMP(3),
+            "lastScannedAt" TIMESTAMP(3),
+            "scanCount" INTEGER NOT NULL DEFAULT 0,
+            "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "updatedAt" TIMESTAMP(3) NOT NULL,
+            CONSTRAINT "RestaurantTable_pkey" PRIMARY KEY ("id")
+          )`);
+          await db.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "RestaurantTable_qrToken_key" ON "RestaurantTable"("qrToken")`);
+          await db.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "RestaurantTable_restaurantId_number_key" ON "RestaurantTable"("restaurantId", "number")`);
+          await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "RestaurantTable_restaurantId_idx" ON "RestaurantTable"("restaurantId")`);
+          await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "RestaurantTable_restaurantId_active_idx" ON "RestaurantTable"("restaurantId", "active")`);
+          // FK (idempotent — wrap in try/catch)
+          try {
+            await db.$executeRawUnsafe(`ALTER TABLE "RestaurantTable" ADD CONSTRAINT "RestaurantTable_restaurantId_fkey" FOREIGN KEY ("restaurantId") REFERENCES "Restaurant"("id") ON DELETE CASCADE`);
+          } catch {}
+          try {
+            await db.$executeRawUnsafe(`ALTER TABLE "Order" ADD CONSTRAINT "Order_tableId_fkey" FOREIGN KEY ("tableId") REFERENCES "RestaurantTable"("id") ON DELETE SET NULL`);
+          } catch {}
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          if (!msg.includes('already exists')) {
+            console.warn(`[db:pg-fix] Could not create RestaurantTable: ${msg}`);
+          }
+        }
+
         console.log('[db:pg-fix] PostgreSQL safety-net schema check complete');
       } catch (outerError) {
         console.error('[db:pg-fix] FATAL error in safety net:', outerError);
@@ -328,13 +370,20 @@ if (isServer && !globalForPrisma.schemaFixed) {
     ['Payment', 'metadata', "TEXT NOT NULL DEFAULT '{}'"],
     ['Payment', 'paidAt', "TEXT NOT NULL DEFAULT ''"],
     ['Payment', 'failedReason', "TEXT NOT NULL DEFAULT ''"],
+    // ── Mission 11: Order.tableId + Order.tableNumberStr (SQLite) ──
+    // Note: 'Order' is a reserved keyword in SQLite — must be quoted.
+    ['Order', 'tableId', 'TEXT'],
+    ['Order', 'tableNumberStr', "TEXT NOT NULL DEFAULT ''"],
   ];
 
   // Run all schema fixes sequentially, then resolve dbReady
   (async () => {
     for (const [table, column, def] of missingColumns) {
       try {
-        await db.$executeRawUnsafe(`ALTER TABLE ${table} ADD COLUMN ${column} ${def}`)
+        // Quote the table name — 'Order' is reserved in SQL.
+        // Other tables (Admin, Customer, etc.) work fine either way.
+        const quotedTable = table === 'Order' ? `"${table}"` : table;
+        await db.$executeRawUnsafe(`ALTER TABLE ${quotedTable} ADD COLUMN ${column} ${def}`)
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         if (!msg.includes('duplicate column') && !msg.includes('already exists') && !msg.includes('no such table')) {
@@ -342,6 +391,37 @@ if (isServer && !globalForPrisma.schemaFixed) {
         }
       }
     }
+
+    // ── Mission 11: Create RestaurantTable table if missing (SQLite) ──
+    try {
+      await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "RestaurantTable" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "restaurantId" TEXT NOT NULL,
+        "name" TEXT NOT NULL,
+        "number" TEXT NOT NULL,
+        "capacity" INTEGER NOT NULL DEFAULT 4,
+        "zone" TEXT NOT NULL DEFAULT '',
+        "status" TEXT NOT NULL DEFAULT 'available',
+        "active" BOOLEAN NOT NULL DEFAULT 1,
+        "qrToken" TEXT NOT NULL,
+        "qrVersion" INTEGER NOT NULL DEFAULT 1,
+        "qrEnabled" BOOLEAN NOT NULL DEFAULT 1,
+        "qrGeneratedAt" DATETIME,
+        "lastScannedAt" DATETIME,
+        "scanCount" INTEGER NOT NULL DEFAULT 0,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`);
+      await db.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "RestaurantTable_qrToken_key" ON "RestaurantTable"("qrToken")`);
+      await db.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "RestaurantTable_restaurantId_number_key" ON "RestaurantTable"("restaurantId", "number")`);
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "RestaurantTable_restaurantId_idx" ON "RestaurantTable"("restaurantId")`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!msg.includes('already exists')) {
+        console.warn(`[db:fix] Could not create RestaurantTable: ${msg}`);
+      }
+    }
+
     console.log('[db:fix] Schema fix complete');
     dbReadyResolve();
   })();

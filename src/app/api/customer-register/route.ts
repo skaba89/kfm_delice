@@ -73,7 +73,7 @@ export async function POST(request: Request) {
         address: address || "",
         loyaltyPoints: 100,
         totalOrders: 0,
-        totalSpent: BigInt(0),
+        totalSpent: 0,
         status: "active",
         restaurantId,
       },

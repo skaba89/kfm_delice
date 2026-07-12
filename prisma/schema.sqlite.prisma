@@ -107,6 +107,41 @@ model Restaurant {
   loyaltyRewards LoyaltyReward[]
   stockItems        StockItem[]
   stockMovements    StockMovement[]
+  restaurantTables  RestaurantTable[]
+}
+
+// ────────────────────────────────────────────────────────────────
+// RestaurantTable — physical tables with QR code token (Mission 11)
+// ────────────────────────────────────────────────────────────────
+model RestaurantTable {
+  id            String     @id @default(cuid())
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  name          String
+  number        String
+  capacity      Int        @default(4)
+  zone          String     @default("")
+  status        String     @default("available") // available, occupied, reserved, cleaning
+  active        Boolean    @default(true)
+
+  // ── QR token fields ──
+  qrToken       String     @unique
+  qrVersion     Int        @default(1)
+  qrEnabled     Boolean    @default(true)
+  qrGeneratedAt DateTime?
+  lastScannedAt DateTime?
+  scanCount     Int        @default(0)
+
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  orders        Order[]
+
+  @@unique([restaurantId, number])
+  @@index([restaurantId])
+  @@index([restaurantId, active])
+  @@index([qrToken])
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -271,6 +306,10 @@ model Order {
   customer      Customer? @relation(fields: [customerId], references: [id])
   driverId      String?
   driver        Driver?  @relation(fields: [driverId], references: [id])
+  // ── Mission 11: table link + snapshot ──
+  tableId       String?
+  table         RestaurantTable? @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  tableNumberStr String   @default("") // snapshot of table.number (string) — survives table renames
   payments      Payment[]
   restaurantId  String
   restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
@@ -282,6 +321,7 @@ model Order {
   @@index([restaurantId, createdAt])
   @@index([driverId])
   @@index([customerId])
+  @@index([tableId])
 }
 
 model Driver {

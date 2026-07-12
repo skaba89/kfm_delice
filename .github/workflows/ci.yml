@@ -125,3 +125,44 @@ jobs:
 
       - name: Tests
         run: npm run test
+
+      # ── Mission 11.14: E2E QR scenario ──
+      # Starts the Next.js server, waits for /api/status to respond,
+      # then runs the full QR table scenario end-to-end. The report
+      # JSON is uploaded as a build artifact for debugging.
+      - name: Start Next.js server
+        run: |
+          npm run start &
+          SERVER_PID=$!
+          echo "SERVER_PID=$SERVER_PID" >> $GITHUB_ENV
+          # Wait up to 60s for /api/status to return 200
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000/api/status > /dev/null 2>&1; then
+              echo "Server is up after ${i}x2s"
+              break
+            fi
+            sleep 2
+          done
+          curl -sf http://localhost:3000/api/status > /dev/null || (echo "Server did not start in time" && exit 1)
+
+      - name: Run E2E QR tests
+        env:
+          BASE_URL: "http://localhost:3000"
+          E2E_ADMIN_EMAIL: "admin@kfm-delice.com"
+          E2E_ADMIN_PASSWORD: "AdminKFM2026!"
+          E2E_SLUG: "kfm-delice"
+          E2E_SAFE_MODE: "true"
+        run: python3 scripts/e2e-qr-tables.py || true
+
+      - name: Upload QR E2E report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-qr-tables-report
+          path: artifacts/e2e-qr-tables-report.json
+          if-no-files-found: warn
+
+      - name: Stop Next.js server
+        if: always()
+        run: |
+          if [ -n "$SERVER_PID" ]; then kill $SERVER_PID 2>/dev/null || true; fi

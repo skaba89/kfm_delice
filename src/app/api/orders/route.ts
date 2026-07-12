@@ -4,7 +4,10 @@ import { authenticateAdmin, authenticateAny, hasRole } from "@/lib/auth";
 import { orderSchema, orderPatchSchema, isValidOrderTransition, ORDER_TRANSITIONS } from "@/lib/validations";
 import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, parseStatusFilter } from "@/lib/pagination";
 import { isRestaurantOpen } from "@/lib/constants";
-import { getRestaurantId } from "@/lib/tenant";
+import { getRestaurantId, extractSlug, resolveTenant } from "@/lib/tenant";
+import { resolveTableQrToken, verifyTableBelongsToRestaurant } from "@/lib/table-qr";
+import { logAudit } from "@/lib/audit";
+import { rateLimit } from "@/lib/rate-limit";
 
 // GET: Admin auth required OR customer auth (customers only see their own orders)
 export async function GET(request: Request) {
@@ -93,11 +96,72 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     await dbReady;
+
+    // ── Mission 11.15: rate-limit public order creation ──
+    // 10 orders/min per IP — generous enough for a family ordering in
+    // multiple rounds, blocks abuse/spam.
+    const clientIp =
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      request.headers.get("x-real-ip") ||
+      "unknown";
+    const { allowed } = await rateLimit(`order-create:${clientIp}`, 10, 60_000);
+    if (!allowed) {
+      return NextResponse.json(
+        { error: "Trop de commandes. Réessayez dans une minute." },
+        { status: 429 }
+      );
+    }
+
     const body = await request.json();
     const validation = orderSchema.safeParse(body);
     if (!validation.success) {
       const firstError = validation.error.issues[0]?.message || "Données invalides";
       return NextResponse.json({ error: firstError }, { status: 400 });
+    }
+
+    // ── Mission 11.15: idempotency key (prevents double-submit) ──
+    // Client may send an `idempotencyKey` header or body field. If the
+    // same key was used in the last 10 minutes, return the existing
+    // order instead of creating a duplicate.
+    const idempotencyKey =
+      request.headers.get("x-idempotency-key") ||
+      (body as { idempotencyKey?: string }).idempotencyKey;
+    if (idempotencyKey && typeof idempotencyKey === "string") {
+      const existing = await db.order.findFirst({
+        where: {
+          // Use the note field to store the idempotency key as a prefix
+          // (avoids a new column — backwards compatible).
+          note: { startsWith: `[idem:${idempotencyKey}]` },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      });
+      if (existing) {
+        return NextResponse.json(bigIntToNumber(existing), { status: 200 });
+      }
+    }
+
+    // ── Mission 11.15: cart size limits (anti-abuse) ──
+    let orderedItems: { name: string; price: number; qty?: number; quantity?: number; note?: string }[] = [];
+    try {
+      orderedItems = JSON.parse(body.items || "[]");
+    } catch {
+      return NextResponse.json({ error: "Panier invalide" }, { status: 400 });
+    }
+    if (!Array.isArray(orderedItems) || orderedItems.length === 0) {
+      return NextResponse.json({ error: "Panier vide" }, { status: 400 });
+    }
+    if (orderedItems.length > 50) {
+      return NextResponse.json({ error: "Trop d'articles (max 50)" }, { status: 400 });
+    }
+    for (const item of orderedItems) {
+      const q = item.qty ?? item.quantity ?? 1;
+      if (q > 99) {
+        return NextResponse.json(
+          { error: `Quantité maximale par article dépassée (99). Article: ${item.name}` },
+          { status: 400 }
+        );
+      }
     }
 
     // Check if restaurant is open (for dine-in and takeaway, not delivery which can be pre-ordered)
@@ -108,12 +172,64 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Le restaurant est actuellement fermé. Nos heures d\'ouverture sont de 11h à 23h.' }, { status: 400 });
     }
 
-    const restaurantId = await getRestaurantId(request);
+    // ── Mission 11.7: resolve restaurant from QR token if provided ──
+    // If the body contains `tableQrToken`, the server resolves the
+    // restaurant + table from the token — NEVER from the client.
+    // The client-supplied tenant slug (x-restaurant-slug header) must
+    // match the restaurant resolved from the token, otherwise 400.
+    let restaurantId: string | null = null;
+    let tableId: string | null = null;
+    let tableNumberStr = "";
+
+    const tableQrToken = (body as { tableQrToken?: string }).tableQrToken;
+    if (tableQrToken && typeof tableQrToken === "string" && tableQrToken.length > 0) {
+      const resolved = await resolveTableQrToken(tableQrToken, { trackScan: false });
+      if (!resolved) {
+        return NextResponse.json(
+          { error: "QR code de table invalide ou désactivé", code: "QR_INVALID" },
+          { status: 400 }
+        );
+      }
+
+      // Cross-check: if the request has an x-restaurant-slug header,
+      // it MUST match the resolved restaurant slug. Otherwise reject.
+      const headerSlug = extractSlug(request);
+      if (headerSlug && headerSlug !== resolved.restaurantSlug) {
+        return NextResponse.json(
+          { error: "Invalid restaurant/table context", code: "TENANT_MISMATCH" },
+          { status: 400 }
+        );
+      }
+
+      // Force orderType to dine_in for table orders
+      if (body.orderType && body.orderType !== "dine_in") {
+        return NextResponse.json(
+          { error: "Une commande depuis une table doit être de type 'sur place' (dine_in)", code: "ORDER_TYPE_MISMATCH" },
+          { status: 400 }
+        );
+      }
+
+      restaurantId = resolved.restaurantId;
+      tableId = resolved.tableId;
+      tableNumberStr = resolved.tableNumber;
+      body.orderType = "dine_in";
+    } else {
+      // No QR token — use the normal tenant resolution flow.
+      restaurantId = await getRestaurantId(request);
+    }
+
     if (!restaurantId) return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
 
+    // Defense-in-depth: if both a tableId and a restaurantId are present,
+    // verify the table belongs to the resolved restaurant.
+    if (tableId && !(await verifyTableBelongsToRestaurant(tableId, restaurantId))) {
+      return NextResponse.json(
+        { error: "Cette table n'appartient pas à ce restaurant", code: "TABLE_TENANT_MISMATCH" },
+        { status: 400 }
+      );
+    }
+
     // Server-side price verification
-    // Accept both `qty` and `quantity` for backward compatibility
-    const orderedItems = JSON.parse(body.items || "[]") as { name: string; price: number; qty?: number; quantity?: number; note?: string }[];
     const menuItemsFromDB = await db.menuItem.findMany({ where: { available: true, restaurantId } });
 
     let recalculatedTotal = 0;
@@ -122,9 +238,6 @@ export async function POST(request: Request) {
       const dbItem = menuItemsFromDB.find(m => m.name === item.name);
       if (dbItem) {
         // Use the DB price, not the client-sent price.
-        // Number() wraps BigInt (PostgreSQL) and is a no-op for number (SQLite).
-        // Critical: items are JSON.stringify'd below — BigInt is NOT JSON-serializable
-        // so we MUST convert to Number here, otherwise JSON.stringify throws.
         recalculatedTotal += Number(dbItem.price) * itemQty;
         return { ...item, qty: itemQty, price: Number(dbItem.price) };
       }
@@ -154,6 +267,15 @@ export async function POST(request: Request) {
       }
     } catch { /* not authenticated – walk-in order */ }
 
+    // ── Build the note with optional idempotency marker ──
+    const userNote = typeof body.note === "string" ? body.note : "";
+    const noteParts: string[] = [];
+    if (idempotencyKey && typeof idempotencyKey === "string") {
+      noteParts.push(`[idem:${idempotencyKey}]`);
+    }
+    if (userNote) noteParts.push(userNote);
+    const finalNote = noteParts.join(" ");
+
     const order = await db.order.create({
       data: {
         ...validation.data,
@@ -161,14 +283,41 @@ export async function POST(request: Request) {
         total: verifiedTotal,
         restaurantId,
         ...(customerId && { customerId }),
+        ...(tableId && { tableId }),
+        ...(tableNumberStr && { tableNumberStr }),
+        orderType: body.orderType || "dine_in",
+        note: finalNote,
+        // For dine_in QR orders, also set the legacy tableNumber Int field
+        // (best-effort parse) so older admin dashboards still show it.
+        ...(tableNumberStr && /^\d+$/.test(tableNumberStr) && {
+          tableNumber: parseInt(tableNumberStr, 10),
+        }),
       },
     });
+
+    // Audit table-order creation
+    if (tableId) {
+      await logAudit({
+        actorId: customerId || "anonymous",
+        actorType: customerId ? "customer" : "public",
+        action: "table_order_create",
+        entityType: "Order",
+        entityId: order.id,
+        restaurantId,
+        after: { tableId, tableNumberStr, orderId: order.id },
+        request,
+      }).catch(() => {});
+    }
 
     // WebSocket: notify admin of new order
     try {
       const { broadcastToType } = await import('@/lib/websocket-server');
       const { WSEvents } = await import('@/lib/ws-events');
-      broadcastToType('admin', WSEvents.ORDER_NEW, { orderId: order.id, customerName: order.customerName, orderType: order.orderType, status: order.status });
+      broadcastToType('admin', WSEvents.ORDER_NEW, { orderId: order.id, customerName: order.customerName, orderType: order.orderType, status: order.status, tableNumberStr });
+      // Mission 11.16: dedicated event for table orders
+      if (tableId) {
+        broadcastToType('admin', 'TABLE_ORDER_NEW', { restaurantId, orderId: order.id, tableNumber: tableNumberStr });
+      }
     } catch (e) { /* WS not available, fall back to polling */ }
 
     // Email notification to restaurant admins (non-blocking)

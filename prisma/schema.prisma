@@ -71,6 +71,7 @@ model Restaurant {
   minDelivery   Int      @default(15000)
   deliveryZones String   @default("Conakry:Kaloum:Dixinn:Matam:Matoto")
   deliveryRadiusKm Int @default(10)
+  loyaltyPointsRate Int @default(1)
   lat           Float    @default(9.5092)
   lng           Float    @default(-13.7122)
   plan          String   @default("free")
@@ -106,6 +107,41 @@ model Restaurant {
   loyaltyRewards LoyaltyReward[]
   stockItems        StockItem[]
   stockMovements    StockMovement[]
+  restaurantTables  RestaurantTable[]
+}
+
+// ────────────────────────────────────────────────────────────────
+// RestaurantTable — physical tables with QR code token (Mission 11)
+// ────────────────────────────────────────────────────────────────
+model RestaurantTable {
+  id            String     @id @default(cuid())
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  name          String
+  number        String
+  capacity      Int        @default(4)
+  zone          String     @default("")
+  status        String     @default("available") // available, occupied, reserved, cleaning
+  active        Boolean    @default(true)
+
+  // ── QR token fields ──
+  qrToken       String     @unique
+  qrVersion     Int        @default(1)
+  qrEnabled     Boolean    @default(true)
+  qrGeneratedAt DateTime?
+  lastScannedAt DateTime?
+  scanCount     Int        @default(0)
+
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  orders        Order[]
+
+  @@unique([restaurantId, number])
+  @@index([restaurantId])
+  @@index([restaurantId, active])
+  @@index([qrToken])
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -149,6 +185,8 @@ model Admin {
   role              String   @default("admin")
   status            String   @default("active")
   mustChangePassword Boolean @default(false)
+  loginAttempts     Int      @default(0)
+  lockedUntil       DateTime?
   restaurantId      String
   restaurant        Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   // ── SaaS Account fields ──
@@ -177,7 +215,9 @@ model Customer {
   totalOrders       Int      @default(0)
   totalSpent        Int      @default(0)
   status            String   @default("active") // active, inactive
-  mustChangePassword Boolean @default(false) // force password change on first login
+  mustChangePassword Boolean @default(false)
+  loginAttempts     Int      @default(0)
+  lockedUntil       DateTime? // force password change on first login
   restaurantId      String
   restaurant        Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   createdAt         DateTime   @default(now())
@@ -202,6 +242,8 @@ model MenuItem {
   popular      Boolean  @default(false)
   available    Boolean  @default(true)
   order        Int      @default(0)
+  stockItemId  String?
+  stockItem    StockItem? @relation("MenuItemStock", fields: [stockItemId], references: [id], onDelete: SetNull)
   restaurantId String
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   createdAt    DateTime   @default(now())
@@ -209,6 +251,7 @@ model MenuItem {
 
   @@index([restaurantId, category])
   @@index([restaurantId, available])
+  @@index([stockItemId])
 }
 
 model Reservation {
@@ -263,6 +306,10 @@ model Order {
   customer      Customer? @relation(fields: [customerId], references: [id])
   driverId      String?
   driver        Driver?  @relation(fields: [driverId], references: [id])
+  // ── Mission 11: table link + snapshot ──
+  tableId       String?
+  table         RestaurantTable? @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  tableNumberStr String   @default("") // snapshot of table.number (string) — survives table renames
   payments      Payment[]
   restaurantId  String
   restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
@@ -274,6 +321,7 @@ model Order {
   @@index([restaurantId, createdAt])
   @@index([driverId])
   @@index([customerId])
+  @@index([tableId])
 }
 
 model Driver {
@@ -291,7 +339,9 @@ model Driver {
   lng               Float    @default(0) // current longitude
   lastLocationUpdate DateTime @default(now()) // last GPS update
   currentOrderId    String   @default("") // current active order
-  mustChangePassword Boolean @default(false) // force password change on first login
+  mustChangePassword Boolean @default(false)
+  loginAttempts     Int      @default(0)
+  lockedUntil       DateTime? // force password change on first login
   // Driver earnings fields — same as PostgreSQL schema (Int on SQLite
   // is sufficient for dev DB; production uses BigInt)
   commissionRate    Float    @default(10)
@@ -485,6 +535,7 @@ model StockItem {
   notes         String   @default("")
   restaurantId  String
   restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  menuItems     MenuItem[] @relation("MenuItemStock")
   movements     StockMovement[]
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt

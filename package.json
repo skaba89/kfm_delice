@@ -26,7 +26,8 @@
     "schema:status": "bash scripts/switch-schema.sh status",
     "schema:sqlite": "bash scripts/switch-schema.sh sqlite",
     "schema:postgres": "bash scripts/switch-schema.sh postgres",
-    "e2e:live": "python3 scripts/e2e-live.py"
+    "e2e:live": "python3 scripts/e2e-live.py",
+    "e2e:qr": "python3 scripts/e2e-qr-tables.py"
   },
   "dependencies": {
     "@prisma/client": "6.19.2",

@@ -62,6 +62,12 @@ function CheckoutContent() {
     if (storedType) setOrderType(storedType as "delivery" | "takeaway" | "dine_in");
   }, [router]);
 
+  // ── Mission 11.7: pull table QR token from sessionStorage if set ──
+  // The MenuSection component sets this when the customer came via a QR scan.
+  const tableQrToken = typeof window !== "undefined"
+    ? sessionStorage.getItem("kfm-checkout-table-token") || ""
+    : "";
+
   const loyaltyPoints = Math.floor(cartTotal / 1000);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -75,6 +81,14 @@ function CheckoutContent() {
         qty: item.qty,
       }));
 
+      // ── Mission 11.15: idempotency key ──
+      // Prevents accidental double-submit (e.g. network glitch + retry).
+      // The backend looks up this key in the order.note field.
+      const idempotencyKey =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
       const body = {
         items: JSON.stringify(orderItems),
         total: cartTotal,
@@ -84,10 +98,18 @@ function CheckoutContent() {
         paymentMethod,
         ...(orderType === "delivery" && { deliveryAddress }),
         ...(orderType === "dine_in" && { tableNumber }),
+        // Attach the table QR token so the backend resolves the real
+        // restaurant/table. The backend NEVER trusts client-sent
+        // restaurantId — it always re-resolves from the token.
+        ...(tableQrToken && { tableQrToken }),
+        idempotencyKey,
       };
 
       const res = await publicApiFetch("/api/orders", {
         method: "POST",
+        headers: {
+          "x-idempotency-key": idempotencyKey,
+        },
         body: JSON.stringify(body),
       });
 
@@ -108,10 +130,11 @@ function CheckoutContent() {
         } catch { /* non-blocking */ }
       }
 
-      // Clear cart
+      // Clear cart + table context
       sessionStorage.removeItem("kfm-cart");
       sessionStorage.removeItem("kfm-cart-total");
       sessionStorage.removeItem("kfm-order-type");
+      sessionStorage.removeItem("kfm-checkout-table-token");
 
       setSuccess({ orderId: data.id, points: loyaltyPoints });
       toast.success("Commande passée avec succès !");

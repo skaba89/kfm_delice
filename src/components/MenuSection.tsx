@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Star, RefreshCw, ShoppingCart, Plus, Minus, X, CreditCard, Utensils, Bike, ShoppingBag, User } from "lucide-react";
+import { Star, RefreshCw, ShoppingCart, Plus, Minus, X, CreditCard, Utensils, Bike, ShoppingBag, User, MapPin } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,14 @@ interface CartItem extends MenuItemDB {
   qty: number;
 }
 
+interface TableContext {
+  token: string;
+  publicId: string;
+  number: string;
+  name: string;
+  zone: string;
+}
+
 export function MenuSection() {
   const router = useRouter();
   const { customer } = useAuth();
@@ -26,9 +34,64 @@ export function MenuSection() {
   const [loadError, setLoadError] = useState(false);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [showCart, setShowCart] = useState(false);
+  const [tableContext, setTableContext] = useState<TableContext | null>(null);
+
+  // ── Resolve table context from URL query OR sessionStorage ──
+  // The /q/[token] page saves the resolved context to sessionStorage
+  // then redirects to /menu?restaurant=<slug>&tableToken=<token>.
+  // We read window.location.search directly (instead of useSearchParams)
+  // so this component does NOT force a Suspense boundary on every page
+  // that renders <MenuSection /> (Next.js 16 requirement).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const sp = new URLSearchParams(window.location.search);
+    const urlToken = sp.get("tableToken");
+    const urlSlug = sp.get("restaurant");
+
+    // If a slug is present, store it so subsequent API calls attach
+    // the x-restaurant-slug header (multi-tenant isolation).
+    if (urlSlug) {
+      try { sessionStorage.setItem("kfm-restaurant-slug", urlSlug); } catch {}
+    }
+
+    let ctx: TableContext | null = null;
+    if (urlToken) {
+      try {
+        const stored = sessionStorage.getItem("kfm-table-token");
+        if (stored === urlToken) {
+          ctx = {
+            token: urlToken,
+            publicId: sessionStorage.getItem("kfm-table-public-id") || urlToken,
+            number: sessionStorage.getItem("kfm-table-number") || "",
+            name: sessionStorage.getItem("kfm-table-name") || "",
+            zone: sessionStorage.getItem("kfm-table-zone") || "",
+          };
+        } else {
+          // URL has a token but sessionStorage was cleared — minimal context.
+          // The /api/orders route will re-resolve the token server-side.
+          ctx = { token: urlToken, publicId: urlToken, number: "", name: "", zone: "" };
+        }
+      } catch {
+        ctx = { token: urlToken, publicId: urlToken, number: "", name: "", zone: "" };
+      }
+    }
+    setTableContext(ctx);
+  }, []);
 
   useEffect(() => {
-    publicApiFetch("/api/menu?limit=1000")
+    // Pick up the slug from query or sessionStorage for the API call.
+    const slugFromUrl = (() => {
+      if (typeof window === "undefined") return "";
+      return new URLSearchParams(window.location.search).get("restaurant") || "";
+    })();
+    const slug =
+      slugFromUrl ||
+      (() => { try { return sessionStorage.getItem("kfm-restaurant-slug") || ""; } catch { return ""; } })();
+
+    const headers: Record<string, string> = {};
+    if (slug) headers["x-restaurant-slug"] = slug;
+
+    publicApiFetch("/api/menu?limit=1000", { headers })
       .then(r => r.ok ? r.json() : Promise.reject(new Error("menu " + r.status)))
       .then(d => Array.isArray(d) ? d : (d.data || []))
       .catch(() => { setLoadError(true); return []; })
@@ -57,6 +120,16 @@ export function MenuSection() {
     sessionStorage.setItem("kfm-cart", JSON.stringify(cart));
     sessionStorage.setItem("kfm-cart-total", String(cartTotal));
     sessionStorage.setItem("kfm-order-type", orderType);
+    // If a table QR context is active, force orderType to dine_in and
+    // pass the table token along to checkout. The checkout page will
+    // include the token in the POST /api/orders body so the backend
+    // can resolve the real restaurant/table (server-authoritative).
+    if (tableContext) {
+      sessionStorage.setItem("kfm-order-type", "dine_in");
+      sessionStorage.setItem("kfm-checkout-table-token", tableContext.token);
+    } else {
+      sessionStorage.removeItem("kfm-checkout-table-token");
+    }
 
     // If not logged in, redirect to login with return URL
     if (!customer) {
@@ -78,6 +151,27 @@ export function MenuSection() {
             Des plats préparés avec passion, des ingrédients frais et un savoir-faire guinéen authentique
           </p>
         </AnimatedSection>
+
+        {/* Table context banner (Mission 11) */}
+        {tableContext && (tableContext.number || tableContext.name) && (
+          <div className="mb-8 max-w-2xl mx-auto">
+            <div className="flex items-center gap-3 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-xl px-4 py-3">
+              <div className="w-9 h-9 rounded-full bg-orange-500 text-white flex items-center justify-center flex-shrink-0">
+                <MapPin className="w-4 h-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-orange-700 dark:text-orange-400">
+                  Commande à la table
+                  {tableContext.number ? ` ${tableContext.number}` : ""}
+                </p>
+                <p className="text-xs text-orange-600/80 dark:text-orange-500/70 truncate">
+                  {tableContext.name || "Table"}{tableContext.zone ? ` · ${tableContext.zone}` : ""}
+                  {" — le numéro de table sera automatiquement transmis au restaurant"}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Categories */}
         <div className="flex justify-center gap-2 sm:gap-4 mb-10 flex-wrap">
