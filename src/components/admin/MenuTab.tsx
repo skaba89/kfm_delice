@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Star, UtensilsCrossed, Upload } from "lucide-react";
-import { useState } from "react";
 import type { MenuItemDB } from "@/lib/types";
 import { MENU_CATS, formatPrice } from "@/lib/constants";
 import { usePagination } from "@/lib/use-pagination";
