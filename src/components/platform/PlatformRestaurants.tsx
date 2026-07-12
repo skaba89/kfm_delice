@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { UtensilsCrossed, Search, RefreshCw, Ban, CheckCircle2, Eye, Plus, Building2 } from "lucide-react";
+import { UtensilsCrossed, Search, RefreshCw, Ban, CheckCircle2, Eye, Plus, Building2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -50,6 +50,31 @@ export function PlatformRestaurants({ token }: { token: string }) {
     adminPassword: "",
   });
   const [createLoading, setCreateLoading] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<RestaurantData | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
+  const handleDeleteRestaurant = async () => {
+    if (!deleteTarget) return;
+    setDeleteLoading(true);
+    try {
+      const res = await fetch(`/api/platform/restaurants/${deleteTarget.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Erreur lors de la suppression");
+        return;
+      }
+      toast.success(`Restaurant "${deleteTarget.name}" supprimé`);
+      setDeleteTarget(null);
+      fetchRestaurants();
+    } catch {
+      toast.error("Erreur de connexion");
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
 
   const handleCreateRestaurant = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -344,6 +369,15 @@ export function PlatformRestaurants({ token }: { token: string }) {
                               <CheckCircle2 className="w-4 h-4" />
                             </Button>
                           )}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setDeleteTarget(r)}
+                            className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                            title="Supprimer"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
                         </div>
                       </td>
                     </tr>
@@ -486,6 +520,42 @@ export function PlatformRestaurants({ token }: { token: string }) {
                 </Button>
               </div>
             </form>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {deleteTarget && (
+        <Dialog open onOpenChange={() => setDeleteTarget(null)}>
+          <DialogContent className="bg-gray-900 border-white/10 text-white max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="text-white flex items-center gap-2">
+                <Trash2 className="w-5 h-5 text-red-500" />
+                Supprimer le restaurant
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <p className="text-sm text-gray-300">
+                Êtes-vous sûr de vouloir supprimer <strong className="text-white">{deleteTarget.name}</strong> ?
+              </p>
+              <p className="text-xs text-red-400">
+                ⚠️ Toutes les données seront supprimées : commandes, clients, menu, réservations, factures, personnel.
+                Cette action est irréversible.
+              </p>
+              <div className="flex gap-2 pt-2">
+                <Button variant="ghost" onClick={() => setDeleteTarget(null)} className="flex-1 text-gray-400">
+                  Annuler
+                </Button>
+                <Button
+                  onClick={handleDeleteRestaurant}
+                  disabled={deleteLoading}
+                  className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+                >
+                  {deleteLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4 mr-2" />}
+                  Supprimer définitivement
+                </Button>
+              </div>
+            </div>
           </DialogContent>
         </Dialog>
       )}
