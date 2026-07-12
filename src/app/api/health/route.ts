@@ -55,12 +55,12 @@ export async function GET(request: Request) {
 
   // 4. Migration status
   try {
-    const pendingMigrations = await db.$queryRawUnsafe(
+    const pendingMigrations = await db.$queryRawUnsafe<Array<{ count: number }>>(
       `SELECT COUNT(*)::int as count FROM "_prisma_migrations" WHERE "finished_at" IS NULL`
     ).catch(() => [{ count: -1 }]);
     checks.migrations = {
-      pending: pendingMigrations[0]?.count ?? 'unknown',
-      status: pendingMigrations[0]?.count === 0 ? 'ok' : 'unknown',
+      pending: pendingMigrations[0]?.count ?? -1,
+      status: (pendingMigrations[0]?.count ?? -1) === 0 ? 'ok' : 'unknown',
     };
   } catch {
     checks.migrations = { status: 'unknown' };
