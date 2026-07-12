@@ -1,6 +1,4 @@
-# KFM Delice — CI pipeline
-# SQLite (default) + PostgreSQL (optional) jobs
-# Stages: lint → typecheck → build → unit tests → e2e preflight
+# KFM Delice — CI pipeline (BLOCKING — all steps must pass)
 name: CI
 
 on:
@@ -22,15 +20,15 @@ env:
   VAPID_PRIVATE_KEY: "ci-test-private-key"
   VAPID_SUBJECT: "mailto:ci@example.com"
   NODE_ENV: "test"
+  NEXT_TELEMETRY_DISABLED: "1"
   API_RATE_LIMIT: "1000"
   AUTH_RATE_LIMIT: "1000"
-  NEXT_TELEMETRY_DISABLED: "1"
 
 jobs:
   # ─────────────────────────────────────────────────────────────
-  # Job 1: SQLite — lint, typecheck, build, test
+  # Job 1: SQLite — typecheck, lint, build, test (BLOCKING)
   # ─────────────────────────────────────────────────────────────
-  sqlite-build-test:
+  sqlite-check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -58,9 +56,11 @@ jobs:
       - name: Prisma generate
         run: npx prisma generate
 
+      - name: Typecheck
+        run: npx tsc --noEmit --skipLibCheck
+
       - name: Lint
         run: npm run lint
-        continue-on-error: true  # pre-existing lint errors don't block CI
 
       - name: Build
         run: npm run build
@@ -69,12 +69,11 @@ jobs:
         run: npm run test
 
   # ─────────────────────────────────────────────────────────────
-  # Job 2: PostgreSQL — build + test against real Postgres
+  # Job 2: PostgreSQL — migrate + build + test (BLOCKING)
   # ─────────────────────────────────────────────────────────────
-  postgres-build-test:
+  postgres-check:
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    continue-on-error: true  # optional job — don't block PR on Postgres-only issues
 
     services:
       postgres:
@@ -94,7 +93,7 @@ jobs:
       NODE_ENV: production
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/kfm_test?schema=public
       ALLOW_AUTO_SEED: "true"
-      ALLOW_PRISMA_DB_PUSH_FALLBACK: "true"
+      ALLOW_PRISMA_DB_PUSH_FALLBACK: "false"
 
     steps:
       - name: Checkout
@@ -118,12 +117,8 @@ jobs:
       - name: Prisma generate
         run: npx prisma generate
 
-      - name: Prisma migrate deploy
-        # TEMPORARY until migrations are fully clean — fallback to db push
-        # if migrate deploy fails (e.g. migration history mismatch in CI).
-        # Never use --accept-data-loss.
-        run: |
-          npx prisma migrate deploy || npx prisma db push --skip-generate
+      - name: Prisma migrate deploy (NO fallback — strict)
+        run: npx prisma migrate deploy
 
       - name: Build
         run: npm run build

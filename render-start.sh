@@ -100,8 +100,11 @@ if [ "$PROVIDER" = "postgres" ]; then
     fi
   fi
 
-  echo "[render-start] Running ensure-postgres-columns safety check..."
-  node scripts/ensure-postgres-columns.cjs 2>&1 || echo "[render-start] ensure-columns warning, continuing..."
+  # Run safety net ONLY in demo/staging (not production)
+  if [ "$APP_MODE" != "production" ]; then
+    echo "[render-start] Running ensure-postgres-columns safety check (demo/staging only)..."
+    node scripts/ensure-postgres-columns.cjs 2>&1 || echo "[render-start] ensure-columns warning, continuing..."
+  fi
 else
   echo "[render-start] Pushing SQLite schema..."
   node_modules/.bin/prisma db push --skip-generate 2>&1 || echo "[render-start] prisma db push warning"
