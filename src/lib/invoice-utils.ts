@@ -106,7 +106,6 @@ export async function autoGenerateInvoice(
         tax: tax as any,
         total: total as any,
         status: order.paymentStatus === 'paid' ? 'paid' : 'pending',
-        issueDate: new Date().toISOString().slice(0, 10),
         dueDate: new Date().toISOString().slice(0, 10),
         notes: `Facture auto-générée — Commande #${orderId.slice(-8).toUpperCase()}`,
         orderId: orderId,
