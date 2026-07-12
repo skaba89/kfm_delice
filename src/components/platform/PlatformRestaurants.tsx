@@ -6,9 +6,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { UtensilsCrossed, Search, RefreshCw, Ban, CheckCircle2, Eye } from "lucide-react";
+import { UtensilsCrossed, Search, RefreshCw, Ban, CheckCircle2, Eye, Plus, Building2 } from "lucide-react";
 import { toast } from "sonner";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 
 interface RestaurantData {
   id: string;
@@ -36,6 +37,44 @@ export function PlatformRestaurants({ token }: { token: string }) {
   const [planFilter, setPlanFilter] = useState("all");
   const [viewing, setViewing] = useState<RestaurantData | null>(null);
   const [updating, setUpdating] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    restaurantName: "",
+    slug: "",
+    phone: "",
+    email: "",
+    address: "",
+    plan: "pro",
+    adminName: "",
+    adminEmail: "",
+    adminPassword: "",
+  });
+  const [createLoading, setCreateLoading] = useState(false);
+
+  const handleCreateRestaurant = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreateLoading(true);
+    try {
+      const res = await fetch("/api/platform/restaurants/main", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(createForm),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Erreur lors de la création");
+        return;
+      }
+      toast.success(`Restaurant "${createForm.restaurantName}" créé avec son administrateur`);
+      setCreateForm({ restaurantName: "", slug: "", phone: "", email: "", address: "", plan: "pro", adminName: "", adminEmail: "", adminPassword: "" });
+      setShowCreate(false);
+      fetchRestaurants();
+    } catch {
+      toast.error("Erreur de connexion");
+    } finally {
+      setCreateLoading(false);
+    }
+  };
 
   const fetchRestaurants = useCallback(async () => {
     setLoading(true);
@@ -190,6 +229,12 @@ export function PlatformRestaurants({ token }: { token: string }) {
             <SelectItem value="enterprise">Enterprise</SelectItem>
           </SelectContent>
         </Select>
+        <Button
+          onClick={() => setShowCreate(true)}
+          className="bg-gradient-to-r from-orange-500 to-red-600 hover:from-orange-600 hover:to-red-700 text-white rounded-xl"
+        >
+          <Plus className="w-4 h-4 mr-2" /> Nouveau restaurant
+        </Button>
         <Button variant="ghost" size="icon" onClick={fetchRestaurants} className="text-gray-400 hover:text-white">
           <RefreshCw className="w-4 h-4" />
         </Button>
@@ -359,6 +404,88 @@ export function PlatformRestaurants({ token }: { token: string }) {
                 </div>
               </div>
             </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Create Restaurant Dialog */}
+      {showCreate && (
+        <Dialog open onOpenChange={() => setShowCreate(false)}>
+          <DialogContent className="bg-gray-900 border-white/10 text-white max-w-lg max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="text-white flex items-center gap-2">
+                <Building2 className="w-5 h-5 text-orange-500" />
+                Créer un restaurant + administrateur
+              </DialogTitle>
+            </DialogHeader>
+            <form onSubmit={handleCreateRestaurant} className="space-y-4">
+              <div className="p-3 bg-orange-500/10 border border-orange-500/30 rounded-lg">
+                <p className="text-xs text-orange-400 font-medium">Informations Restaurant</p>
+              </div>
+              <div>
+                <Label className="text-gray-300">Nom du restaurant *</Label>
+                <Input required value={createForm.restaurantName} onChange={e => setCreateForm({ ...createForm, restaurantName: e.target.value })} placeholder="Ex: Le Baobab" className="bg-gray-800 border-white/10 text-white mt-1" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-gray-300">Slug (optionnel)</Label>
+                  <Input value={createForm.slug} onChange={e => setCreateForm({ ...createForm, slug: e.target.value })} placeholder="le-baobab" className="bg-gray-800 border-white/10 text-white mt-1" />
+                </div>
+                <div>
+                  <Label className="text-gray-300">Plan</Label>
+                  <Select value={createForm.plan} onValueChange={v => setCreateForm({ ...createForm, plan: v })}>
+                    <SelectTrigger className="bg-gray-800 border-white/10 text-white mt-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-gray-900 border-white/10">
+                      <SelectItem value="free">Free</SelectItem>
+                      <SelectItem value="starter">Starter</SelectItem>
+                      <SelectItem value="pro">Pro</SelectItem>
+                      <SelectItem value="enterprise">Enterprise</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-gray-300">Téléphone</Label>
+                  <Input value={createForm.phone} onChange={e => setCreateForm({ ...createForm, phone: e.target.value })} placeholder="+224 ..." className="bg-gray-800 border-white/10 text-white mt-1" />
+                </div>
+                <div>
+                  <Label className="text-gray-300">Email</Label>
+                  <Input type="email" value={createForm.email} onChange={e => setCreateForm({ ...createForm, email: e.target.value })} placeholder="contact@..." className="bg-gray-800 border-white/10 text-white mt-1" />
+                </div>
+              </div>
+              <div>
+                <Label className="text-gray-300">Adresse</Label>
+                <Input value={createForm.address} onChange={e => setCreateForm({ ...createForm, address: e.target.value })} placeholder="Conakry, Guinée" className="bg-gray-800 border-white/10 text-white mt-1" />
+              </div>
+
+              <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                <p className="text-xs text-blue-400 font-medium">Administrateur du restaurant</p>
+                <p className="text-xs text-gray-400 mt-1">Cet utilisateur pourra se connecter au dashboard et créer d'autres utilisateurs (managers, staff, caissiers...)</p>
+              </div>
+              <div>
+                <Label className="text-gray-300">Nom de l'admin *</Label>
+                <Input required value={createForm.adminName} onChange={e => setCreateForm({ ...createForm, adminName: e.target.value })} placeholder="Nom complet" className="bg-gray-800 border-white/10 text-white mt-1" />
+              </div>
+              <div>
+                <Label className="text-gray-300">Email admin *</Label>
+                <Input required type="email" value={createForm.adminEmail} onChange={e => setCreateForm({ ...createForm, adminEmail: e.target.value })} placeholder="admin@restaurant.com" className="bg-gray-800 border-white/10 text-white mt-1" />
+              </div>
+              <div>
+                <Label className="text-gray-300">Mot de passe admin * (min 6 caractères)</Label>
+                <Input required type="password" minLength={6} value={createForm.adminPassword} onChange={e => setCreateForm({ ...createForm, adminPassword: e.target.value })} placeholder="••••••••" className="bg-gray-800 border-white/10 text-white mt-1" />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4">
+                <Button type="button" variant="ghost" onClick={() => setShowCreate(false)} className="text-gray-400">Annuler</Button>
+                <Button type="submit" disabled={createLoading} className="bg-gradient-to-r from-orange-500 to-red-600 text-white">
+                  {createLoading ? <RefreshCw className="w-4 h-4 animate-spin mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
+                  Créer le restaurant
+                </Button>
+              </div>
+            </form>
           </DialogContent>
         </Dialog>
       )}
