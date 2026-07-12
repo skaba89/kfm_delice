@@ -100,9 +100,8 @@ export async function autoGenerateInvoice(
       data: {
         number: invoiceNumber,
         customerName: order.customerName || 'Client',
-        customerEmail: '',
         customerPhone: order.phone || '',
-        items: JSON.stringify(items),
+        items: JSON.stringify(items) as any,
         subtotal: subtotal as any,
         tax: tax as any,
         total: total as any,
