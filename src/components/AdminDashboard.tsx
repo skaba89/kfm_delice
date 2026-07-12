@@ -40,7 +40,7 @@ type ExpenseForm = { description: string; amount: number; category: string; date
 type CustomerForm = { name: string; email: string; phone: string; address: string; status: string };
 type InvoiceForm = { number: string; customerName: string; customerPhone: string; items: string; subtotal: number; tax: number; total: number; status: string; dueDate: string; notes: string };
 type QuoteForm = { number: string; customerName: string; customerPhone: string; items: string; subtotal: number; discount: number; total: number; status: string; validUntil: string; notes: string };
-type MenuForm = { name: string; description: string; price: number; category: string; image: string; badge: string; popular: boolean; available: boolean };
+type MenuForm = { name: string; description: string; price: number; category: string; image: string; badge: string; popular: boolean; available: boolean; stockItemId: string };
 
 // ─── CRUD configurations (replace 7 individual hooks) ───────────
 const driverConfig: CrudConfig<DriverDB, DriverForm> = {
@@ -104,8 +104,8 @@ const quoteConfig: CrudConfig<QuoteDB, QuoteForm> = {
 
 const menuConfig: CrudConfig<MenuItemDB, MenuForm> = {
   apiEndpoint: "/api/menu",
-  defaultForm: { name: "", description: "", price: 0, category: "entrees", image: "", badge: "", popular: false, available: true },
-  mapEntityToForm: (item) => ({ name: item.name, description: item.description, price: item.price, category: item.category, image: item.image, badge: item.badge, popular: item.popular, available: item.available }),
+  defaultForm: { name: "", description: "", price: 0, category: "entrees", image: "", badge: "", popular: false, available: true, stockItemId: "" },
+  mapEntityToForm: (item) => ({ name: item.name, description: item.description, price: item.price, category: item.category, image: item.image, badge: item.badge, popular: item.popular, available: item.available, stockItemId: (item as any).stockItemId || "" }),
 };
 
 export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout: () => void }) {
