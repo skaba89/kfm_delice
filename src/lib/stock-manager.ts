@@ -63,7 +63,7 @@ export async function decrementStockForOrder(
           type: 'out',
           quantity: item.qty,
           reason: `Commande #${orderId.slice(-8).toUpperCase()}`,
-          actorId,
+          actor: actorId,
           restaurantId,
         },
       }).catch(() => {}); // non-blocking
@@ -168,7 +168,7 @@ export async function restoreStockForOrder(
           type: 'in',
           quantity: item.qty,
           reason: `Annulation commande #${orderId.slice(-8).toUpperCase()}`,
-          actorId: 'system',
+          actor: 'system',
           restaurantId,
         },
       }).catch(() => {});
