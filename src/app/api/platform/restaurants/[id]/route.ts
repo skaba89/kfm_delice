@@ -24,7 +24,7 @@ export async function DELETE(
     // Verify the restaurant exists
     const restaurant = await db.restaurant.findUnique({
       where: { id },
-      select: { id: true, name: true, slug: true, accountId: true },
+      select: { id: true, name: true, slug: true, accountId: true, type: true },
     });
 
     if (!restaurant) {
