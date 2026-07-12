@@ -1,20 +1,42 @@
 #!/bin/bash
 # IMPORTANT: NO 'set -e' here — we want the server to start even if
 # individual steps (migrate, seed, backfill) fail. The previous version
-# had 'set -e' which made the whole script abort on any error, leaving
-# the service in a broken state.
+# had 'set -e' which made the whole script abort on any error.
+
+# ── Helpers for production safety ──────────────────────────────
+is_real_production() {
+  [ "$APP_MODE" = "production" ]
+}
+
+fail_or_warn() {
+  local message="$1"
+  if is_real_production; then
+    echo "[render-start] FATAL: $message"
+    exit 1
+  else
+    echo "[render-start] WARNING: $message"
+  fi
+}
 
 echo "[render-start] ─────────────────────────────────────────────"
 echo "[render-start] Starting KFM Delice on Render..."
 echo "[render-start] Current directory: $(pwd)"
 echo "[render-start] PORT=${PORT:-3000} HOSTNAME=$HOSTNAME"
 echo "[render-start] NODE_ENV=${NODE_ENV:-(not set)}"
+echo "[render-start] APP_MODE=${APP_MODE:-(not set)}"
 if [ -n "$DATABASE_URL" ]; then
   echo "[render-start] DATABASE_URL is set (value hidden for security)"
 else
   echo "[render-start] DATABASE_URL is NOT SET"
 fi
 echo "[render-start] ─────────────────────────────────────────────"
+
+# ── Production safety check (Mission 1) ────────────────────────
+# Must run BEFORE any migration or seed.
+node scripts/check-production-safety.cjs || {
+  echo "[render-start] Production safety check FAILED. Refusing to start."
+  exit 1
+}
 
 # ── Detect database provider from DATABASE_URL ────────────────
 detect_provider() {
@@ -42,7 +64,7 @@ if [ "$PROVIDER" = "unknown" ]; then
   exit 1
 fi
 
-# ── Switch schema to match the actual DATABASE_URL ────────────
+# ── Switch schema + regenerate Prisma Client ──────────────────
 if [ "$PROVIDER" = "postgres" ]; then
   echo "[render-start] Switching schema to PostgreSQL..."
   cp prisma/schema.postgres.prisma prisma/schema.prisma || echo "[render-start] WARNING: could not copy postgres schema"
@@ -53,50 +75,43 @@ elif [ "$PROVIDER" = "sqlite" ]; then
 fi
 
 # ── Regenerate Prisma Client at RUNTIME ───────────────────────
-# Use node_modules/.bin/prisma (NOT npx prisma) to avoid downloading Prisma 7+
 echo "[render-start] Clearing cached Prisma client..."
 rm -rf node_modules/.prisma node_modules/@prisma/client 2>/dev/null || true
 
 echo "[render-start] Regenerating Prisma Client (provider=$PROVIDER)..."
 if [ -x node_modules/.bin/prisma ]; then
-  node_modules/.bin/prisma generate 2>&1 || echo "[render-start] WARNING: prisma generate failed (will try to start anyway)"
+  node_modules/.bin/prisma generate 2>&1 || fail_or_warn "prisma generate failed"
 else
   echo "[render-start] WARNING: node_modules/.bin/prisma not found, trying npx prisma@6"
-  npx prisma@6 generate 2>&1 || echo "[render-start] WARNING: npx prisma generate also failed"
+  npx prisma@6 generate 2>&1 || fail_or_warn "npx prisma generate also failed"
 fi
 
 # ── Verify the generated client matches the expected provider ──
-# (warning only — don't abort if it fails)
 echo "[render-start] Verifying Prisma provider..."
-node scripts/check-prisma-provider.cjs 2>&1 || echo "[render-start] WARNING: provider verification failed (continuing anyway)"
+node scripts/check-prisma-provider.cjs 2>&1 || fail_or_warn "provider verification failed"
 
-# ── Diagnostics: verify Next.js build output BEFORE starting ───
-# These checks catch the "503 because .next/ is missing" case at the
-# source rather than letting the server crash on first request.
+# ── Diagnostics: verify build output BEFORE starting ───────────
 echo "[render-start] Checking Next.js build output..."
-test -d .next || echo "[render-start] WARNING: .next directory missing"
-test -f .next/BUILD_ID || echo "[render-start] WARNING: .next/BUILD_ID missing"
-test -d node_modules || echo "[render-start] WARNING: node_modules missing"
-test -x node_modules/.bin/next || echo "[render-start] WARNING: next binary missing"
-test -x node_modules/.bin/prisma || echo "[render-start] WARNING: prisma binary missing"
-test -d node_modules/@prisma/client || echo "[render-start] WARNING: @prisma/client missing"
-test -d node_modules/.prisma/client || echo "[render-start] WARNING: .prisma/client missing"
+test -d .next || fail_or_warn ".next directory missing"
+test -f .next/BUILD_ID || fail_or_warn ".next/BUILD_ID missing"
+test -x node_modules/.bin/next || fail_or_warn "next binary missing"
+test -x node_modules/.bin/prisma || fail_or_warn "prisma binary missing"
+test -d node_modules/@prisma/client || fail_or_warn "@prisma/client missing"
+test -d node_modules/.prisma/client || fail_or_warn ".prisma/client missing"
 echo "[render-start] Build output check complete."
 
 # ── Apply schema & migrations ──────────────────────────────────
-# Mission 8: enclose db push fallback with ALLOW_PRISMA_DB_PUSH_FALLBACK.
-# In real production, this should be 'false' (or unset) so that a failed
-# migration is a clear signal. In demo/staging, 'true' allows the fallback.
+# Mission 2: In production, migrate deploy failure is FATAL.
+# In demo/staging, fallback to db push if ALLOW_PRISMA_DB_PUSH_FALLBACK=true.
 if [ "$PROVIDER" = "postgres" ]; then
   echo "[render-start] Running prisma migrate deploy..."
   if ! node_modules/.bin/prisma migrate deploy 2>&1; then
     echo "[render-start] prisma migrate deploy failed"
     if [ "$ALLOW_PRISMA_DB_PUSH_FALLBACK" = "true" ]; then
       echo "[render-start] ALLOW_PRISMA_DB_PUSH_FALLBACK=true → running db push --skip-generate"
-      node_modules/.bin/prisma db push --skip-generate 2>&1 || echo "[render-start] prisma db push also failed"
+      node_modules/.bin/prisma db push --skip-generate 2>&1 || fail_or_warn "prisma db push also failed"
     else
-      echo "[render-start] db push fallback disabled (ALLOW_PRISMA_DB_PUSH_FALLBACK not 'true')."
-      echo "[render-start] Continuing to start app, but DB schema may be outdated."
+      fail_or_warn "prisma migrate deploy failed and db push fallback disabled. DB schema may be outdated."
     fi
   fi
 
@@ -119,9 +134,6 @@ echo "[render-start] Running SaaS account backfill..."
 node scripts/backfill-accounts.cjs 2>&1 || echo "[render-start] backfill warning, continuing..."
 
 # ── Start the Next.js server ───────────────────────────────────
-# IMPORTANT: Listen on 0.0.0.0 so Render's load balancer can route traffic.
-# Render sets HOSTNAME to the Kubernetes pod name (e.g. srv-xxx-hibernate-yyy)
-# which is NOT reachable from outside the pod — using it causes 502.
 echo "[render-start] ─────────────────────────────────────────────"
 echo "[render-start] Starting Next.js server on 0.0.0.0:${PORT:-3000}..."
 echo "[render-start] Provider: $PROVIDER"

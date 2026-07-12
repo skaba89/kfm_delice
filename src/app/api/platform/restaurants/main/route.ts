@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { authenticatePlatformAdmin, hashPassword } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
 import { generateSlug, ensureUniqueSlug } from "@/lib/tenant";
+import { validatePassword } from "@/lib/password-policy";
 import { z } from "zod";
 
 const createMainRestaurantSchema = z.object({
@@ -33,6 +34,13 @@ export async function POST(request: Request) {
     }
 
     const data = validation.data;
+
+    // Validate password policy
+    const pwCheck = validatePassword(data.adminPassword);
+    if (!pwCheck.valid) {
+      return NextResponse.json({ error: pwCheck.errors[0] }, { status: 400 });
+    }
+
     let accountId = data.accountId;
     let accountMaxSecondary = 0;
 
@@ -105,6 +113,7 @@ export async function POST(request: Request) {
           canCreateRestaurant: true,
           restaurantCreationLimit: accountMaxSecondary,
           restaurantsCreatedCount: 0,
+          mustChangePassword: true,
         },
       });
 
