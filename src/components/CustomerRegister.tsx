@@ -21,20 +21,29 @@ export function CustomerRegister({ onRegister, onLogin, onBack }: { onRegister: 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setLoading(true); setError("");
     try {
-      // Resolve restaurant slug from localStorage (set on restaurant selection)
-      // or default to 'kfm-delice' for the main deployment.
-      let restaurantSlug = "kfm-delice";
+      // Resolve restaurant slug from localStorage, URL query, or URL path.
+      // No hardcoded default — each restaurant has its own slug.
+      let restaurantSlug = "";
       try {
         const stored = localStorage.getItem("restaurantpro_slug");
         if (stored) restaurantSlug = stored;
       } catch { /* localStorage not available */ }
+      if (!restaurantSlug && typeof window !== "undefined") {
+        const sp = new URLSearchParams(window.location.search);
+        const qSlug = sp.get("restaurant") || sp.get("slug");
+        if (qSlug) restaurantSlug = qSlug;
+        if (!restaurantSlug) {
+          const m = window.location.pathname.match(/^\/r\/([^/]+)/);
+          if (m) restaurantSlug = decodeURIComponent(m[1]);
+        }
+      }
+
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (restaurantSlug) headers["x-restaurant-slug"] = restaurantSlug;
 
       const res = await fetch("/api/customer-register", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-restaurant-slug": restaurantSlug,
-        },
+        headers,
         body: JSON.stringify(form),
       });
       if (!res.ok) { const data = await res.json().catch(() => null); setError(data?.error || "Erreur lors de l'inscription"); return; }

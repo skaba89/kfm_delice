@@ -22,19 +22,30 @@ export function CustomerLogin({ onLogin, onRegister, onBack }: { onLogin: () => 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setLoading(true); setError("");
     try {
-      // Resolve restaurant slug from localStorage or default to 'kfm-delice'
-      let restaurantSlug = "kfm-delice";
+      // Resolve restaurant slug from localStorage, URL query (?restaurant=),
+      // or URL path (/r/<slug>/...). No hardcoded default — each restaurant
+      // has its own slug derived from its name.
+      let restaurantSlug = "";
       try {
         const stored = localStorage.getItem("restaurantpro_slug");
         if (stored) restaurantSlug = stored;
       } catch { /* localStorage not available */ }
+      if (!restaurantSlug && typeof window !== "undefined") {
+        const sp = new URLSearchParams(window.location.search);
+        const qSlug = sp.get("restaurant") || sp.get("slug");
+        if (qSlug) restaurantSlug = qSlug;
+        if (!restaurantSlug) {
+          const m = window.location.pathname.match(/^\/r\/([^/]+)/);
+          if (m) restaurantSlug = decodeURIComponent(m[1]);
+        }
+      }
+
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (restaurantSlug) headers["x-restaurant-slug"] = restaurantSlug;
 
       const res = await fetch("/api/customer-login", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-restaurant-slug": restaurantSlug,
-        },
+        headers,
         body: JSON.stringify({ email, password }),
       });
       if (!res.ok) { const data = await res.json().catch(() => null); setError(data?.error || t('customer.login.error')); return; }

@@ -40,10 +40,24 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
   const [resSubmitting, setResSubmitting] = useState(false);
 
   useEffect(() => {
-    // Resolve restaurant slug for multi-tenant API routing.
-    // Defaults to 'kfm-delice' (main deployment) if not set in localStorage.
-    const restaurantSlug = (typeof window !== "undefined" && localStorage.getItem("restaurantpro_slug")) || "kfm-delice";
-    const slugHeader = { "x-restaurant-slug": restaurantSlug };
+    // Resolve restaurant slug from localStorage, URL query, or URL path.
+    // No hardcoded default — each restaurant has its own slug derived
+    // from its name.
+    let restaurantSlug = "";
+    try {
+      const stored = localStorage.getItem("restaurantpro_slug");
+      if (stored) restaurantSlug = stored;
+    } catch {}
+    if (!restaurantSlug && typeof window !== "undefined") {
+      const sp = new URLSearchParams(window.location.search);
+      const qSlug = sp.get("restaurant") || sp.get("slug");
+      if (qSlug) restaurantSlug = qSlug;
+      if (!restaurantSlug) {
+        const m = window.location.pathname.match(/^\/r\/([^/]+)/);
+        if (m) restaurantSlug = decodeURIComponent(m[1]);
+      }
+    }
+    const slugHeader: Record<string, string> = restaurantSlug ? { "x-restaurant-slug": restaurantSlug } : {};
 
     Promise.all([
       fetch("/api/menu?limit=1000", { headers: slugHeader })
@@ -94,8 +108,21 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
     setOrderResult(null);
 
     try {
-      const restaurantSlug = (typeof window !== "undefined" && localStorage.getItem("restaurantpro_slug")) || "kfm-delice";
-      const slugHeader = { "x-restaurant-slug": restaurantSlug };
+      let restaurantSlug = "";
+      try {
+        const stored = localStorage.getItem("restaurantpro_slug");
+        if (stored) restaurantSlug = stored;
+      } catch {}
+      if (!restaurantSlug && typeof window !== "undefined") {
+        const sp = new URLSearchParams(window.location.search);
+        const qSlug = sp.get("restaurant") || sp.get("slug");
+        if (qSlug) restaurantSlug = qSlug;
+        if (!restaurantSlug) {
+          const m = window.location.pathname.match(/^\/r\/([^/]+)/);
+          if (m) restaurantSlug = decodeURIComponent(m[1]);
+        }
+      }
+      const slugHeader: Record<string, string> = restaurantSlug ? { "x-restaurant-slug": restaurantSlug } : {};
 
       const orderItems = cart.map(item => ({
         name: item.name,
@@ -190,10 +217,25 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
     e.preventDefault();
     setResSubmitting(true);
     try {
-      const restaurantSlug = (typeof window !== "undefined" && localStorage.getItem("restaurantpro_slug")) || "kfm-delice";
+      let restaurantSlug = "";
+      try {
+        const stored = localStorage.getItem("restaurantpro_slug");
+        if (stored) restaurantSlug = stored;
+      } catch {}
+      if (!restaurantSlug && typeof window !== "undefined") {
+        const sp = new URLSearchParams(window.location.search);
+        const qSlug = sp.get("restaurant") || sp.get("slug");
+        if (qSlug) restaurantSlug = qSlug;
+        if (!restaurantSlug) {
+          const m = window.location.pathname.match(/^\/r\/([^/]+)/);
+          if (m) restaurantSlug = decodeURIComponent(m[1]);
+        }
+      }
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (restaurantSlug) headers["x-restaurant-slug"] = restaurantSlug;
       const response = await fetch("/api/reservations", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-restaurant-slug": restaurantSlug },
+        headers,
         body: JSON.stringify({
           ...resForm,
           status: "pending",

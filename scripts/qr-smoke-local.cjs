@@ -82,6 +82,9 @@ async function http(method, path, body, headers = {}) {
   check("public resolve 200", r.status === 200, r);
   check("restaurant slug matches", r.data?.restaurant?.slug === SLUG, r.data?.restaurant);
   check("table number matches", r.data?.table?.number === tableNumber, r.data?.table);
+  // The QR menuUrl must use the per-restaurant URL format:
+  // /r/<slug>/menu?tableToken=<id>  (NOT the legacy /menu?restaurant=…)
+  check("menuUrl uses per-restaurant format /r/<slug>/menu", r.data?.menuUrl === `/r/${SLUG}/menu?tableToken=${tableId}`, r.data?.menuUrl);
 
   // ── 5. Create dine_in order from table ──
   console.log("Step 5: create dine_in order via QR token");

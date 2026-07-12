@@ -23,10 +23,28 @@ export function DriverLogin({ onLogin, onBack }: { onLogin: () => void; onBack: 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setLoading(true); setError("");
     try {
-      const restaurantSlug = (typeof window !== "undefined" && localStorage.getItem("restaurantpro_slug")) || "kfm-delice";
+      // Resolve slug from localStorage / URL query / URL path.
+      // No hardcoded default — each restaurant has its own slug.
+      let restaurantSlug = "";
+      try {
+        const stored = localStorage.getItem("restaurantpro_slug");
+        if (stored) restaurantSlug = stored;
+      } catch {}
+      if (!restaurantSlug && typeof window !== "undefined") {
+        const sp = new URLSearchParams(window.location.search);
+        const qSlug = sp.get("restaurant") || sp.get("slug");
+        if (qSlug) restaurantSlug = qSlug;
+        if (!restaurantSlug) {
+          const m = window.location.pathname.match(/^\/r\/([^/]+)/);
+          if (m) restaurantSlug = decodeURIComponent(m[1]);
+        }
+      }
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (restaurantSlug) headers["x-restaurant-slug"] = restaurantSlug;
+
       const res = await fetch("/api/driver-login", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-restaurant-slug": restaurantSlug },
+        headers,
         body: JSON.stringify({ email, password }),
       });
       if (!res.ok) { const data = await res.json().catch(() => null); setError(data?.error || "Email ou mot de passe incorrect"); return; }

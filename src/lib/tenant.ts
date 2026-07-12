@@ -44,8 +44,11 @@ export function extractSlug(request: Request): string | null {
       // Primary strategy: read from x-restaurant-slug header (set by middleware)
       const headerSlug = request.headers.get('x-restaurant-slug');
       if (headerSlug) return headerSlug;
-      // Fallback to query param if header not present
-      const querySlug = url.searchParams.get('restaurant');
+      // Fallback to query param if header not present.
+      // Accept both ?restaurant=<slug> (legacy) and ?slug=<slug>
+      // so /r/[slug]/ pages can pass the slug explicitly without
+      // going through the middleware header path.
+      const querySlug = url.searchParams.get('restaurant') || url.searchParams.get('slug');
       return querySlug;
     }
 
@@ -53,7 +56,10 @@ export function extractSlug(request: Request): string | null {
       // Extract from URL path: /r/{slug}/...
       const pathMatch = url.pathname.match(/^\/r\/([^/]+)/);
       if (pathMatch) return pathMatch[1];
-      // Also check header fallback
+      // Also accept ?slug= and ?restaurant= as fallbacks
+      const querySlug = url.searchParams.get('restaurant') || url.searchParams.get('slug');
+      if (querySlug) return querySlug;
+      // And the header
       const headerSlug = request.headers.get('x-restaurant-slug');
       return headerSlug;
     }

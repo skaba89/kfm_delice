@@ -137,7 +137,10 @@ describe('table-qr — buildPublicTableQrResponse', () => {
     expect(response.restaurant.slug).toBe('kfm-delice');
     expect(response.restaurant.name).toBe('KFM Delice');
     expect(response.table.number).toBe('T04');
-    expect(response.menuUrl).toContain('restaurant=kfm-delice');
+    // The QR redirects to /r/<slug>/menu?tableToken=<id> — each
+    // restaurant has its own URL based on its name (slug), NOT the
+    // generic /menu?restaurant=... path.
+    expect(response.menuUrl).toBe('/r/kfm-delice/menu?tableToken=tbl_123');
     expect(response.menuUrl).toContain('tableToken=tbl_123');
 
     // Private fields must NOT leak
@@ -164,7 +167,7 @@ describe('table-qr — buildPublicTableQrResponse', () => {
       accountStatus: 'active',
     };
     const response = buildPublicTableQrResponse(resolved);
-    expect(response.menuUrl).toBe('/menu?restaurant=cafe-de-la-gare&tableToken=t1');
+    expect(response.menuUrl).toBe('/r/cafe-de-la-gare/menu?tableToken=t1');
   });
 });
 

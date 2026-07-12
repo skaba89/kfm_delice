@@ -282,9 +282,16 @@ export function buildPublicTableQrResponse(
       number: resolved.tableNumber,
       zone: resolved.tableZone,
     },
-    menuUrl: `/menu?restaurant=${encodeURIComponent(
+    // Each restaurant has its own URL based on its name (slug):
+    //   /r/<restaurant-slug>/menu?tableToken=<tableId>
+    //
+    // The /r/[slug]/ layout resolves the restaurant from the URL
+    // path segment (not from a query param or a hardcoded default),
+    // so the customer lands on the right restaurant's menu regardless
+    // of which restaurant's QR code they scanned.
+    menuUrl: `/r/${encodeURIComponent(
       resolved.restaurantSlug
-    )}&tableToken=${resolved.tableId}`,
+    )}/menu?tableToken=${resolved.tableId}`,
   };
 }
 

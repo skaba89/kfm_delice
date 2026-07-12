@@ -83,8 +83,12 @@ export function QrScanClient({ token }: QrScanClientProps) {
             /* sessionStorage may be unavailable in private browsing */
           }
 
-          // Redirect to the menu URL returned by the API
-          const menuUrl = data.menuUrl || `/menu?restaurant=${data.restaurant?.slug || ""}&tableToken=${token}`;
+          // Redirect to the per-restaurant menu URL returned by the API.
+          // Format: /r/<restaurant-slug>/menu?tableToken=<tableId>
+          // The /r/[slug]/ layout resolves the restaurant from the URL
+          // path — no hardcoded default, no tenant confusion.
+          const slug = data.restaurant?.slug || "";
+          const menuUrl = data.menuUrl || `/r/${encodeURIComponent(slug)}/menu?tableToken=${token}`;
           router.replace(menuUrl);
           return;
         }

@@ -10,7 +10,12 @@ import { authenticateAdmin, authenticatePlatformAdmin } from "@/lib/auth";
 export async function GET(request: Request) {
   try {
     await dbReady;
-    const slug = request.headers.get('x-restaurant-slug') || new URL(request.url).searchParams.get('restaurant');
+    // Accept slug from header (middleware) OR query (?restaurant= / ?slug=)
+    const sp = new URL(request.url).searchParams;
+    const slug =
+      request.headers.get('x-restaurant-slug') ||
+      sp.get('restaurant') ||
+      sp.get('slug');
 
     if (slug) {
       const config = await getRestaurantConfig(slug);

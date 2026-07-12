@@ -85,14 +85,17 @@ function extractTenantSlug(request: NextRequest): string | null {
   const headerSlug = request.headers.get('x-restaurant-slug');
   if (headerSlug) return headerSlug;
 
-  switch (strategy) {
-    case 'path': {
-      // Extract from URL path: /r/{slug}/...
-      const pathMatch = pathname.match(/^\/r\/([^/]+)/);
-      if (pathMatch) return pathMatch[1];
-      break;
-    }
+  // ALWAYS extract from /r/{slug}/... URL path regardless of strategy —
+  // the per-restaurant URL is the canonical tenant identifier and
+  // must work even when TENANT_STRATEGY=slug-header (the default).
+  const pathMatch = pathname.match(/^\/r\/([^/]+)/);
+  if (pathMatch) return pathMatch[1];
 
+  // Accept both ?restaurant=<slug> (legacy) and ?slug=<slug>
+  const querySlugAny = searchParams.get('restaurant') || searchParams.get('slug');
+  if (querySlugAny) return querySlugAny;
+
+  switch (strategy) {
     case 'subdomain': {
       // Extract from subdomain: {slug}.domain.com
       const host = request.headers.get('host') || '';
@@ -106,17 +109,10 @@ function extractTenantSlug(request: NextRequest): string | null {
       break;
     }
 
-    case 'query': {
-      const querySlug = searchParams.get('restaurant');
-      if (querySlug) return querySlug;
-      break;
-    }
-
+    case 'query':
     case 'slug-header':
     default: {
-      // Check query param as fallback
-      const querySlug = searchParams.get('restaurant');
-      if (querySlug) return querySlug;
+      // Already checked above — nothing more to do.
       break;
     }
   }
@@ -208,7 +204,19 @@ export async function middleware(request: NextRequest) {
     return addSecurityHeaders(response);
   }
 
+  // ── Step 5b: Public restaurant pages (/r/<slug>/...) — no auth needed ──
+  // These pages render restaurant-specific content (menu, reservation,
+  // landing). The tenant slug is extracted from the URL path and
+  // propagated as the x-restaurant-slug header for any downstream
+  // fetch the page may make to /api/* routes.
+  if (pathname.startsWith('/r/')) {
+    const response = NextResponse.next();
+    if (tenantSlug) response.headers.set('x-restaurant-slug', tenantSlug);
+    return addSecurityHeaders(response);
+  }
+
   // ── Step 6: Protected API routes — require auth ──
+  // (Only /api/* routes beyond this point — /r/* pages are public.)
 
   // SECURITY: In production with an invalid JWT_SECRET, refuse ALL protected
   // routes with a clear 500 error. We do NOT attempt to verify tokens with
@@ -272,5 +280,8 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: '/api/:path*',
+  // Run middleware on API routes AND on /r/[slug]/... public restaurant
+  // pages so the x-restaurant-slug header is set from the URL path
+  // (security headers + tenant propagation for any downstream fetch).
+  matcher: ['/api/:path*', '/r/:path*'],
 };

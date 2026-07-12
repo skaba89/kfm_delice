@@ -160,9 +160,17 @@ done
 
 echo ""
 echo "${BOLD}== 7. Multi-tenant header ==${RESET}"
-check "API accepts x-restaurant-slug header"
-status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -H "x-restaurant-slug: kfm-delice" "$BASE_URL/api/menu" 2>/dev/null)
-[ "$status" = "200" ] && pass || warn "HTTP $status (header may not be required for public endpoints)"
+# Resolve the first available restaurant slug dynamically (no hardcoded
+# default — each restaurant has its own slug derived from its name).
+FIRST_SLUG=$(curl -s --max-time 10 "$BASE_URL/api/restaurants" 2>/dev/null \
+  | python3 -c "import sys, json; d = json.loads(sys.stdin.read()); slugs = [r.get('slug') for r in (d if isinstance(d, list) else d.get('restaurants', d.get('data', []))) if r.get('slug')]; print(slugs[0] if slugs else '')" 2>/dev/null)
+if [ -n "$FIRST_SLUG" ]; then
+  check "API accepts x-restaurant-slug header (slug: $FIRST_SLUG)"
+  status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -H "x-restaurant-slug: $FIRST_SLUG" "$BASE_URL/api/menu" 2>/dev/null)
+  [ "$status" = "200" ] && pass || warn "HTTP $status (header may not be required for public endpoints)"
+else
+  warn "Could not resolve any restaurant slug — skipping x-restaurant-slug check"
+fi
 
 echo ""
 echo "${BOLD}== 8. Render-specific checks ==${RESET}"
