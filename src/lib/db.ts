@@ -192,6 +192,8 @@ if (isServer && !globalForPrisma.schemaFixed) {
       // ── Mission 11: Order.tableId + Order.tableNumberStr ──
       ['Order', 'tableId', 'TEXT'],
       ['Order', 'tableNumberStr', "TEXT NOT NULL DEFAULT ''"],
+      // ── Mission P2.5: Order.tip (pourboire) ──
+      ['Order', 'tip', 'BIGINT NOT NULL DEFAULT 0'],
     ];
 
     (async () => {
@@ -374,6 +376,8 @@ if (isServer && !globalForPrisma.schemaFixed) {
     // Note: 'Order' is a reserved keyword in SQLite — must be quoted.
     ['Order', 'tableId', 'TEXT'],
     ['Order', 'tableNumberStr', "TEXT NOT NULL DEFAULT ''"],
+    // ── Mission P2.5: Order.tip (pourboire) ──
+    ['Order', 'tip', 'INTEGER NOT NULL DEFAULT 0'],
   ];
 
   // Run all schema fixes sequentially, then resolve dbReady

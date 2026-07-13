@@ -46,6 +46,9 @@ function CheckoutContent() {
   const [customerName, setCustomerName] = useState(customer?.name || "");
   const [tableNumber, setTableNumber] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "orange_money" | "mtn_money" | "wave" | "card">("cash");
+  // 💰 Mission P2.5 — Tip (pourboire) state
+  const [tipPercent, setTipPercent] = useState<number>(0); // 0, 5, 10, 15, or custom
+  const [customTip, setCustomTip] = useState<string>(""); // custom amount in GNF
 
   useEffect(() => {
     const storedCart = sessionStorage.getItem("kfm-cart");
@@ -70,6 +73,14 @@ function CheckoutContent() {
 
   const loyaltyPoints = Math.floor(cartTotal / 1000);
 
+  // 💰 Mission P2.5 — Tip calculation
+  // tipPercent is 0, 5, 10, or 15. If customTip is non-empty, it
+  // overrides the percentage. The backend clamps to [0, 50% of total].
+  const calculatedTip = customTip.trim() !== ""
+    ? Math.max(0, parseInt(customTip, 10) || 0)
+    : Math.round(cartTotal * (tipPercent / 100));
+  const grandTotal = cartTotal + calculatedTip;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -91,7 +102,8 @@ function CheckoutContent() {
 
       const body = {
         items: JSON.stringify(orderItems),
-        total: cartTotal,
+        total: cartTotal, // subtotal (without tip) — server recalculates
+        tip: calculatedTip, // Mission P2.5: pourboire
         orderType,
         customerName: customerName || customer?.name || "Client",
         phone,
@@ -259,9 +271,61 @@ function CheckoutContent() {
               ))}
             </div>
             <div className="border-t pt-3 flex items-center justify-between">
-              <span className="text-lg font-bold text-gray-900 dark:text-white">Total</span>
-              <span className="text-2xl font-extrabold text-orange-600">{formatPrice(cartTotal)}</span>
+              <span className="text-lg font-bold text-gray-900 dark:text-white">Sous-total</span>
+              <span className="text-xl font-bold text-gray-900 dark:text-white">{formatPrice(cartTotal)}</span>
             </div>
+
+            {/* 💰 Mission P2.5 — Tip selector */}
+            <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800">
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Pourboire <span className="text-gray-400">(optionnel)</span>
+              </p>
+              <div className="grid grid-cols-4 gap-2 mb-2">
+                {[0, 5, 10, 15].map((pct) => (
+                  <button
+                    key={pct}
+                    type="button"
+                    onClick={() => { setTipPercent(pct); setCustomTip(""); }}
+                    className={`py-2 rounded-lg text-sm font-semibold transition-all ${
+                      tipPercent === pct && customTip === ""
+                        ? "bg-orange-500 text-white shadow-md"
+                        : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
+                    }`}
+                  >
+                    {pct === 0 ? "Aucun" : `${pct}%`}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500">Ou montant libre :</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={customTip}
+                  onChange={(e) => {
+                    setCustomTip(e.target.value);
+                    setTipPercent(0);
+                  }}
+                  placeholder="0"
+                  className="flex-1 px-3 py-1.5 text-sm rounded-lg border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+                <span className="text-xs text-gray-500">GNF</span>
+              </div>
+              {calculatedTip > 0 && (
+                <div className="mt-2 flex items-center justify-between text-sm">
+                  <span className="text-gray-600 dark:text-gray-400">Pourboire</span>
+                  <span className="font-medium text-green-600 dark:text-green-400">+{formatPrice(calculatedTip)}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Grand total (subtotal + tip) */}
+            {calculatedTip > 0 && (
+              <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                <span className="text-lg font-bold text-gray-900 dark:text-white">Total à payer</span>
+                <span className="text-2xl font-extrabold text-orange-600">{formatPrice(grandTotal)}</span>
+              </div>
+            )}
             <div className="mt-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg p-2 text-center">
               <p className="text-sm text-orange-600 dark:text-orange-400">
                 💎 +{loyaltyPoints} points de fidélité sur cette commande
@@ -367,7 +431,7 @@ function CheckoutContent() {
                 {loading ? (
                   <><RefreshCw className="w-5 h-5 animate-spin mr-2" /> Envoi...</>
                 ) : (
-                  <><CreditCard className="w-5 h-5 mr-2" /> Commander — {formatPrice(cartTotal)}</>
+                  <><CreditCard className="w-5 h-5 mr-2" /> Commander — {formatPrice(grandTotal)}</>
                 )}
               </Button>
             </form>

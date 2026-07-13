@@ -292,6 +292,7 @@ model Order {
   tableNumber   Int      @default(0)
   discount      Int      @default(0)
   tax           Int      @default(0)
+  tip           Int      @default(0) // pourboire (Mission P2.5)
   note          String   @default("")
   estimatedDeliveryTime String @default("") // ISO string of estimated delivery
   driverLat      Float    @default(0) // driver live latitude

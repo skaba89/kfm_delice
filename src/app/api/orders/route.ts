@@ -258,6 +258,16 @@ export async function POST(request: Request) {
     // Use the recalculated total (trust server calculation over client)
     const verifiedTotal = recalculatedTotal;
 
+    // ── Mission P2.5: Validate tip (pourboire) ──
+    // The tip is OPTIONAL and must be:
+    //   - >= 0 (no negative tips)
+    //   - <= 50% of the order total (prevent abuse — a 10M GNF tip
+    //     on a 1000 GNF order is clearly a mistake or fraud)
+    // The tip is NOT added to `total` — it's stored separately so
+    // the restaurant can track tip revenue independently.
+    const clientTip = typeof body.tip === "number" ? body.tip : 0;
+    const verifiedTip = Math.max(0, Math.min(clientTip, verifiedTotal * 0.5));
+
     // Try to attach customerId if authenticated as customer
     let customerId: string | undefined = validation.data.customerId;
     try {
@@ -281,6 +291,7 @@ export async function POST(request: Request) {
         ...validation.data,
         items: JSON.stringify(verifiedItems),
         total: verifiedTotal,
+        tip: verifiedTip, // Mission P2.5: pourboire validé
         restaurantId,
         ...(customerId && { customerId }),
         ...(tableId && { tableId }),

@@ -54,6 +54,7 @@ export const orderSchema = z.object({
   tableNumber: z.number().optional(),
   discount: z.number().optional(),
   tax: z.number().optional(),
+  tip: z.number().min(0).max(10000000).optional(), // pourboire (Mission P2.5) — max 10M GNF
   note: z.string().optional(),
   driverId: z.string().nullable().optional(),
   customerId: z.string().optional(),
