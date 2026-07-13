@@ -31,6 +31,7 @@ import type { AdminDB, AdminUser, MenuItemDB, OrderDB, DriverDB, StaffDB, Invoic
 import { useAdminData } from "@/lib/hooks/use-admin-data";
 import { useCrudState, type CrudConfig } from "@/lib/hooks/use-crud-state";
 import { usePosCart } from "@/lib/hooks/use-pos-cart";
+import { useKeyboardShortcuts, SHORTCUTS_HELP } from "@/lib/hooks/use-keyboard-shortcuts";
 import { useAuth } from "@/lib/auth-context";
 
 // ─── Form type aliases ───────────────────────────────────────────
@@ -207,6 +208,33 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
     return rolesMap[item.id]?.includes(admin.role) ?? false;
   });
 
+  // ⌨️ Mission P1.3 — Keyboard shortcuts
+  // 1-9 = jump to tab, R = refresh, / = focus search, N = new, ? = help
+  const { helpOpen, setHelpOpen } = useKeyboardShortcuts({
+    onTabSelect: (idx) => {
+      const item = sidebarItems[idx];
+      if (item) setActiveTab(item.id);
+    },
+    onRefresh: () => loadData(),
+    onSearchFocus: () => {
+      // Focus the first visible search input in the current tab
+      const searchInput = document.querySelector<HTMLInputElement>(
+        'input[type="search"], input[placeholder*="Recherch"], input[placeholder*="recherch"], input[placeholder*="search"]'
+      );
+      if (searchInput) {
+        searchInput.focus();
+        searchInput.select();
+      }
+    },
+    onNew: () => {
+      // Trigger the first "Add" / "Nouveau" button in the current tab
+      const newBtn = document.querySelector<HTMLButtonElement>(
+        'button[aria-label*="Ajouter"], button[aria-label*="Nouveau"], button[aria-label*="Créer"]'
+      );
+      if (newBtn) newBtn.click();
+    },
+  });
+
   if (loading) {
     return <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center"><RefreshCw className="w-8 h-8 text-orange-500 animate-spin" /></div>;
   }
@@ -294,7 +322,59 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
         adminRole={admin.role}
         admins={admins}
       />}
+
+      {/* ⌨️ Mission P1.3 — Keyboard shortcuts help dialog */}
+      <KeyboardShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
     </DashboardShell>
+  );
+}
+
+// ─── ⌨️ Mission P1.3 — Keyboard shortcuts help dialog ──────────
+function KeyboardShortcutsHelp({ open, onClose }: { open: boolean; onClose: () => void }) {
+  if (!open) return null;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl max-w-md w-full p-6"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+            <span className="text-orange-500">⌨️</span>
+            Raccourcis clavier
+          </h2>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl leading-none"
+            aria-label="Fermer"
+          >
+            ×
+          </button>
+        </div>
+        <div className="space-y-2">
+          {SHORTCUTS_HELP.map((s) => (
+            <div
+              key={s.key}
+              className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
+            >
+              <span className="text-sm text-gray-700 dark:text-gray-300">
+                {s.description}
+              </span>
+              <kbd className="px-2 py-1 text-xs font-mono font-semibold bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded text-gray-700 dark:text-gray-200 min-w-[2rem] text-center">
+                {s.display}
+              </kbd>
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-4 text-center">
+          Les raccourcis sont désactivés quand vous tapez dans un champ de formulaire.
+          Appuyez sur <kbd className="px-1 py-0.5 text-xs font-mono bg-gray-100 dark:bg-gray-800 rounded">?</kbd> à tout moment pour rouvrir cette aide.
+        </p>
+      </div>
+    </div>
   );
 }
 
