@@ -313,6 +313,97 @@ if (isServer && !globalForPrisma.schemaFixed) {
           }
         }
 
+        // ── Mission P2.6: Create PromoCode table if missing (PostgreSQL) ──
+        try {
+          await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "PromoCode" (
+            "id" TEXT NOT NULL,
+            "code" TEXT NOT NULL,
+            "description" TEXT NOT NULL DEFAULT '',
+            "discountType" TEXT NOT NULL DEFAULT 'percent',
+            "discountValue" BIGINT NOT NULL DEFAULT 0,
+            "minOrderTotal" BIGINT NOT NULL DEFAULT 0,
+            "maxUses" INTEGER NOT NULL DEFAULT 0,
+            "usedCount" INTEGER NOT NULL DEFAULT 0,
+            "maxUsesPerUser" INTEGER NOT NULL DEFAULT 1,
+            "active" BOOLEAN NOT NULL DEFAULT true,
+            "startsAt" TIMESTAMP(3),
+            "expiresAt" TIMESTAMP(3),
+            "restaurantId" TEXT NOT NULL,
+            "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "updatedAt" TIMESTAMP(3) NOT NULL,
+            CONSTRAINT "PromoCode_pkey" PRIMARY KEY ("id")
+          )`);
+          await db.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "PromoCode_restaurantId_code_key" ON "PromoCode"("restaurantId", "code")`);
+          await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PromoCode_restaurantId_active_idx" ON "PromoCode"("restaurantId", "active")`);
+          await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PromoCode_code_idx" ON "PromoCode"("code")`);
+          try {
+            await db.$executeRawUnsafe(`ALTER TABLE "PromoCode" ADD CONSTRAINT "PromoCode_restaurantId_fkey" FOREIGN KEY ("restaurantId") REFERENCES "Restaurant"("id") ON DELETE CASCADE`);
+          } catch {}
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          if (!msg.includes('already exists')) {
+            console.warn(`[db:pg-fix] Could not create PromoCode: ${msg}`);
+          }
+        }
+
+        // ── Mission P3.7: Create ChatMessage table if missing (PostgreSQL) ──
+        try {
+          await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "ChatMessage" (
+            "id" TEXT NOT NULL,
+            "restaurantId" TEXT NOT NULL,
+            "senderId" TEXT NOT NULL,
+            "senderName" TEXT NOT NULL,
+            "senderRole" TEXT NOT NULL,
+            "content" TEXT NOT NULL,
+            "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT "ChatMessage_pkey" PRIMARY KEY ("id")
+          )`);
+          await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ChatMessage_restaurantId_createdAt_idx" ON "ChatMessage"("restaurantId", "createdAt")`);
+          await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ChatMessage_restaurantId_idx" ON "ChatMessage"("restaurantId")`);
+          try {
+            await db.$executeRawUnsafe(`ALTER TABLE "ChatMessage" ADD CONSTRAINT "ChatMessage_restaurantId_fkey" FOREIGN KEY ("restaurantId") REFERENCES "Restaurant"("id") ON DELETE CASCADE`);
+          } catch {}
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          if (!msg.includes('already exists')) {
+            console.warn(`[db:pg-fix] Could not create ChatMessage: ${msg}`);
+          }
+        }
+
+        // ── Mission P3.8: Create LoyaltyTier table + Customer.tier column (PostgreSQL) ──
+        try {
+          await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "LoyaltyTier" (
+            "id" TEXT NOT NULL,
+            "restaurantId" TEXT NOT NULL,
+            "name" TEXT NOT NULL,
+            "label" TEXT NOT NULL DEFAULT '',
+            "minSpent" BIGINT NOT NULL DEFAULT 0,
+            "discountPercent" INTEGER NOT NULL DEFAULT 0,
+            "freeDelivery" BOOLEAN NOT NULL DEFAULT false,
+            "freeDish" BOOLEAN NOT NULL DEFAULT false,
+            "color" TEXT NOT NULL DEFAULT '#cd7f32',
+            "icon" TEXT NOT NULL DEFAULT '',
+            "active" BOOLEAN NOT NULL DEFAULT true,
+            "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "updatedAt" TIMESTAMP(3) NOT NULL,
+            CONSTRAINT "LoyaltyTier_pkey" PRIMARY KEY ("id")
+          )`);
+          await db.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "LoyaltyTier_restaurantId_name_key" ON "LoyaltyTier"("restaurantId", "name")`);
+          await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "LoyaltyTier_restaurantId_active_idx" ON "LoyaltyTier"("restaurantId", "active")`);
+          try {
+            await db.$executeRawUnsafe(`ALTER TABLE "LoyaltyTier" ADD CONSTRAINT "LoyaltyTier_restaurantId_fkey" FOREIGN KEY ("restaurantId") REFERENCES "Restaurant"("id") ON DELETE CASCADE`);
+          } catch {}
+          // Add tier column to Customer
+          try {
+            await db.$executeRawUnsafe(`ALTER TABLE "Customer" ADD COLUMN IF NOT EXISTS "tier" TEXT NOT NULL DEFAULT 'bronze'`);
+          } catch {}
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          if (!msg.includes('already exists')) {
+            console.warn(`[db:pg-fix] Could not create LoyaltyTier: ${msg}`);
+          }
+        }
+
         console.log('[db:pg-fix] PostgreSQL safety-net schema check complete');
       } catch (outerError) {
         console.error('[db:pg-fix] FATAL error in safety net:', outerError);
@@ -378,6 +469,8 @@ if (isServer && !globalForPrisma.schemaFixed) {
     ['Order', 'tableNumberStr', "TEXT NOT NULL DEFAULT ''"],
     // ── Mission P2.5: Order.tip (pourboire) ──
     ['Order', 'tip', 'INTEGER NOT NULL DEFAULT 0'],
+    // ── Mission P3.8: Customer.tier (loyalty tier) ──
+    ['Customer', 'tier', "TEXT NOT NULL DEFAULT 'bronze'"],
   ];
 
   // Run all schema fixes sequentially, then resolve dbReady
@@ -423,6 +516,80 @@ if (isServer && !globalForPrisma.schemaFixed) {
       const msg = e instanceof Error ? e.message : String(e);
       if (!msg.includes('already exists')) {
         console.warn(`[db:fix] Could not create RestaurantTable: ${msg}`);
+      }
+    }
+
+    // ── Mission P2.6: Create PromoCode table if missing (SQLite) ──
+    try {
+      await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "PromoCode" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "code" TEXT NOT NULL,
+        "description" TEXT NOT NULL DEFAULT '',
+        "discountType" TEXT NOT NULL DEFAULT 'percent',
+        "discountValue" INTEGER NOT NULL DEFAULT 0,
+        "minOrderTotal" INTEGER NOT NULL DEFAULT 0,
+        "maxUses" INTEGER NOT NULL DEFAULT 0,
+        "usedCount" INTEGER NOT NULL DEFAULT 0,
+        "maxUsesPerUser" INTEGER NOT NULL DEFAULT 1,
+        "active" BOOLEAN NOT NULL DEFAULT 1,
+        "startsAt" DATETIME,
+        "expiresAt" DATETIME,
+        "restaurantId" TEXT NOT NULL,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`);
+      await db.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "PromoCode_restaurantId_code_key" ON "PromoCode"("restaurantId", "code")`);
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PromoCode_restaurantId_active_idx" ON "PromoCode"("restaurantId", "active")`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!msg.includes('already exists')) {
+        console.warn(`[db:fix] Could not create PromoCode: ${msg}`);
+      }
+    }
+
+    // ── Mission P3.7: Create ChatMessage table if missing (SQLite) ──
+    try {
+      await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "ChatMessage" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "restaurantId" TEXT NOT NULL,
+        "senderId" TEXT NOT NULL,
+        "senderName" TEXT NOT NULL,
+        "senderRole" TEXT NOT NULL,
+        "content" TEXT NOT NULL,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`);
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ChatMessage_restaurantId_createdAt_idx" ON "ChatMessage"("restaurantId", "createdAt")`);
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "ChatMessage_restaurantId_idx" ON "ChatMessage"("restaurantId")`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!msg.includes('already exists')) {
+        console.warn(`[db:fix] Could not create ChatMessage: ${msg}`);
+      }
+    }
+
+    // ── Mission P3.8: Create LoyaltyTier table if missing (SQLite) ──
+    try {
+      await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "LoyaltyTier" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "restaurantId" TEXT NOT NULL,
+        "name" TEXT NOT NULL,
+        "label" TEXT NOT NULL DEFAULT '',
+        "minSpent" INTEGER NOT NULL DEFAULT 0,
+        "discountPercent" INTEGER NOT NULL DEFAULT 0,
+        "freeDelivery" BOOLEAN NOT NULL DEFAULT 0,
+        "freeDish" BOOLEAN NOT NULL DEFAULT 0,
+        "color" TEXT NOT NULL DEFAULT '#cd7f32',
+        "icon" TEXT NOT NULL DEFAULT '',
+        "active" BOOLEAN NOT NULL DEFAULT 1,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`);
+      await db.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "LoyaltyTier_restaurantId_name_key" ON "LoyaltyTier"("restaurantId", "name")`);
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "LoyaltyTier_restaurantId_active_idx" ON "LoyaltyTier"("restaurantId", "active")`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!msg.includes('already exists')) {
+        console.warn(`[db:fix] Could not create LoyaltyTier: ${msg}`);
       }
     }
 
