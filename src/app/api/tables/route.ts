@@ -6,7 +6,18 @@ import { logAudit } from "@/lib/audit";
 
 // ────────────────────────────────────────────────────────────────
 // GET /api/tables — list tables for the authenticated admin's restaurant
+//
+// Visibility (aligned with the dashboard sidebar):
+//   - admin, manager           — full access (CRUD)
+//   - staff, cashier           — operational (need to see table numbers
+//                                for dine-in orders + payments)
+//   - kitchen                  — needs to know which table a dish goes to
+//   - host                     — needs to seat guests at tables
+//   - delivery_manager         — does NOT need tables (delivery only)
+//   - accountant               — does NOT need tables (finance only)
 // ────────────────────────────────────────────────────────────────
+const TABLES_READ_ROLES = ["admin", "manager", "staff", "cashier", "kitchen", "host"];
+
 export async function GET(request: Request) {
   try {
     await dbReady;
@@ -14,7 +25,7 @@ export async function GET(request: Request) {
     if (!admin) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
-    if (!hasRole(admin.role, [...PERMISSION_GROUPS.MENU_READ, "admin", "manager"])) {
+    if (!hasRole(admin.role, TABLES_READ_ROLES)) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 
