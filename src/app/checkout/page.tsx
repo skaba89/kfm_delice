@@ -50,6 +50,20 @@ function CheckoutContent() {
   const [tipPercent, setTipPercent] = useState<number>(0); // 0, 5, 10, 15, or custom
   const [customTip, setCustomTip] = useState<string>(""); // custom amount in GNF
 
+  // 🎟️ Mission P2.6 — Promo code state
+  const [promoCode, setPromoCode] = useState<string>("");
+  const [promoValidation, setPromoValidation] = useState<{
+    valid: boolean;
+    code?: string;
+    description?: string;
+    discountType?: string;
+    discountValue?: number;
+    discountAmount?: number;
+    newTotal?: number;
+    error?: string;
+  } | null>(null);
+  const [promoLoading, setPromoLoading] = useState(false);
+
   useEffect(() => {
     const storedCart = sessionStorage.getItem("kfm-cart");
     const storedTotal = sessionStorage.getItem("kfm-cart-total");
@@ -73,13 +87,45 @@ function CheckoutContent() {
 
   const loyaltyPoints = Math.floor(cartTotal / 1000);
 
-  // 💰 Mission P2.5 — Tip calculation
+  // 🎟️ Mission P2.6 — Promo discount
+  const promoDiscount = promoValidation?.valid ? (promoValidation.discountAmount || 0) : 0;
+  const cartAfterPromo = Math.max(0, cartTotal - promoDiscount);
+
+  // 💰 Mission P2.5 — Tip calculation (based on cart AFTER promo discount)
   // tipPercent is 0, 5, 10, or 15. If customTip is non-empty, it
   // overrides the percentage. The backend clamps to [0, 50% of total].
   const calculatedTip = customTip.trim() !== ""
     ? Math.max(0, parseInt(customTip, 10) || 0)
-    : Math.round(cartTotal * (tipPercent / 100));
-  const grandTotal = cartTotal + calculatedTip;
+    : Math.round(cartAfterPromo * (tipPercent / 100));
+  const grandTotal = cartAfterPromo + calculatedTip;
+
+  // 🎟️ Mission P2.6 — Validate promo code via API
+  const validatePromo = async () => {
+    if (!promoCode.trim()) {
+      setPromoValidation(null);
+      return;
+    }
+    setPromoLoading(true);
+    try {
+      const res = await publicApiFetch("/api/promo-codes/validate", {
+        method: "POST",
+        body: JSON.stringify({ code: promoCode.trim(), cartTotal }),
+      });
+      const data = await res.json();
+      if (res.ok && data.valid) {
+        setPromoValidation(data);
+        toast.success(`Code "${data.code}" appliqué — ${data.discountAmount.toLocaleString("fr-FR")} GNF de remise`);
+      } else {
+        setPromoValidation({ valid: false, error: data.error || "Code invalide" });
+        toast.error(data.error || "Code promo invalide");
+      }
+    } catch {
+      setPromoValidation({ valid: false, error: "Erreur de validation" });
+      toast.error("Erreur de validation du code promo");
+    } finally {
+      setPromoLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -102,8 +148,9 @@ function CheckoutContent() {
 
       const body = {
         items: JSON.stringify(orderItems),
-        total: cartTotal, // subtotal (without tip) — server recalculates
+        total: cartTotal, // subtotal (without tip/discount) — server recalculates
         tip: calculatedTip, // Mission P2.5: pourboire
+        promoCode: promoValidation?.valid ? promoValidation.code : undefined, // Mission P2.6
         orderType,
         customerName: customerName || customer?.name || "Client",
         phone,
@@ -274,6 +321,55 @@ function CheckoutContent() {
               <span className="text-lg font-bold text-gray-900 dark:text-white">Sous-total</span>
               <span className="text-xl font-bold text-gray-900 dark:text-white">{formatPrice(cartTotal)}</span>
             </div>
+
+            {/* 🎟️ Mission P2.6 — Promo code */}
+            <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800">
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Code promo <span className="text-gray-400">(optionnel)</span>
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={promoCode}
+                  onChange={(e) => {
+                    setPromoCode(e.target.value.toUpperCase());
+                    setPromoValidation(null);
+                  }}
+                  placeholder="BIENVENUE10"
+                  className="flex-1 px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono uppercase"
+                />
+                <button
+                  type="button"
+                  onClick={validatePromo}
+                  disabled={promoLoading || !promoCode.trim()}
+                  className="px-4 py-2 text-sm font-semibold bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {promoLoading ? "..." : "Appliquer"}
+                </button>
+              </div>
+              {promoValidation?.valid && (
+                <div className="mt-2 flex items-center justify-between text-sm bg-green-50 dark:bg-green-900/20 rounded-lg px-3 py-2">
+                  <span className="text-green-700 dark:text-green-400 font-medium">
+                    ✓ {promoValidation.code}
+                    {promoValidation.description ? ` — ${promoValidation.description}` : ""}
+                  </span>
+                  <span className="text-green-600 dark:text-green-400 font-bold">
+                    -{formatPrice(promoValidation.discountAmount || 0)}
+                  </span>
+                </div>
+              )}
+              {promoValidation && !promoValidation.valid && (
+                <p className="mt-2 text-xs text-red-500">✗ {promoValidation.error}</p>
+              )}
+            </div>
+
+            {/* Promo discount line (if applied) */}
+            {promoDiscount > 0 && (
+              <div className="mt-2 flex items-center justify-between text-sm">
+                <span className="text-gray-600 dark:text-gray-400">Remise promo</span>
+                <span className="font-medium text-red-500">-{formatPrice(promoDiscount)}</span>
+              </div>
+            )}
 
             {/* 💰 Mission P2.5 — Tip selector */}
             <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800">

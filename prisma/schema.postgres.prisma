@@ -138,6 +138,7 @@ model Restaurant {
   stockItems        StockItem[]
   stockMovements    StockMovement[]
   restaurantTables  RestaurantTable[]
+  promoCodes        PromoCode[]
 
   @@index([status])
   @@index([plan])
@@ -529,6 +530,32 @@ model LoyaltyReward {
 
   @@index([restaurantId, active])
   @@index([restaurantId, category])
+}
+
+// ────────────────────────────────────────────────────────────────
+// PromoCode — discount codes for checkout (Mission P2.6)
+// ────────────────────────────────────────────────────────────────
+model PromoCode {
+  id              String   @id @default(cuid())
+  code            String   // BIENVENUE10, SUMMER20, etc.
+  description     String   @default("")
+  discountType    String   @default("percent") // percent, fixed
+  discountValue   BigInt   @default(0) // 10 = 10% or 5000 = 5000 GNF
+  minOrderTotal   BigInt   @default(0) // minimum cart total to apply
+  maxUses         Int      @default(0) // 0 = unlimited
+  usedCount       Int      @default(0)
+  maxUsesPerUser  Int      @default(1) // per customer
+  active          Boolean  @default(true)
+  startsAt        DateTime?
+  expiresAt       DateTime?
+  restaurantId    String
+  restaurant      Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([restaurantId, code])
+  @@index([restaurantId, active])
+  @@index([code])
 }
 
 // ────────────────────────────────────────────────────────────────

@@ -255,6 +255,61 @@ export async function POST(request: Request) {
     // Subtract discount
     recalculatedTotal = Math.max(0, recalculatedTotal - (body.discount || 0));
 
+    // ── Mission P2.6: Validate promo code (server-authoritative) ──
+    // If the body contains a `promoCode` string, look it up in the DB,
+    // validate it (active, not expired, under max uses, meets min total),
+    // and apply the discount. The client-sent `discount` is IGNORED
+    // when a promo code is present — only the server-computed discount
+    // is trusted.
+    let verifiedDiscount = typeof body.discount === "number" ? body.discount : 0;
+    let appliedPromoCode: string | null = null;
+    const promoCodeStr = (body as { promoCode?: string }).promoCode;
+    if (promoCodeStr && typeof promoCodeStr === "string" && promoCodeStr.trim().length > 0) {
+      const normalizedCode = promoCodeStr.trim().toUpperCase();
+      const promo = await db.promoCode.findFirst({
+        where: { restaurantId, code: normalizedCode },
+      }).catch(() => null);
+
+      if (!promo) {
+        return NextResponse.json(
+          { error: `Code promo "${normalizedCode}" introuvable`, code: "PROMO_NOT_FOUND" },
+          { status: 400 }
+        );
+      }
+      if (!promo.active) {
+        return NextResponse.json({ error: "Code promo désactivé", code: "PROMO_INACTIVE" }, { status: 400 });
+      }
+      const now = new Date();
+      if (promo.startsAt && now < promo.startsAt) {
+        return NextResponse.json({ error: "Code promo pas encore actif", code: "PROMO_NOT_STARTED" }, { status: 400 });
+      }
+      if (promo.expiresAt && now > promo.expiresAt) {
+        return NextResponse.json({ error: "Code promo expiré", code: "PROMO_EXPIRED" }, { status: 400 });
+      }
+      if (promo.maxUses > 0 && promo.usedCount >= promo.maxUses) {
+        return NextResponse.json({ error: "Code promo épuisé", code: "PROMO_EXHAUSTED" }, { status: 400 });
+      }
+      const minTotal = Number(promo.minOrderTotal);
+      if (minTotal > 0 && recalculatedTotal < minTotal) {
+        return NextResponse.json(
+          { error: `Commande minimum de ${minTotal.toLocaleString("fr-FR")} GNF requise pour ce code`, code: "PROMO_MIN_TOTAL" },
+          { status: 400 }
+        );
+      }
+
+      // Calculate the server-side discount
+      const value = Number(promo.discountValue);
+      let promoDiscount = 0;
+      if (promo.discountType === "percent") {
+        promoDiscount = Math.round(recalculatedTotal * (value / 100));
+      } else {
+        promoDiscount = Math.min(value, recalculatedTotal);
+      }
+      verifiedDiscount = promoDiscount;
+      appliedPromoCode = normalizedCode;
+      recalculatedTotal = Math.max(0, recalculatedTotal - promoDiscount);
+    }
+
     // Use the recalculated total (trust server calculation over client)
     const verifiedTotal = recalculatedTotal;
 
@@ -291,6 +346,7 @@ export async function POST(request: Request) {
         ...validation.data,
         items: JSON.stringify(verifiedItems),
         total: verifiedTotal,
+        discount: verifiedDiscount, // Mission P2.6: discount appliqué (promo ou manuel)
         tip: verifiedTip, // Mission P2.5: pourboire validé
         restaurantId,
         ...(customerId && { customerId }),
@@ -305,6 +361,18 @@ export async function POST(request: Request) {
         }),
       },
     });
+
+    // ── Mission P2.6: Increment promo code usage counter ──
+    if (appliedPromoCode) {
+      try {
+        await db.promoCode.updateMany({
+          where: { restaurantId, code: appliedPromoCode },
+          data: { usedCount: { increment: 1 } },
+        });
+      } catch {
+        /* non-blocking — the order is already created */
+      }
+    }
 
     // Audit table-order creation
     if (tableId) {
