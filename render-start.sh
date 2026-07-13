@@ -109,6 +109,13 @@ if [ "$PROVIDER" = "postgres" ]; then
     echo "[render-start] prisma migrate deploy failed — will try db push as fallback"
   fi
 
+  # ── Drop empty conflicting tables before db push ─────────────
+  # The safety-net in db.ts may have created tables with wrong column
+  # types (TEXT instead of BIGINT). This drops EMPTY tables so prisma
+  # db push can recreate them with the correct types.
+  echo "[render-start] Running pre-db-push cleanup (drop empty conflicting tables)..."
+  bash scripts/render-pre-db-push.sh 2>&1 || echo "[render-start] pre-db-push warning, continuing..."
+
   # ── ALWAYS run prisma db push to sync schema ──────────────────
   # This ensures ALL tables + columns exist with the correct types,
   # even if migrate deploy failed or was partially applied.
