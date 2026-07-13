@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import {
   Clock, Flame, CheckCircle2, XCircle, RotateCcw, Play,
   ChefHat, TrendingUp, Timer, Utensils, Activity, Award,
-  BookOpen, Search, UtensilsCrossed,
+  BookOpen, Search, UtensilsCrossed, RefreshCw,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -129,6 +129,24 @@ export function KitchenDashboard({ onLogout }: { onLogout: () => void }) {
   const prevPendingIdsRef = useRef<Set<string>>(new Set());
   const prevReadyIdsRef = useRef<Set<string>>(new Set());
 
+  // 🔌 Mission P1.2 — Offline mode: detect network outages and queue
+  // status updates locally. The queue is persisted in localStorage so
+  // it survives a page reload. When connectivity returns, the queue is
+  // replayed automatically.
+  const [isOnline, setIsOnline] = useState(true);
+  const [offlineQueue, setOfflineQueue] = useState<Array<{
+    orderId: string;
+    action: "start" | "finish" | "cancel" | "recall" | "serve" | "pickup" | "handover";
+    queuedAt: number;
+  }>>([]);
+
+  // Persist offline queue to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem("kfm-kitchen-offline-queue", JSON.stringify(offlineQueue));
+    } catch { /* ignore */ }
+  }, [offlineQueue]);
+
   const load = useCallback(async () => {
     try {
       const res = await apiFetch("/api/kitchen");
@@ -189,6 +207,77 @@ export function KitchenDashboard({ onLogout }: { onLogout: () => void }) {
     }
   }, [apiFetch]);
 
+  // 🔌 Mission P1.2 — Replay queued status updates when back online.
+  // Defined AFTER `load` so it can reference it in the dependency array.
+  const replayQueue = useCallback(async () => {
+    if (offlineQueue.length === 0) return;
+    const queue = [...offlineQueue];
+    setOfflineQueue([]); // clear immediately to avoid double-replay
+    let successCount = 0;
+    let failCount = 0;
+    for (const item of queue) {
+      try {
+        const res = await apiFetch("/api/kitchen", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderId: item.orderId, action: item.action }),
+        });
+        if (res.ok) successCount++;
+        else failCount++;
+      } catch {
+        failCount++;
+      }
+    }
+    if (successCount > 0) {
+      notify.success(`${successCount} mise(s) à jour synchronisée(s)`);
+    }
+    if (failCount > 0) {
+      notify.error(`${failCount} mise(s) à jour échouée(s) — remise en file`);
+      // Re-queue failed items
+      setOfflineQueue((prev) => [
+        ...prev,
+        ...queue.slice(successCount).map((item) => ({ ...item, queuedAt: Date.now() })),
+      ]);
+    }
+    load();
+  }, [offlineQueue, apiFetch, load]);
+
+  // Load persisted offline queue on mount + replay if online
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("kfm-kitchen-offline-queue");
+      if (stored) {
+        const queue = JSON.parse(stored);
+        if (Array.isArray(queue) && queue.length > 0) {
+          setOfflineQueue(queue);
+          if (navigator.onLine) {
+            setTimeout(() => replayQueue(), 2000);
+          }
+        }
+      }
+    } catch { /* ignore */ }
+  }, [replayQueue]);
+
+  // Online/offline detection
+  useEffect(() => {
+    const goOnline = () => {
+      setIsOnline(true);
+      notify.success("Connexion rétablie — synchronisation des mises à jour…");
+      setTimeout(() => replayQueue(), 1000);
+    };
+    const goOffline = () => {
+      setIsOnline(false);
+      notify.warning("Mode hors-ligne — les mises à jour seront synchronisées au retour du réseau");
+    };
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    setIsOnline(navigator.onLine);
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, [replayQueue]);
+
   // Poll every 5s
   useEffect(() => {
     load();
@@ -203,6 +292,62 @@ export function KitchenDashboard({ onLogout }: { onLogout: () => void }) {
   }, []);
 
   const updateStatus = async (orderId: string, action: "start" | "finish" | "cancel" | "recall" | "serve" | "pickup" | "handover") => {
+    const messages: Record<string, string> = {
+      start: "Préparation démarrée",
+      finish: "Commande prête !",
+      cancel: "Commande annulée",
+      recall: "Commande reprise en cuisine",
+      serve: "Commande servie à table ✓",
+      pickup: "Commande récupérée par le client ✓",
+      handover: "Commande remise au livreur ✓",
+    };
+
+    // 🔌 Mission P1.2 — If offline, queue the update locally.
+    // The kitchen can keep marking orders as started/ready/served even
+    // without a network connection. Updates are replayed automatically
+    // when connectivity returns.
+    if (!isOnline) {
+      setOfflineQueue((prev) => [
+        ...prev,
+        { orderId, action, queuedAt: Date.now() },
+      ]);
+      // Optimistically update the local state so the UI reflects the change
+      // immediately (the next poll will confirm or correct this).
+      setData((prev) => {
+        if (!prev) return prev;
+        const moveOrder = (orders: Array<Record<string, unknown>>) => {
+          const idx = orders.findIndex((o) => o.id === orderId);
+          if (idx === -1) return orders;
+          const order = orders[idx];
+          // Update the order's status based on the action
+          const newStatus =
+            action === "start" ? "preparing" :
+            action === "finish" ? "ready" :
+            action === "cancel" ? "cancelled" :
+            action === "recall" ? "preparing" :
+            action === "serve" || action === "pickup" || action === "handover" ? "delivered" :
+            (order.status as string);
+          return [
+            ...orders.slice(0, idx),
+            { ...order, status: newStatus },
+            ...orders.slice(idx + 1),
+          ];
+        };
+        return {
+          ...prev,
+          queues: {
+            pending: action === "start" || action === "recall"
+              ? prev.queues.pending.filter((o) => o.id !== orderId)
+              : moveOrder(prev.queues.pending as unknown as Array<Record<string, unknown>>) as never,
+            preparing: prev.queues.preparing,
+            ready: prev.queues.ready,
+          },
+        };
+      });
+      notify.info(`${messages[action]} (hors-ligne — synchronisé au retour réseau)`);
+      return;
+    }
+
     try {
       const res = await apiFetch("/api/kitchen", {
         method: "PATCH",
@@ -210,15 +355,6 @@ export function KitchenDashboard({ onLogout }: { onLogout: () => void }) {
         body: JSON.stringify({ orderId, action }),
       });
       if (res.ok) {
-        const messages: Record<string, string> = {
-          start: "Préparation démarrée",
-          finish: "Commande prête !",
-          cancel: "Commande annulée",
-          recall: "Commande reprise en cuisine",
-          serve: "Commande servie à table ✓",
-          pickup: "Commande récupérée par le client ✓",
-          handover: "Commande remise au livreur ✓",
-        };
         notify.success(messages[action]);
         load();
       } else {
@@ -227,7 +363,12 @@ export function KitchenDashboard({ onLogout }: { onLogout: () => void }) {
       }
     } catch (e) {
       console.error(e);
-      notify.error("Erreur réseau");
+      // Network error — queue the update for later replay
+      setOfflineQueue((prev) => [
+        ...prev,
+        { orderId, action, queuedAt: Date.now() },
+      ]);
+      notify.warning(`${messages[action]} (mis en file — synchronisé au retour réseau)`);
     }
   };
 
@@ -255,6 +396,25 @@ export function KitchenDashboard({ onLogout }: { onLogout: () => void }) {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+      {/* 🔌 Mission P1.2 — Offline banner */}
+      {!isOnline && (
+        <div className="bg-amber-500 text-white px-4 py-2 text-center text-sm font-medium sticky top-0 z-40">
+          <span className="inline-flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+            Mode hors-ligne — {offlineQueue.length} mise(s) à jour en attente de synchronisation
+          </span>
+        </div>
+      )}
+      {/* Pending offline queue indicator (even when back online, shows replay progress) */}
+      {isOnline && offlineQueue.length > 0 && (
+        <div className="bg-blue-500 text-white px-4 py-2 text-center text-sm font-medium sticky top-0 z-40">
+          <span className="inline-flex items-center gap-2">
+            <RefreshCw className="w-3 h-3 animate-spin" />
+            Synchronisation de {offlineQueue.length} mise(s) à jour en cours…
+          </span>
+        </div>
+      )}
+
       {/* Header */}
       <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
@@ -270,9 +430,15 @@ export function KitchenDashboard({ onLogout }: { onLogout: () => void }) {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="flex items-center gap-1.5 text-xs font-medium text-green-600 dark:text-green-400">
-              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" /> Live
-            </span>
+            {isOnline ? (
+              <span className="flex items-center gap-1.5 text-xs font-medium text-green-600 dark:text-green-400">
+                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" /> Live
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+                <span className="w-2 h-2 rounded-full bg-amber-500" /> Hors-ligne
+              </span>
+            )}
             <Button variant="outline" size="sm" onClick={onLogout}>Déconnexion</Button>
           </div>
         </div>

@@ -1,7 +1,13 @@
 // KFM Delice Service Worker — PWA offline support
-// Caches static assets + API responses for offline use
+// Caches static assets + API responses for offline use.
+//
+// Mission P1.2: Kitchen offline mode — caches /api/kitchen responses
+// so the kitchen tablet can keep displaying active tickets during a
+// network outage. PATCH requests (status updates) are queued and
+// replayed when connectivity returns (see KitchenDashboard.tsx
+// offline-queue logic).
 
-const CACHE_NAME = 'kfm-delice-v1';
+const CACHE_NAME = 'kfm-delice-v2';
 const STATIC_CACHE = `${CACHE_NAME}-static`;
 const API_CACHE = `${CACHE_NAME}-api`;
 
@@ -17,6 +23,7 @@ const CACHEABLE_API = [
   '/api/menu',
   '/api/restaurant',
   '/api/status',
+  '/api/kitchen', // Mission P1.2: kitchen tickets available offline
 ];
 
 // ── Install: cache static assets ───────────────────────────────
