@@ -77,6 +77,13 @@ export function OrdersTab({ orders, apiPatch }: OrdersTabProps) {
                   <span className="text-sm font-bold text-gray-900 dark:text-gray-100">Total</span>
                   <span className="text-sm font-bold text-orange-600 dark:text-orange-400">{formatPrice(o.total)}</span>
                 </div>
+                {/* 💰 Mission P2.5: tip display */}
+                {o.tip > 0 && (
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-xs text-green-600 dark:text-green-400 font-medium">💚 Pourboire</span>
+                    <span className="text-xs text-green-600 dark:text-green-400 font-bold">+{formatPrice(o.tip)}</span>
+                  </div>
+                )}
                 {o.deliveryFee > 0 && <p className="text-[10px] text-gray-400 dark:text-gray-500 mb-2">+ {formatPrice(o.deliveryFee)} frais de livraison</p>}
                 {o.driver && <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 mb-2 bg-gray-50 dark:bg-gray-700/50 p-1.5 rounded-lg"><Bike className="w-3 h-3" /> {o.driver.name}</div>}
                 <div className="flex gap-2 flex-wrap">

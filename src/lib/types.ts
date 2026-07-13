@@ -18,7 +18,7 @@ export interface OrderDB {
   id: string; customerName: string; phone: string; items: string;
   total: number; status: string; orderType: string; paymentMethod: string;
   deliveryAddress: string; deliveryFee: number; tableNumber: number;
-  discount: number; tax: number; note: string;
+  discount: number; tax: number; tip: number; note: string;
   estimatedDeliveryTime: string; driverLat: number; driverLng: number;
   driverId: string | null;
   driver: DriverDB | null; createdAt: string;

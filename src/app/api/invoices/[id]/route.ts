@@ -39,6 +39,24 @@ export async function GET(
     // Check if this is a PDF request (via ?format=pdf)
     const url = new URL(request.url);
     if (url.searchParams.get("format") === "pdf") {
+      // ── Mission P2.5: fetch the tip from the linked order (if any) ──
+      // The Invoice model doesn't have a tip column (tips live on Order),
+      // so we look up the linked order to display the tip on the PDF.
+      let orderTip = 0;
+      if (invoice.orderId) {
+        try {
+          const linkedOrder = await db.order.findFirst({
+            where: { id: invoice.orderId, restaurantId: admin.restaurantId },
+            select: { tip: true },
+          });
+          if (linkedOrder) {
+            orderTip = Number(linkedOrder.tip);
+          }
+        } catch {
+          /* tip column may not exist yet on legacy DBs — non-blocking */
+        }
+      }
+
       // Convert BigInt fields to Number and Json to string for PDF rendering.
       // pdfkit + generateInvoicePDF expect number/string, not bigint/Json.
       const pdfBuffer = await generateInvoicePDF(
@@ -48,6 +66,7 @@ export async function GET(
           subtotal: Number(invoice.subtotal),
           tax: Number(invoice.tax),
           total: Number(invoice.total),
+          tip: orderTip, // Mission P2.5: pourboire from linked order
         },
         {
           name: restaurant.name,

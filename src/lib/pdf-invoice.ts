@@ -13,6 +13,7 @@ export async function generateInvoicePDF(invoice: {
   subtotal: number;
   tax: number;
   total: number;
+  tip?: number; // Mission P2.5: pourboire (optional, default 0)
   status: string;
   dueDate?: string;
   notes?: string;
@@ -173,6 +174,15 @@ export async function generateInvoicePDF(invoice: {
     doc.text("Taxe", totalsX, y);
     doc.text(fmt(invoice.tax), 465, y, { width: 80, align: "right" });
     y += 20;
+
+    // ── Mission P2.5: Tip line (only shown if tip > 0) ──
+    const tipAmount = Number(invoice.tip || 0);
+    if (tipAmount > 0) {
+      doc.fillColor(GRAY);
+      doc.text("Pourboire", totalsX, y);
+      doc.text(fmt(tipAmount), 465, y, { width: 80, align: "right" });
+      y += 20;
+    }
 
     // Total with accent
     doc.rect(totalsX - 5, y - 3, 195, 26).fill(LIGHT_BG);
