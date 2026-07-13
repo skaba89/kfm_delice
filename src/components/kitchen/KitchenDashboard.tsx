@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   Clock, Flame, CheckCircle2, XCircle, RotateCcw, Play,
   ChefHat, TrendingUp, Timer, Utensils, Activity, Award,
@@ -122,12 +122,63 @@ export function KitchenDashboard({ onLogout }: { onLogout: () => void }) {
   // Top-level tab: 'kitchen' (live orders) vs 'recipes' (menu/recipe lookup)
   const [activeTab, setActiveTab] = useState<"kitchen" | "recipes">("kitchen");
 
+  // 🔔 Mission P1.1 — Track previously-seen pending order IDs so we can
+  // detect NEW orders arriving between polls. When a new ID appears,
+  // we play the "new-order" sound + show a toast. Also track ready orders
+  // to play the "order-ready" chime when a dish moves to "ready".
+  const prevPendingIdsRef = useRef<Set<string>>(new Set());
+  const prevReadyIdsRef = useRef<Set<string>>(new Set());
+
   const load = useCallback(async () => {
     try {
       const res = await apiFetch("/api/kitchen");
       if (res.ok) {
         const d = await res.json();
         setData(d);
+
+        // 🔔 Sound notifications — diff against previous poll
+        try {
+          const { playNewOrderSound, playOrderReadySound } = await import("@/lib/sound");
+          const pendingIds = new Set<string>(
+            (d.queues?.pending || []).map((o: { id: string }) => o.id)
+          );
+          const readyIds = new Set<string>(
+            (d.queues?.ready || []).map((o: { id: string }) => o.id)
+          );
+
+          // New pending orders (kitchen ticket just arrived)
+          if (prevPendingIdsRef.current.size > 0) {
+            for (const id of pendingIds) {
+              if (!prevPendingIdsRef.current.has(id)) {
+                playNewOrderSound();
+                // Find the order to get the customer name for the toast
+                const newOrder = (d.queues?.pending || []).find(
+                  (o: { id: string }) => o.id === id
+                );
+                notify.newOrder(
+                  newOrder?.customerName || "Nouvelle commande cuisine"
+                );
+                break; // one sound per poll cycle (avoid staccato if 3 arrive at once)
+              }
+            }
+          }
+
+          // New ready orders (dish just finished cooking)
+          if (prevReadyIdsRef.current.size > 0) {
+            for (const id of readyIds) {
+              if (!prevReadyIdsRef.current.has(id)) {
+                playOrderReadySound();
+                notify.success("Commande prête à être servie !");
+                break;
+              }
+            }
+          }
+
+          prevPendingIdsRef.current = pendingIds;
+          prevReadyIdsRef.current = readyIds;
+        } catch {
+          /* sound module unavailable — non-blocking */
+        }
       } else {
         notify.error("Erreur de chargement");
       }

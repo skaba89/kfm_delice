@@ -266,15 +266,42 @@ export function useAdminData(activeTab: string, adminId: string) {
   // ─── Auto-refresh every 15 seconds (polling fallback for production) ───
   // In production, WebSocket doesn't work (localhost-only guard), so we poll.
   // This ensures the admin dashboard sees new orders without manual refresh.
+  //
+  // 🔔 Mission P1.1: We also detect NEW orders by diffing the totalOrders
+  // count between polls. If a new order arrived since the last poll, we
+  // play the "new-order" sound + show a toast. This covers the production
+  // path where WebSocket events don't fire.
+  const prevTotalOrdersRef = useRef<number | null>(null);
   useEffect(() => {
     const interval = setInterval(async () => {
       // Only refresh if the document is visible (saves API calls)
       if (document.visibilityState === "visible") {
-        await loadStats();
+        const newStats = await loadStats();
+        // Detect new orders by comparing totalOrders count
+        if (newStats && typeof newStats.totalOrders === "number") {
+          const prev = prevTotalOrdersRef.current;
+          const current = newStats.totalOrders as number;
+          if (prev !== null && current > prev) {
+            // New order(s) detected via polling — play sound + toast.
+            // (WebSocket path already handles this in handleNewOrder,
+            //  but WS is localhost-only so polling is the production path.)
+            notify.newOrder("Nouveau client");
+            try {
+              import("@/lib/sound").then(({ playNewOrderSound }) => playNewOrderSound());
+            } catch { /* non-blocking */ }
+            // Invalidate orders cache so next visit reloads
+            loadedTabs.current.delete("orders");
+            loadedTabs.current.delete("deliveries");
+            if (activeTab === "orders" || activeTab === "deliveries") {
+              loadTabData(activeTab, true);
+            }
+          }
+          prevTotalOrdersRef.current = current;
+        }
       }
     }, 15000); // 15 seconds
     return () => clearInterval(interval);
-  }, []);
+  }, [activeTab, loadStats, loadTabData]);
 
   // ─── Load tab data when activeTab changes ──────────────────────
   const prevTabRef = useRef(activeTab);
@@ -295,6 +322,11 @@ export function useAdminData(activeTab: string, adminId: string) {
   useEffect(() => {
     const handleNewOrder = () => {
       notify.newOrder("Nouveau client");
+      // 🔔 Sound notification (Mission P1.1) — plays if the user has
+      // enabled it in Settings → Notifications sonores. No-op otherwise.
+      try {
+        import("@/lib/sound").then(({ playNewOrderSound }) => playNewOrderSound());
+      } catch { /* sound module unavailable — non-blocking */ }
       loadStats(); // Refresh badge counts
       // Invalidate orders cache so next visit reloads
       loadedTabs.current.delete("orders");

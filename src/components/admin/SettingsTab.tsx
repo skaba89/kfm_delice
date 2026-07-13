@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Settings, Store, Phone, MapPin, Clock, Image, Palette,
   Truck, Receipt, Globe, Save, RefreshCw, Upload, Check,
-  ShieldCheck, Users2,
+  ShieldCheck, Users2, Bell, Volume2, VolumeX, Play,
 } from "lucide-react";
 import type { RestaurantDB, AdminDB } from "@/lib/types";
 import { notify } from "@/lib/notifications";
@@ -145,6 +145,8 @@ export function SettingsTab({ apiFetch, apiPatch, apiPut, adminRole, admins = []
     { id: "delivery", label: "Livraison", icon: Truck },
     { id: "billing", label: "Facturation", icon: Receipt },
     { id: "social", label: "Réseaux sociaux", icon: Globe },
+    // 🔔 Mission P1.1 — Sound notifications (per-device preference, no DB)
+    { id: "sounds", label: "Notifications sonores", icon: Bell },
     // Roles & privileges — admin only
     ...(adminRole === "admin" ? [
       { id: "roles", label: "Rôles & Privilèges", icon: ShieldCheck },
@@ -458,6 +460,9 @@ export function SettingsTab({ apiFetch, apiPatch, apiPut, adminRole, admins = []
             </CardContent>
           </Card>
         )}
+
+        {/* 🔔 Mission P1.1 — Sound notifications (per-device, no DB) */}
+        {activeSection === "sounds" && <SoundPreferencesSection />}
 
         {activeSection === "roles" && <RolesAndPrivileges admins={admins} />}
       </motion.div>
@@ -793,5 +798,249 @@ function RolesAndPrivileges({ admins }: RolesAndPrivilegesProps) {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────
+// 🔔 Mission P1.1 — Sound Preferences Section
+//
+// Per-device preferences stored in localStorage (no DB migration).
+// This lets the kitchen tablet have sound ON while the manager's
+// laptop has it OFF, even if both are logged into the same restaurant.
+// ────────────────────────────────────────────────────────────────
+
+// Type alias for the sound preferences hook return value.
+// We define it explicitly here (rather than importing from src/lib/sound)
+// to keep the dynamic import pattern clean — the sound module uses
+// `window` and `AudioContext` which are browser-only, so we lazy-load
+// it only on the client side.
+interface SoundPrefsHook {
+  prefs: {
+    enabled: boolean;
+    volume: number;
+    newOrder: boolean;
+    orderReady: boolean;
+    statusChange: boolean;
+    alert: boolean;
+  };
+  update: (partial: Partial<{
+    enabled: boolean;
+    volume: number;
+    newOrder: boolean;
+    orderReady: boolean;
+    statusChange: boolean;
+    alert: boolean;
+  }>) => void;
+  test: (type: "new-order" | "order-ready" | "status-change" | "alert") => void;
+}
+
+function SoundPreferencesSection() {
+  // Lazy import to avoid loading the sound module on the server
+  // (it uses `window` and `AudioContext` which are browser-only).
+  const [soundHook, setSoundHook] = useState<SoundPrefsHook | null>(null);
+
+  // Dynamic import pattern: load the sound hook only on the client
+  useEffect(() => {
+    let cancelled = false;
+    import("@/lib/sound").then((mod) => {
+      if (!cancelled) setSoundHook(mod.useSoundPreferences());
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (!soundHook) {
+    return (
+      <Card className="dark:bg-gray-800 dark:border-gray-700">
+        <CardContent className="p-6">
+          <div className="flex items-center gap-2 text-gray-500">
+            <RefreshCw className="w-4 h-4 animate-spin" />
+            <span className="text-sm">Chargement des préférences sonores…</span>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const { prefs, update, test } = soundHook;
+
+  return (
+    <Card className="dark:bg-gray-800 dark:border-gray-700">
+      <CardContent className="p-6 space-y-6">
+        {/* Header */}
+        <div className="flex items-start justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
+              <Bell className="w-5 h-5 text-orange-500" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                Notifications sonores
+              </h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Alertes sonores pour les nouvelles commandes et changements de statut.
+                Préférences enregistrées sur cet appareil (par tablette/laptop).
+              </p>
+            </div>
+          </div>
+          {prefs.enabled ? (
+            <Volume2 className="w-6 h-6 text-green-500" />
+          ) : (
+            <VolumeX className="w-6 h-6 text-gray-400" />
+          )}
+        </div>
+
+        {/* Master toggle */}
+        <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-900/50 rounded-xl">
+          <div>
+            <p className="font-semibold text-gray-900 dark:text-gray-100">
+              Activer les notifications sonores
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+              Coupe tous les sons si désactivé (priorité maximale)
+            </p>
+          </div>
+          <button
+            onClick={() => update({ enabled: !prefs.enabled })}
+            className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${
+              prefs.enabled ? "bg-orange-500" : "bg-gray-300 dark:bg-gray-600"
+            }`}
+            role="switch"
+            aria-checked={prefs.enabled}
+            aria-label="Activer les notifications sonores"
+          >
+            <span
+              className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                prefs.enabled ? "translate-x-6" : "translate-x-1"
+              }`}
+            />
+          </button>
+        </div>
+
+        {/* Volume slider */}
+        <div className={prefs.enabled ? "" : "opacity-50 pointer-events-none"}>
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              Volume
+            </label>
+            <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">
+              {Math.round(prefs.volume * 100)}%
+            </span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={Math.round(prefs.volume * 100)}
+            onChange={(e) => update({ volume: parseInt(e.target.value, 10) / 100 })}
+            className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-orange-500"
+            aria-label="Volume des notifications sonores"
+          />
+        </div>
+
+        {/* Per-event toggles */}
+        <div className={`space-y-3 ${prefs.enabled ? "" : "opacity-50 pointer-events-none"}`}>
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            Événements sonores
+          </p>
+          {[
+            {
+              key: "newOrder" as const,
+              label: "Nouvelle commande",
+              desc: "Bip urgent quand une commande arrive en cuisine ou au dashboard",
+              sound: "new-order" as const,
+            },
+            {
+              key: "orderReady" as const,
+              label: "Commande prête",
+              desc: "Carillon quand un plat passe en statut « prêt à servir »",
+              sound: "order-ready" as const,
+            },
+            {
+              key: "statusChange" as const,
+              label: "Changement de statut",
+              desc: "Clic discret quand une commande change de statut",
+              sound: "status-change" as const,
+            },
+            {
+              key: "alert" as const,
+              label: "Alerte temps écoulé",
+              desc: "Bips descendants quand une commande dépasse 20 min d'attente",
+              sound: "alert" as const,
+            },
+          ].map((item) => (
+            <div
+              key={item.key}
+              className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg"
+            >
+              <div className="flex-1 min-w-0 pr-3">
+                <p className="font-medium text-sm text-gray-900 dark:text-gray-100">
+                  {item.label}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  {item.desc}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => test(item.sound)}
+                  className="h-8 px-2 text-xs dark:border-gray-600"
+                  title="Tester ce son"
+                >
+                  <Play className="w-3 h-3 mr-1" /> Tester
+                </Button>
+                <button
+                  onClick={() => update({ [item.key]: !prefs[item.key] } as Partial<typeof prefs>)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    prefs[item.key] ? "bg-orange-500" : "bg-gray-300 dark:bg-gray-600"
+                  }`}
+                  role="switch"
+                  aria-checked={prefs[item.key]}
+                  aria-label={`Activer: ${item.label}`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                      prefs[item.key] ? "translate-x-6" : "translate-x-1"
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Test all sounds */}
+        <div className="flex gap-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+          <Button
+            variant="outline"
+            onClick={() => test("new-order")}
+            className="flex-1 dark:border-gray-600"
+            size="sm"
+          >
+            <Play className="w-4 h-4 mr-2" /> Tester nouvelle commande
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => test("order-ready")}
+            className="flex-1 dark:border-gray-600"
+            size="sm"
+          >
+            <Play className="w-4 h-4 mr-2" /> Tester prêt
+          </Button>
+        </div>
+
+        {/* Info note */}
+        <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+          <p className="text-xs text-blue-700 dark:text-blue-400">
+            <strong>Note :</strong> Les navigateurs bloquent le son jusqu'à ce que vous
+            interagissiez avec la page (clic ou touche). Si aucun son ne sort, cliquez
+            n'importe où sur le dashboard puis réessayez. Les préférences sont propres à
+            cet appareil — la tablette cuisine et le laptop du manager peuvent avoir des
+            réglages différents.
+          </p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
