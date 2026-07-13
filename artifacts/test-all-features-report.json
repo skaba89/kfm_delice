@@ -1,0 +1,232 @@
+{
+  "scenario": "Test complet — toutes les fonctionnalités KFM Delice",
+  "baseUrl": "http://127.0.0.1:3002",
+  "slug": "kfm-delice",
+  "startedAt": "2026-07-13T16:12:27.317931Z",
+  "steps": [
+    {
+      "name": "server_status",
+      "status": "PASS",
+      "detail": {
+        "status": 200,
+        "data": {
+          "status": "ok",
+          "timestamp": "2026-07-13T16:12:27.330Z",
+          "env": "production"
+        }
+      }
+    },
+    {
+      "name": "admin_login",
+      "status": "PASS",
+      "detail": {
+        "email": "admin@kfm-delice.com"
+      }
+    },
+    {
+      "name": "table_create",
+      "status": "PASS",
+      "detail": {
+        "id": "cmrjf7run0002p3ywrdxojmt8",
+        "number": "FULL-E6D4C7"
+      }
+    },
+    {
+      "name": "qr_public_resolve",
+      "status": "PASS",
+      "detail": {
+        "status": 200,
+        "restaurant": {
+          "slug": "kfm-delice",
+          "name": "KFM Delice",
+          "status": "active",
+          "currency": "GNF"
+        },
+        "menuUrl": "/r/kfm-delice/menu?tableToken=cmrjf7run0002p3ywrdxojmt8"
+      }
+    },
+    {
+      "name": "order_with_tip",
+      "status": "PASS",
+      "detail": {
+        "orderId": "cmrjf7rvh0006p3ywwpfsoagz",
+        "total": 20000,
+        "tip": 2000
+      }
+    },
+    {
+      "name": "tip_clamped_50pct",
+      "status": "PASS",
+      "detail": {
+        "requestedTip": 10000,
+        "actualTip": 500,
+        "expectedTip": 500
+      }
+    },
+    {
+      "name": "promo_create",
+      "status": "PASS",
+      "detail": {
+        "id": "cmrjf7rwj000ep3ywfdvkj3pv",
+        "code": "FULLTEST55B4"
+      }
+    },
+    {
+      "name": "promo_validate",
+      "status": "PASS",
+      "detail": {
+        "status": 200,
+        "valid": true,
+        "discountAmount": 7500,
+        "newTotal": 42500
+      }
+    },
+    {
+      "name": "promo_min_total_rejected",
+      "status": "PASS",
+      "detail": {
+        "status": 400,
+        "valid": false,
+        "error": "Commande minimum de 5 000 GNF requise"
+      }
+    },
+    {
+      "name": "order_with_promo",
+      "status": "PASS",
+      "detail": {
+        "orderId": "cmrjf7rxm000ip3ywktepdhhj",
+        "total": 42500,
+        "discount": 7500,
+        "expectedTotal": 42500,
+        "expectedDiscount": 7500
+      }
+    },
+    {
+      "name": "chat_send",
+      "status": "PASS",
+      "detail": {
+        "id": "cmrjf7ry1000mp3ywp3mw249m",
+        "content": "Full feature test 33f77382"
+      }
+    },
+    {
+      "name": "chat_retrieve",
+      "status": "PASS",
+      "detail": {
+        "totalMessages": 6,
+        "foundTestMessage": true
+      }
+    },
+    {
+      "name": "chat_xss_sanitized",
+      "status": "PASS",
+      "detail": {
+        "content": "&lt;script&gt;alert(1)&lt;/script&gt;test",
+        "hasScript": false,
+        "hasEscaped": true
+      }
+    },
+    {
+      "name": "tiers_seed",
+      "status": "PASS",
+      "detail": {
+        "tierCount": 4,
+        "tierNames": [
+          "bronze",
+          "silver",
+          "gold",
+          "platinum"
+        ]
+      }
+    },
+    {
+      "name": "tiers_update",
+      "status": "PASS",
+      "detail": {
+        "silverDiscount": 7,
+        "expected": 7
+      }
+    },
+    {
+      "name": "pdf_journal_export",
+      "status": "PASS",
+      "detail": {
+        "status": 200,
+        "sizeBytes": 4228,
+        "magicBytes": "%PDF-1.3",
+        "isValidPDF": true
+      }
+    },
+    {
+      "name": "page_admin_dashboard",
+      "status": "PASS",
+      "detail": {
+        "path": "/admin",
+        "status": 200
+      }
+    },
+    {
+      "name": "page_admin_tables",
+      "status": "PASS",
+      "detail": {
+        "path": "/admin/tables",
+        "status": 200
+      }
+    },
+    {
+      "name": "page_kitchen_page",
+      "status": "PASS",
+      "detail": {
+        "path": "/kitchen",
+        "status": 200
+      }
+    },
+    {
+      "name": "per_restaurant_url",
+      "status": "PASS",
+      "detail": {
+        "path": "/r/kfm-delice/menu",
+        "status": 200
+      }
+    },
+    {
+      "name": "qr_rotate",
+      "status": "PASS",
+      "detail": {
+        "newVersion": 2,
+        "tokenChanged": true
+      }
+    },
+    {
+      "name": "qr_old_rejected",
+      "status": "PASS",
+      "detail": {
+        "status": 404,
+        "code": "QR_NOT_FOUND"
+      }
+    },
+    {
+      "name": "cleanup_promo",
+      "status": "PASS",
+      "detail": {
+        "id": "cmrjf7rwj000ep3ywfdvkj3pv",
+        "status": 200
+      }
+    },
+    {
+      "name": "cleanup_table",
+      "status": "PASS",
+      "detail": {
+        "id": "cmrjf7run0002p3ywrdxojmt8",
+        "status": 200
+      }
+    }
+  ],
+  "summary": {
+    "passed": 24,
+    "failed": 0,
+    "total": 24
+  },
+  "result": "PASS",
+  "finishedAt": "2026-07-13T16:12:27.926020Z"
+}
