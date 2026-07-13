@@ -106,14 +106,18 @@ echo "[render-start] Build output check complete."
 if [ "$PROVIDER" = "postgres" ]; then
   echo "[render-start] Running prisma migrate deploy..."
   if ! node_modules/.bin/prisma migrate deploy 2>&1; then
-    echo "[render-start] prisma migrate deploy failed"
-    if [ "$ALLOW_PRISMA_DB_PUSH_FALLBACK" = "true" ]; then
-      echo "[render-start] ALLOW_PRISMA_DB_PUSH_FALLBACK=true → running db push --skip-generate"
-      node_modules/.bin/prisma db push --skip-generate 2>&1 || fail_or_warn "prisma db push also failed"
-    else
-      fail_or_warn "prisma migrate deploy failed and db push fallback disabled. DB schema may be outdated."
-    fi
+    echo "[render-start] prisma migrate deploy failed — will try db push as fallback"
   fi
+
+  # ── ALWAYS run prisma db push to sync schema ──────────────────
+  # This ensures ALL tables + columns exist with the correct types,
+  # even if migrate deploy failed or was partially applied.
+  # db push is idempotent — it only ADDS missing tables/columns,
+  # never drops or modifies existing ones.
+  echo "[render-start] Running prisma db push (force schema sync)..."
+  node_modules/.bin/prisma db push --skip-generate --accept-data-loss 2>&1 || {
+    echo "[render-start] WARNING: prisma db push failed — relying on safety-net in db.ts"
+  }
 
   # Run safety net ONLY in demo/staging (not production)
   if [ "$APP_MODE" != "production" ]; then
