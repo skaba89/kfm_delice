@@ -60,7 +60,7 @@ const { secret: _JWT_SECRET, valid: jwtSecretValid } = resolveJwtSecretForEdge()
 //
 // /api/status is the lightweight public Render health check (no DB, no auth).
 // /api/health is the full diagnostic — auth-protected in production.
-const PUBLIC_GET_ROUTES = ['/api/menu', '/api/reviews', '/api/tracking', '/api/restaurant', '/api/restaurants', '/api/diagnose', '/api/seed', '/api/loyalty/rewards', '/api/status', '/api/qr/table'];
+const PUBLIC_GET_ROUTES = ['/api/menu', '/api/reviews', '/api/tracking', '/api/restaurant', '/api/restaurants', '/api/diagnose', '/api/seed', '/api/loyalty/rewards', '/api/loyalty/tiers', '/api/status', '/api/qr/table'];
 const PUBLIC_POST_ROUTES = ['/api/login', '/api/customer-login', '/api/customer-register', '/api/driver-login', '/api/orders', '/api/reservations', '/api/seed', '/api/register-restaurant', '/api/platform-login', '/api/reviews', '/api/promo-codes/validate'];
 const PUBLIC_ANY_ROUTES = ['/api']; // health check
 

@@ -140,6 +140,7 @@ model Restaurant {
   restaurantTables  RestaurantTable[]
   promoCodes        PromoCode[]
   chatMessages      ChatMessage[]
+  loyaltyTiers      LoyaltyTier[]
 
   @@index([status])
   @@index([plan])
@@ -252,6 +253,7 @@ model Customer {
   loyaltyPoints     Int      @default(0)
   totalOrders       Int      @default(0)
   totalSpent        BigInt   @default(0)
+  tier              String   @default("bronze") // Mission P3.8: bronze, silver, gold, platinum
   status            String   @default("active") // active, inactive
   mustChangePassword Boolean @default(false) // force password change on first login
   // ── Account security fields ──
@@ -531,6 +533,29 @@ model LoyaltyReward {
 
   @@index([restaurantId, active])
   @@index([restaurantId, category])
+}
+
+// ────────────────────────────────────────────────────────────────
+// LoyaltyTier — configurable loyalty tiers per restaurant (Mission P3.8)
+// ────────────────────────────────────────────────────────────────
+model LoyaltyTier {
+  id              String   @id @default(cuid())
+  restaurantId    String
+  restaurant      Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  name            String   // bronze, silver, gold, platinum
+  label           String   @default("") // display label ("Bronze", "Argent", etc.)
+  minSpent        BigInt   @default(0) // minimum totalSpent to reach this tier
+  discountPercent Int      @default(0) // e.g. 5 = 5% discount on all orders
+  freeDelivery    Boolean  @default(false)
+  freeDish        Boolean  @default(false) // free dish per month
+  color           String   @default("#cd7f32") // hex color for UI badge
+  icon            String   @default("") // emoji or icon name
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([restaurantId, name])
+  @@index([restaurantId, active])
 }
 
 // ────────────────────────────────────────────────────────────────

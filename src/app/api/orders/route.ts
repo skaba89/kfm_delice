@@ -594,6 +594,28 @@ export async function PATCH(request: Request) {
               },
             });
           }
+
+          // ── Mission P3.8: Update customer's loyalty tier ──
+          // After totalSpent increases, check if the customer qualifies
+          // for a higher tier. Non-blocking — failures are logged but
+          // don't fail the order.
+          try {
+            const { updateCustomerTier } = await import("@/lib/loyalty-tiers");
+            const newTier = await updateCustomerTier(fullOrder.customerId, fullOrder.restaurantId);
+            if (newTier) {
+              console.log(`[orders] Customer ${fullOrder.customerId} promoted to tier: ${newTier}`);
+              // Broadcast tier upgrade via WebSocket (non-blocking)
+              try {
+                const { broadcastToType } = await import("@/lib/websocket-server");
+                broadcastToType("customer", "tier:upgraded", {
+                  customerId: fullOrder.customerId,
+                  newTier,
+                });
+              } catch { /* WS not available */ }
+            }
+          } catch (e) {
+            console.warn("[orders] Tier update failed (non-blocking):", e instanceof Error ? e.message : String(e));
+          }
         }
       } catch (e) {
         console.warn("[orders] Loyalty award failed (non-blocking):", e instanceof Error ? e.message : String(e));

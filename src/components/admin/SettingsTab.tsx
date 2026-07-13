@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Settings, Store, Phone, MapPin, Clock, Image, Palette,
   Truck, Receipt, Globe, Save, RefreshCw, Upload, Check,
-  ShieldCheck, Users2, Bell, Volume2, VolumeX, Play,
+  ShieldCheck, Users2, Bell, Volume2, VolumeX, Play, Trophy,
 } from "lucide-react";
 import type { RestaurantDB, AdminDB } from "@/lib/types";
 import { notify } from "@/lib/notifications";
@@ -147,6 +147,8 @@ export function SettingsTab({ apiFetch, apiPatch, apiPut, adminRole, admins = []
     { id: "social", label: "Réseaux sociaux", icon: Globe },
     // 🔔 Mission P1.1 — Sound notifications (per-device preference, no DB)
     { id: "sounds", label: "Notifications sonores", icon: Bell },
+    // 🏆 Mission P3.8 — Loyalty tiers configuration
+    { id: "tiers", label: "Paliers Fidélité", icon: Trophy },
     // Roles & privileges — admin only
     ...(adminRole === "admin" ? [
       { id: "roles", label: "Rôles & Privilèges", icon: ShieldCheck },
@@ -463,6 +465,9 @@ export function SettingsTab({ apiFetch, apiPatch, apiPut, adminRole, admins = []
 
         {/* 🔔 Mission P1.1 — Sound notifications (per-device, no DB) */}
         {activeSection === "sounds" && <SoundPreferencesSection />}
+
+        {/* 🏆 Mission P3.8 — Loyalty tiers configuration */}
+        {activeSection === "tiers" && <LoyaltyTiersSection apiFetch={apiFetch} />}
 
         {activeSection === "roles" && <RolesAndPrivileges admins={admins} />}
       </motion.div>
@@ -1038,6 +1043,238 @@ function SoundPreferencesSection() {
             n'importe où sur le dashboard puis réessayez. Les préférences sont propres à
             cet appareil — la tablette cuisine et le laptop du manager peuvent avoir des
             réglages différents.
+          </p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────
+// 🏆 Mission P3.8 — Loyalty Tiers Configuration Section
+//
+// Lets the admin configure the loyalty tiers (Bronze, Silver, Gold,
+// Platinum) for their restaurant. Each tier defines:
+//   - minSpent: minimum totalSpent to reach this tier
+//   - discountPercent: % discount on all orders
+//   - freeDelivery: free delivery for this tier
+//   - freeDish: free dish per month
+//   - color + icon: UI customization
+// ────────────────────────────────────────────────────────────────
+
+interface LoyaltyTier {
+  id?: string;
+  name: string;
+  label: string;
+  minSpent: number;
+  discountPercent: number;
+  freeDelivery: boolean;
+  freeDish: boolean;
+  color: string;
+  icon: string;
+  active: boolean;
+}
+
+function LoyaltyTiersSection({ apiFetch }: { apiFetch: (url: string, options?: RequestInit) => Promise<Response> }) {
+  const [tiers, setTiers] = useState<LoyaltyTier[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await apiFetch("/api/loyalty/tiers");
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.data)) {
+          setTiers(data.data);
+        }
+      }
+    } catch {
+      notify.error("Erreur de chargement des paliers");
+    } finally {
+      setLoading(false);
+    }
+  }, [apiFetch]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const res = await apiFetch("/api/loyalty/tiers", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tiers }),
+      });
+      if (res.ok) {
+        notify.success("Paliers enregistrés avec succès");
+        load();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        notify.error(data.error || "Erreur lors de l'enregistrement");
+      }
+    } catch {
+      notify.error("Erreur réseau");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateTier = (index: number, field: keyof LoyaltyTier, value: unknown) => {
+    setTiers(prev => prev.map((t, i) => i === index ? { ...t, [field]: value } : t));
+  };
+
+  if (loading) {
+    return (
+      <Card className="dark:bg-gray-800 dark:border-gray-700">
+        <CardContent className="p-6">
+          <div className="flex items-center gap-2 text-gray-500">
+            <RefreshCw className="w-4 h-4 animate-spin" />
+            <span className="text-sm">Chargement des paliers…</span>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="dark:bg-gray-800 dark:border-gray-700">
+      <CardContent className="p-6 space-y-4">
+        {/* Header */}
+        <div className="flex items-start justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
+              <Trophy className="w-5 h-5 text-orange-500" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                Paliers de fidélité
+              </h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Configurez les paliers et leurs avantages. Les clients sont automatiquement promus selon leurs dépenses cumulées.
+              </p>
+            </div>
+          </div>
+          <Button onClick={handleSave} disabled={saving} className="bg-orange-500 hover:bg-orange-600 text-white">
+            {saving ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+            Enregistrer
+          </Button>
+        </div>
+
+        {/* Tiers list */}
+        <div className="space-y-3">
+          {tiers.map((tier, index) => (
+            <div
+              key={tier.name}
+              className="p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50"
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div
+                  className="w-10 h-10 rounded-full flex items-center justify-center text-xl"
+                  style={{ backgroundColor: tier.color + "33", border: `2px solid ${tier.color}` }}
+                >
+                  {tier.icon || "🏆"}
+                </div>
+                <div className="flex-1">
+                  <input
+                    type="text"
+                    value={tier.label}
+                    onChange={(e) => updateTier(index, "label", e.target.value)}
+                    className="font-bold text-gray-900 dark:text-gray-100 bg-transparent border-none outline-none w-full"
+                    placeholder="Nom du palier"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 font-mono">{tier.name}</p>
+                </div>
+                <button
+                  onClick={() => updateTier(index, "active", !tier.active)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    tier.active ? "bg-orange-500" : "bg-gray-300 dark:bg-gray-600"
+                  }`}
+                  role="switch"
+                  aria-checked={tier.active}
+                  aria-label={`Activer ${tier.label}`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                    tier.active ? "translate-x-6" : "translate-x-1"
+                  }`} />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Dépenses min. (GNF)</label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={tier.minSpent}
+                    onChange={(e) => updateTier(index, "minSpent", parseInt(e.target.value, 10) || 0)}
+                    className="text-sm dark:bg-gray-800 dark:border-gray-600"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Remise (%)</label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={tier.discountPercent}
+                    onChange={(e) => updateTier(index, "discountPercent", parseInt(e.target.value, 10) || 0)}
+                    className="text-sm dark:bg-gray-800 dark:border-gray-600"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Couleur</label>
+                  <input
+                    type="color"
+                    value={tier.color}
+                    onChange={(e) => updateTier(index, "color", e.target.value)}
+                    className="w-full h-9 rounded-lg border border-gray-200 dark:border-gray-600 cursor-pointer"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Icône (emoji)</label>
+                  <Input
+                    type="text"
+                    value={tier.icon}
+                    onChange={(e) => updateTier(index, "icon", e.target.value)}
+                    maxLength={4}
+                    className="text-sm dark:bg-gray-800 dark:border-gray-600"
+                    placeholder="🥇"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-4 mt-3">
+                <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={tier.freeDelivery}
+                    onChange={(e) => updateTier(index, "freeDelivery", e.target.checked)}
+                    className="rounded"
+                  />
+                  Livraison gratuite
+                </label>
+                <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={tier.freeDish}
+                    onChange={(e) => updateTier(index, "freeDish", e.target.checked)}
+                    className="rounded"
+                  />
+                  Plat gratuit / mois
+                </label>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Info */}
+        <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+          <p className="text-xs text-blue-700 dark:text-blue-400">
+            <strong>Comment ça marche :</strong> Quand une commande est livrée, le total dépensé du client augmente.
+            Si le client dépasse le seuil d'un palier, il est automatiquement promu. La remise du palier est appliquée
+            à ses prochaines commandes. Les paliers sont propres à ce restaurant (multi-tenant).
           </p>
         </div>
       </CardContent>
