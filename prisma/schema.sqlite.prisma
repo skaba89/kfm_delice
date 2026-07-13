@@ -109,6 +109,7 @@ model Restaurant {
   stockMovements    StockMovement[]
   restaurantTables  RestaurantTable[]
   promoCodes        PromoCode[]
+  chatMessages      ChatMessage[]
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -586,6 +587,23 @@ model StockMovement {
 
   @@index([stockItemId])
   @@index([restaurantId, createdAt])
+}
+
+// ────────────────────────────────────────────────────────────────
+// ChatMessage — internal restaurant chat (Mission P3.7)
+// ────────────────────────────────────────────────────────────────
+model ChatMessage {
+  id            String   @id @default(cuid())
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  senderId      String   // admin id
+  senderName    String   // snapshot
+  senderRole    String   // admin, manager, staff, cashier, kitchen, delivery_manager, host, accountant
+  content       String   // message text (max 1000 chars, validated server-side)
+  createdAt     DateTime @default(now())
+
+  @@index([restaurantId, createdAt])
+  @@index([restaurantId])
 }
 
 // ────────────────────────────────────────────────────────────────
