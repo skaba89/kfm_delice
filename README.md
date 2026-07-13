@@ -27,6 +27,7 @@ Solution complète de gestion et commande pour restaurants, pensée pour le marc
 
 ### Restaurant
 - **Menu QR Code** : générez des QR codes pour chaque table, les clients scannent et commandent
+- **URL par restaurant** : chaque restaurant a sa propre URL basée sur son nom (`/r/le-baobab/menu`)
 - **Commandes** : sur place (dine-in), à emporter (takeaway), livraison (delivery)
 - **Réservations** : gestion des réservations avec zones (intérieur, terrasse, VIP)
 - **Dashboard** : statistiques temps réel, plats populaires, revenus, commandes par heure
@@ -34,8 +35,15 @@ Solution complète de gestion et commande pour restaurants, pensée pour le marc
 - **Factures & Devis** : génération de factures PDF, devis clients
 - **Dépenses** : suivi des dépenses (ingrédients, loyer, salaires, etc.)
 - **Personnel** : gestion du staff (cuisiniers, serveurs, barmans, gérants)
-- **Programme fidélité** : points de fidélité, récompenses
+- **Programme fidélité** : points de fidélité, récompenses, **paliers configurables** (Bronze, Argent, Or, Platine)
 - **Avis clients** : système de notation et commentaires
+- **Pourboires** : les clients peuvent laisser un tip au checkout (validation serveur max 50%)
+- **Codes promo** : créez des codes de réduction (pourcentage ou montant fixe) avec limites d'usage
+- **Chat interne** : messagerie entre membres de l'équipe (cuisine ↔ caisse ↔ serveurs)
+- **Export PDF journal** : export quotidien des commandes en PDF imprimable
+- **Notifications sonores** : alertes sonores pour nouvelles commandes + plats prêts (configurables par appareil)
+- **Mode hors-ligne cuisine** : la cuisine continue de fonctionner pendant une coupure réseau (queue locale + sync auto)
+- **Raccourcis clavier** : navigation rapide dans le dashboard (1-9, R, /, N, ?)
 
 ### Livraison
 - **Géolocalisation temps réel** : les livreurs sont trackés en continu via GPS
@@ -67,6 +75,9 @@ Solution complète de gestion et commande pour restaurants, pensée pour le marc
 - **Rate limiting** : 5 tentatives/min sur auth, 60 req/min sur API
 - **Audit logs** : login, création, modification, suppression
 - **Multi-tenant isolation** : chaque restaurant ne voit que ses données
+- **Politique mots de passe** : 12 chars + complexité en production, 6 en dev
+- **Verrouillage compte** : après 5 tentatives échouées (30 min)
+- **Idempotency** : clés d'idempotence pour éviter les doubles commandes
 
 ### Marketing & Conformité
 - **Landing page** commerciale avec features et CTA
@@ -81,8 +92,10 @@ Solution complète de gestion et commande pour restaurants, pensée pour le marc
 - **PWA** : installable sur mobile, fonctionne hors-ligne
 - **Push notifications** : web push pour nouvelles commandes
 - **Export CSV** : commandes, clients, factures, menu, réservations, comptes
+- **Export PDF** : journal des commandes, factures, devis, reçus
 - **Notifications email** : nouvelle commande, réservation, quota dépassé
 - **CI/CD** : GitHub Actions (SQLite + PostgreSQL)
+- **Docker** : déploiement VPS avec docker-compose + backup auto
 - **Monitoring** : Sentry (error tracking)
 - **Docker** : déployable sur n'importe quel VPS
 
