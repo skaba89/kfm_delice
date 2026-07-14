@@ -181,7 +181,8 @@ def run():
         "orderType": "dine_in",
         "customerName": "Full Feature Test",
         "tableQrToken": created_table_qr_token,
-    }, headers={"x-restaurant-slug": E2E_SLUG})
+        "adminOverride": True,  # bypass opening hours (admin can order anytime)
+    }, headers={"x-restaurant-slug": E2E_SLUG, "Authorization": f"Bearer {admin_token}"})
     if status in (200, 201) and isinstance(data, dict) and data.get("id"):
         created_order_id = data["id"]
         ok = data.get("tip") == 2000 and data.get("total") == 20000
@@ -202,7 +203,8 @@ def run():
         "orderType": "dine_in",
         "customerName": "Tip Abuse Test",
         "tableQrToken": created_table_qr_token,
-    }, headers={"x-restaurant-slug": E2E_SLUG})
+        "adminOverride": True,
+    }, headers={"x-restaurant-slug": E2E_SLUG, "Authorization": f"Bearer {admin_token}"})
     if status in (200, 201) and isinstance(data, dict):
         ok = data.get("tip") == 500  # clamped to 50% of 1000
         step("tip_clamped_50pct", ok, {
@@ -271,7 +273,8 @@ def run():
         "orderType": "dine_in",
         "customerName": "Promo Order Test",
         "tableQrToken": created_table_qr_token,
-    }, headers={"x-restaurant-slug": E2E_SLUG})
+        "adminOverride": True,  # bypass opening hours
+    }, headers={"x-restaurant-slug": E2E_SLUG, "Authorization": f"Bearer {admin_token}"})
     if status in (200, 201) and isinstance(data, dict):
         ok = data.get("discount") == 7500 and data.get("total") == 42500
         step("order_with_promo", ok, {
