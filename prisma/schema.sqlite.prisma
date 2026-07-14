@@ -44,6 +44,7 @@ model Account {
   contractStartDate        String   @default("")
   contractEndDate          String   @default("")
   trialEndsAt              String   @default("")
+  commissionRate           Float    @default(0) // % commission plateforme sur chaque commande (Reco 1)
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
   restaurants              Restaurant[]
@@ -217,7 +218,8 @@ model Customer {
   loyaltyPoints     Int      @default(0)
   totalOrders       Int      @default(0)
   totalSpent        Int      @default(0)
-  tier              String   @default("bronze") // Mission P3.8: bronze, silver, gold, platinum
+  tier              String   @default("bronze")
+  favoriteItemIds   String   @default("[]") // JSON array of menuItem IDs (Reco 3) // Mission P3.8: bronze, silver, gold, platinum
   status            String   @default("active") // active, inactive
   mustChangePassword Boolean @default(false)
   loginAttempts     Int      @default(0)
@@ -246,6 +248,7 @@ model MenuItem {
   popular      Boolean  @default(false)
   available    Boolean  @default(true)
   order        Int      @default(0)
+  ingredientCost Int    @default(0) // coût des ingrédients (Reco 2 — marges)
   stockItemId  String?
   stockItem    StockItem? @relation("MenuItemStock", fields: [stockItemId], references: [id], onDelete: SetNull)
   restaurantId String
@@ -297,6 +300,7 @@ model Order {
   discount      Int      @default(0)
   tax           Int      @default(0)
   tip           Int      @default(0) // pourboire (Mission P2.5)
+  platformCommission Int @default(0) // commission plateforme (Reco 1)
   note          String   @default("")
   estimatedDeliveryTime String @default("") // ISO string of estimated delivery
   driverLat      Float    @default(0) // driver live latitude

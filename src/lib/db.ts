@@ -194,6 +194,14 @@ if (isServer && !globalForPrisma.schemaFixed) {
       ['Order', 'tableNumberStr', "TEXT NOT NULL DEFAULT ''"],
       // ── Mission P2.5: Order.tip (pourboire) ──
       ['Order', 'tip', 'BIGINT NOT NULL DEFAULT 0'],
+      // ── Reco 1: Order.platformCommission ──
+      ['Order', 'platformCommission', 'BIGINT NOT NULL DEFAULT 0'],
+      // ── Reco 1: Account.commissionRate ──
+      ['Account', 'commissionRate', 'DOUBLE PRECISION NOT NULL DEFAULT 0'],
+      // ── Reco 2: MenuItem.ingredientCost ──
+      ['MenuItem', 'ingredientCost', 'BIGINT NOT NULL DEFAULT 0'],
+      // ── Reco 3: Customer.favoriteItemIds ──
+      ['Customer', 'favoriteItemIds', "TEXT NOT NULL DEFAULT '[]'"],
     ];
 
     (async () => {
@@ -469,6 +477,12 @@ if (isServer && !globalForPrisma.schemaFixed) {
     ['Order', 'tableNumberStr', "TEXT NOT NULL DEFAULT ''"],
     // ── Mission P2.5: Order.tip (pourboire) ──
     ['Order', 'tip', 'INTEGER NOT NULL DEFAULT 0'],
+    // ── Reco 1: Order.platformCommission ──
+    ['Order', 'platformCommission', 'INTEGER NOT NULL DEFAULT 0'],
+    // ── Reco 2: MenuItem.ingredientCost ──
+    ['MenuItem', 'ingredientCost', 'INTEGER NOT NULL DEFAULT 0'],
+    // ── Reco 3: Customer.favoriteItemIds ──
+    ['Customer', 'favoriteItemIds', "TEXT NOT NULL DEFAULT '[]'"],
     // ── Mission P3.8: Customer.tier (loyalty tier) ──
     ['Customer', 'tier', "TEXT NOT NULL DEFAULT 'bronze'"],
   ];

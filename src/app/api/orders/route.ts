@@ -313,6 +313,22 @@ export async function POST(request: Request) {
     // Use the recalculated total (trust server calculation over client)
     const verifiedTotal = recalculatedTotal;
 
+    // ── Reco 1: Compute platform commission ──
+    // Look up the restaurant's account to get the commission rate.
+    // 0% = no commission (default). The commission is stored on the
+    // order so the platform admin can track real revenue.
+    let platformCommission = 0;
+    try {
+      const restaurantWithAccount = await db.restaurant.findUnique({
+        where: { id: restaurantId },
+        select: { account: { select: { commissionRate: true } } },
+      });
+      const rate = restaurantWithAccount?.account?.commissionRate ?? 0;
+      if (rate > 0) {
+        platformCommission = Math.round(verifiedTotal * (rate / 100));
+      }
+    } catch { /* non-blocking — commissionRate may not exist yet */ }
+
     // ── Mission P2.5: Validate tip (pourboire) ──
     // The tip is OPTIONAL and must be:
     //   - >= 0 (no negative tips)
@@ -346,8 +362,9 @@ export async function POST(request: Request) {
         ...validation.data,
         items: JSON.stringify(verifiedItems),
         total: verifiedTotal,
-        discount: verifiedDiscount, // Mission P2.6: discount appliqué (promo ou manuel)
-        tip: verifiedTip, // Mission P2.5: pourboire validé
+        discount: verifiedDiscount,
+        tip: verifiedTip,
+        platformCommission, // Reco 1: commission plateforme
         restaurantId,
         ...(customerId && { customerId }),
         ...(tableId && { tableId }),
