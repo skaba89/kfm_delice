@@ -182,7 +182,7 @@ def run():
         "customerName": "Full Feature Test",
         "tableQrToken": created_table_qr_token,
         "adminOverride": True,  # bypass opening hours (admin can order anytime)
-    }, headers={"x-restaurant-slug": E2E_SLUG, "Authorization": f"Bearer {admin_token}"})
+    }, headers=admin_headers)
     if status in (200, 201) and isinstance(data, dict) and data.get("id"):
         created_order_id = data["id"]
         ok = data.get("tip") == 2000 and data.get("total") == 20000
@@ -192,6 +192,7 @@ def run():
             "tip": data.get("tip"),
         })
     else:
+        log(f"FAIL order_with_tip — HTTP {status} — {json.dumps(data, ensure_ascii=False)}", "ERROR")
         step("order_with_tip", False, {"status": status, "data": data})
 
     # ── Step 5: P2.5 — Tip validation (max 50%) ──
@@ -204,7 +205,7 @@ def run():
         "customerName": "Tip Abuse Test",
         "tableQrToken": created_table_qr_token,
         "adminOverride": True,
-    }, headers={"x-restaurant-slug": E2E_SLUG, "Authorization": f"Bearer {admin_token}"})
+    }, headers=admin_headers)
     if status in (200, 201) and isinstance(data, dict):
         ok = data.get("tip") == 500  # clamped to 50% of 1000
         step("tip_clamped_50pct", ok, {
@@ -213,6 +214,7 @@ def run():
             "expectedTip": 500,
         })
     else:
+        log(f"FAIL tip_clamped_50pct — HTTP {status} — {json.dumps(data, ensure_ascii=False)}", "ERROR")
         step("tip_clamped_50pct", False, {"status": status, "data": data})
 
     # ── Step 6: P2.6 — Promo code creation ──
@@ -274,7 +276,7 @@ def run():
         "customerName": "Promo Order Test",
         "tableQrToken": created_table_qr_token,
         "adminOverride": True,  # bypass opening hours
-    }, headers={"x-restaurant-slug": E2E_SLUG, "Authorization": f"Bearer {admin_token}"})
+    }, headers=admin_headers)
     if status in (200, 201) and isinstance(data, dict):
         ok = data.get("discount") == 7500 and data.get("total") == 42500
         step("order_with_promo", ok, {
@@ -285,6 +287,7 @@ def run():
             "expectedDiscount": 7500,
         })
     else:
+        log(f"FAIL order_with_promo — HTTP {status} — {json.dumps(data, ensure_ascii=False)}", "ERROR")
         step("order_with_promo", False, {"status": status, "data": data})
 
     # ── Step 10: P3.7 — Chat message ──
