@@ -219,7 +219,8 @@ model Customer {
   totalOrders       Int      @default(0)
   totalSpent        Int      @default(0)
   tier              String   @default("bronze")
-  favoriteItemIds   String   @default("[]") // JSON array of menuItem IDs (Reco 3) // Mission P3.8: bronze, silver, gold, platinum
+  favoriteItemIds   String   @default("[]") // JSON array of menuItem IDs (Reco 3)
+  birthday          String   @default("") // ISO date (Reco 8 — offers anniversaire)
   status            String   @default("active") // active, inactive
   mustChangePassword Boolean @default(false)
   loginAttempts     Int      @default(0)
@@ -587,6 +588,7 @@ model StockItem {
   quantity      Float    @default(0)
   unit          String   @default("unité") // kg, L, unité, bouteille, sac, etc.
   minThreshold  Float    @default(0) // Low-stock alert threshold
+  autoAlert     Boolean  @default(true) // Reco 7 — alerte auto si stock < threshold
   unitCost      Int      @default(0) // Purchase cost per unit (GNF)
   supplier      String   @default("")
   lastRestocked String   @default("") // ISO date string of last restock

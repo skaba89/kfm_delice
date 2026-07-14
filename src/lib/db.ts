@@ -202,6 +202,10 @@ if (isServer && !globalForPrisma.schemaFixed) {
       ['MenuItem', 'ingredientCost', 'BIGINT NOT NULL DEFAULT 0'],
       // ── Reco 3: Customer.favoriteItemIds ──
       ['Customer', 'favoriteItemIds', "TEXT NOT NULL DEFAULT '[]'"],
+      // ── Reco 7: StockItem.autoAlert ──
+      ['StockItem', 'autoAlert', 'BOOLEAN NOT NULL DEFAULT true'],
+      // ── Reco 8: Customer.birthday ──
+      ['Customer', 'birthday', "TEXT NOT NULL DEFAULT ''"],
     ];
 
     (async () => {
@@ -483,6 +487,10 @@ if (isServer && !globalForPrisma.schemaFixed) {
     ['MenuItem', 'ingredientCost', 'INTEGER NOT NULL DEFAULT 0'],
     // ── Reco 3: Customer.favoriteItemIds ──
     ['Customer', 'favoriteItemIds', "TEXT NOT NULL DEFAULT '[]'"],
+    // ── Reco 7: StockItem.autoAlert ──
+    ['StockItem', 'autoAlert', 'BOOLEAN NOT NULL DEFAULT 1'],
+    // ── Reco 8: Customer.birthday ──
+    ['Customer', 'birthday', "TEXT NOT NULL DEFAULT ''"],
     // ── Mission P3.8: Customer.tier (loyalty tier) ──
     ['Customer', 'tier', "TEXT NOT NULL DEFAULT 'bronze'"],
   ];

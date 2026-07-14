@@ -6,7 +6,7 @@ import {
   ShoppingBag, Bike, Car, RefreshCw,
   FileText, Wallet, Receipt, UserCog, ClipboardList,
   MessageSquare, CreditCard, Wifi, WifiOff, Package, Settings,
-  QrCode, MessageCircle, TrendingUp,
+  QrCode, MessageCircle, TrendingUp, Shield,
 } from "lucide-react";
 import { OverviewTab } from "@/components/admin/OverviewTab";
 import { ReservationsTab } from "@/components/admin/ReservationsTab";
@@ -27,6 +27,7 @@ import { PosTab } from "@/components/admin/PosTab";
 import { TablesTab } from "@/components/admin/TablesTab";
 import { ChatTab } from "@/components/admin/ChatTab";
 import { AnalyticsTab } from "@/components/admin/AnalyticsTab";
+import { AuditLogTab } from "@/components/admin/AuditLogTab";
 import { SettingsTab } from "@/components/admin/SettingsTab";
 import { DashboardShell, type SidebarItem } from "@/components/layout/DashboardShell";
 import type { AdminDB, AdminUser, MenuItemDB, OrderDB, DriverDB, StaffDB, InvoiceDB, QuoteDB, ExpenseDB, CustomerDB } from "@/lib/types";
@@ -177,6 +178,7 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
     { id: "tables", label: "QR Tables", icon: QrCode },
     { id: "chat", label: "Chat interne", icon: MessageCircle },
     { id: "analytics", label: "Analytics", icon: TrendingUp },
+    { id: "audit", label: "Audit", icon: Shield },
     { id: "settings", label: "Paramètres", icon: Settings },
   ];
   const sidebarItems = allSidebarItems.filter(item => {
@@ -315,6 +317,7 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
       {activeTab === "tables" && <TablesTab />}
       {activeTab === "chat" && <ChatTab />}
       {activeTab === "analytics" && <AnalyticsTab />}
+      {activeTab === "audit" && <AuditLogTab />}
       {activeTab === "settings" && <SettingsTab
         apiFetch={apiFetch}
         apiPatch={async (url, body) => {
