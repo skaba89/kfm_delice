@@ -31,6 +31,35 @@ export async function POST(request: Request) {
     // Only drop if empty — check row count first
     const tablesToFix = [
       {
+        name: "RestaurantTable",
+        createSQL: `CREATE TABLE "RestaurantTable" (
+          "id" TEXT NOT NULL,
+          "restaurantId" TEXT NOT NULL,
+          "name" TEXT NOT NULL,
+          "number" TEXT NOT NULL,
+          "capacity" INTEGER NOT NULL DEFAULT 4,
+          "zone" TEXT NOT NULL DEFAULT '',
+          "status" TEXT NOT NULL DEFAULT 'available',
+          "active" BOOLEAN NOT NULL DEFAULT true,
+          "qrToken" TEXT NOT NULL,
+          "qrVersion" INTEGER NOT NULL DEFAULT 1,
+          "qrEnabled" BOOLEAN NOT NULL DEFAULT true,
+          "qrGeneratedAt" TIMESTAMP(3),
+          "lastScannedAt" TIMESTAMP(3),
+          "scanCount" INTEGER NOT NULL DEFAULT 0,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL,
+          CONSTRAINT "RestaurantTable_pkey" PRIMARY KEY ("id")
+        )`,
+        indexes: [
+          `CREATE UNIQUE INDEX "RestaurantTable_qrToken_key" ON "RestaurantTable"("qrToken")`,
+          `CREATE UNIQUE INDEX "RestaurantTable_restaurantId_number_key" ON "RestaurantTable"("restaurantId", "number")`,
+          `CREATE INDEX "RestaurantTable_restaurantId_idx" ON "RestaurantTable"("restaurantId")`,
+          `CREATE INDEX "RestaurantTable_restaurantId_active_idx" ON "RestaurantTable"("restaurantId", "active")`,
+        ],
+        fk: `ALTER TABLE "RestaurantTable" ADD CONSTRAINT "RestaurantTable_restaurantId_fkey" FOREIGN KEY ("restaurantId") REFERENCES "Restaurant"("id") ON DELETE CASCADE`,
+      },
+      {
         name: "PromoCode",
         createSQL: `CREATE TABLE "PromoCode" (
           "id" TEXT NOT NULL,
@@ -55,6 +84,7 @@ export async function POST(request: Request) {
           `CREATE INDEX "PromoCode_restaurantId_active_idx" ON "PromoCode"("restaurantId", "active")`,
           `CREATE INDEX "PromoCode_code_idx" ON "PromoCode"("code")`,
         ],
+        fk: `ALTER TABLE "PromoCode" ADD CONSTRAINT "PromoCode_restaurantId_fkey" FOREIGN KEY ("restaurantId") REFERENCES "Restaurant"("id") ON DELETE CASCADE`,
       },
       {
         name: "ChatMessage",
@@ -72,6 +102,7 @@ export async function POST(request: Request) {
           `CREATE INDEX "ChatMessage_restaurantId_createdAt_idx" ON "ChatMessage"("restaurantId", "createdAt")`,
           `CREATE INDEX "ChatMessage_restaurantId_idx" ON "ChatMessage"("restaurantId")`,
         ],
+        fk: `ALTER TABLE "ChatMessage" ADD CONSTRAINT "ChatMessage_restaurantId_fkey" FOREIGN KEY ("restaurantId") REFERENCES "Restaurant"("id") ON DELETE CASCADE`,
       },
       {
         name: "LoyaltyTier",
@@ -95,6 +126,7 @@ export async function POST(request: Request) {
           `CREATE UNIQUE INDEX "LoyaltyTier_restaurantId_name_key" ON "LoyaltyTier"("restaurantId", "name")`,
           `CREATE INDEX "LoyaltyTier_restaurantId_active_idx" ON "LoyaltyTier"("restaurantId", "active")`,
         ],
+        fk: `ALTER TABLE "LoyaltyTier" ADD CONSTRAINT "LoyaltyTier_restaurantId_fkey" FOREIGN KEY ("restaurantId") REFERENCES "Restaurant"("id") ON DELETE CASCADE`,
       },
     ];
 
@@ -140,6 +172,15 @@ export async function POST(request: Request) {
           }
         }
 
+        // Create FK constraint
+        if (table.fk) {
+          try {
+            await db.$executeRawUnsafe(table.fk);
+          } catch {
+            /* FK may already exist */
+          }
+        }
+
         results.push({ table: table.name, action: "drop + recreate", status: "ok" });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -158,15 +199,60 @@ export async function POST(request: Request) {
       results.push({ table: "Customer.tier", action: "error", status: msg });
     }
 
-    // Fix Order.tip column type if needed (should be BIGINT on postgres)
+    // Fix Order.tip column — ensure it's BIGINT (safety-net may have created it as TEXT)
     try {
+      // Try to alter the column type to BIGINT (idempotent on postgres)
+      await db.$executeRawUnsafe(
+        `ALTER TABLE "Order" ALTER COLUMN "tip" TYPE BIGINT USING "tip"::bigint`
+      );
       await db.$executeRawUnsafe(
         `ALTER TABLE "Order" ALTER COLUMN "tip" SET DEFAULT 0`
       );
-      results.push({ table: "Order.tip", action: "ensure default", status: "ok" });
+      results.push({ table: "Order.tip", action: "fix type to BIGINT", status: "ok" });
+    } catch (e) {
+      // Column may already be correct type — try just setting default
+      try {
+        await db.$executeRawUnsafe(
+          `ALTER TABLE "Order" ALTER COLUMN "tip" SET DEFAULT 0`
+        );
+        results.push({ table: "Order.tip", action: "ensure default", status: "ok" });
+      } catch (e2) {
+        const msg = e2 instanceof Error ? e2.message : String(e2);
+        results.push({ table: "Order.tip", action: "error", status: msg });
+      }
+    }
+
+    // Fix Order.tableId column — ensure it's TEXT (safety-net created it correctly)
+    try {
+      await db.$executeRawUnsafe(
+        `ALTER TABLE "Order" ALTER COLUMN "tableId" TYPE TEXT USING "tableId"::text`
+      );
+      results.push({ table: "Order.tableId", action: "fix type to TEXT", status: "ok" });
+    } catch (e) {
+      // May already be correct
+      results.push({ table: "Order.tableId", action: "skip (already correct)", status: "ok" });
+    }
+
+    // Fix Order.tableNumberStr — ensure it exists with correct default
+    try {
+      await db.$executeRawUnsafe(
+        `ALTER TABLE "Order" ALTER COLUMN "tableNumberStr" SET DEFAULT ''`
+      );
+      results.push({ table: "Order.tableNumberStr", action: "ensure default", status: "ok" });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      results.push({ table: "Order.tip", action: "error", status: msg });
+      results.push({ table: "Order.tableNumberStr", action: "error", status: msg });
+    }
+
+    // Re-add Order_tableId_fkey FK (was dropped when we dropped RestaurantTable)
+    try {
+      await db.$executeRawUnsafe(
+        `ALTER TABLE "Order" ADD CONSTRAINT "Order_tableId_fkey" FOREIGN KEY ("tableId") REFERENCES "RestaurantTable"("id") ON DELETE SET NULL`
+      );
+      results.push({ table: "Order_tableId_fkey", action: "re-add FK", status: "ok" });
+    } catch {
+      /* FK may already exist */
+      results.push({ table: "Order_tableId_fkey", action: "skip (exists)", status: "ok" });
     }
 
     return NextResponse.json({
