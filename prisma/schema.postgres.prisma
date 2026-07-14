@@ -141,6 +141,7 @@ model Restaurant {
   promoCodes        PromoCode[]
   chatMessages      ChatMessage[]
   loyaltyTiers      LoyaltyTier[]
+  suppliers         Supplier[]
 
   @@index([status])
   @@index([plan])
@@ -428,6 +429,8 @@ model Staff {
   status       String   @default("active") // active, inactive, on_leave
   hireDate     String   @default("")
   notes        String   @default("")
+  weeklySchedule String @default("[]")
+  totalHours   Float    @default(0)
   restaurantId String
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   createdAt    DateTime   @default(now())
@@ -680,6 +683,27 @@ model ChatMessage {
 
   @@index([restaurantId, createdAt])
   @@index([restaurantId])
+}
+
+// ────────────────────────────────────────────────────────────────
+// Supplier — fournisseurs (Reco 14)
+// ────────────────────────────────────────────────────────────────
+model Supplier {
+  id            String   @id @default(cuid())
+  name          String
+  contactName   String   @default("")
+  phone         String   @default("")
+  email         String   @default("")
+  address       String   @default("")
+  category      String   @default("general")
+  notes         String   @default("")
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([restaurantId])
+  @@index([restaurantId, category])
 }
 
 // ────────────────────────────────────────────────────────────────

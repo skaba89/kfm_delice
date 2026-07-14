@@ -206,6 +206,12 @@ if (isServer && !globalForPrisma.schemaFixed) {
       ['StockItem', 'autoAlert', 'BOOLEAN NOT NULL DEFAULT true'],
       // ── Reco 8: Customer.birthday ──
       ['Customer', 'birthday', "TEXT NOT NULL DEFAULT ''"],
+      // ── Reco 11: Customer.referralCode + referredBy ──
+      ['Customer', 'referralCode', "TEXT NOT NULL DEFAULT ''"],
+      ['Customer', 'referredBy', "TEXT NOT NULL DEFAULT ''"],
+      // ── Reco 13: Staff.weeklySchedule + totalHours ──
+      ['Staff', 'weeklySchedule', "TEXT NOT NULL DEFAULT '[]'"],
+      ['Staff', 'totalHours', 'DOUBLE PRECISION NOT NULL DEFAULT 0'],
     ];
 
     (async () => {
@@ -416,6 +422,34 @@ if (isServer && !globalForPrisma.schemaFixed) {
           }
         }
 
+        // ── Reco 14: Create Supplier table if missing (PostgreSQL) ──
+        try {
+          await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "Supplier" (
+            "id" TEXT NOT NULL,
+            "name" TEXT NOT NULL,
+            "contactName" TEXT NOT NULL DEFAULT '',
+            "phone" TEXT NOT NULL DEFAULT '',
+            "email" TEXT NOT NULL DEFAULT '',
+            "address" TEXT NOT NULL DEFAULT '',
+            "category" TEXT NOT NULL DEFAULT 'general',
+            "notes" TEXT NOT NULL DEFAULT '',
+            "restaurantId" TEXT NOT NULL,
+            "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "updatedAt" TIMESTAMP(3) NOT NULL,
+            CONSTRAINT "Supplier_pkey" PRIMARY KEY ("id")
+          )`);
+          await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Supplier_restaurantId_idx" ON "Supplier"("restaurantId")`);
+          await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Supplier_restaurantId_category_idx" ON "Supplier"("restaurantId", "category")`);
+          try {
+            await db.$executeRawUnsafe(`ALTER TABLE "Supplier" ADD CONSTRAINT "Supplier_restaurantId_fkey" FOREIGN KEY ("restaurantId") REFERENCES "Restaurant"("id") ON DELETE CASCADE`);
+          } catch {}
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          if (!msg.includes('already exists')) {
+            console.warn(`[db:pg-fix] Could not create Supplier: ${msg}`);
+          }
+        }
+
         console.log('[db:pg-fix] PostgreSQL safety-net schema check complete');
       } catch (outerError) {
         console.error('[db:pg-fix] FATAL error in safety net:', outerError);
@@ -491,6 +525,12 @@ if (isServer && !globalForPrisma.schemaFixed) {
     ['StockItem', 'autoAlert', 'BOOLEAN NOT NULL DEFAULT 1'],
     // ── Reco 8: Customer.birthday ──
     ['Customer', 'birthday', "TEXT NOT NULL DEFAULT ''"],
+    // ── Reco 11: Customer.referralCode + referredBy ──
+    ['Customer', 'referralCode', "TEXT NOT NULL DEFAULT ''"],
+    ['Customer', 'referredBy', "TEXT NOT NULL DEFAULT ''"],
+    // ── Reco 13: Staff.weeklySchedule + totalHours ──
+    ['Staff', 'weeklySchedule', "TEXT NOT NULL DEFAULT '[]'"],
+    ['Staff', 'totalHours', 'REAL NOT NULL DEFAULT 0'],
     // ── Mission P3.8: Customer.tier (loyalty tier) ──
     ['Customer', 'tier', "TEXT NOT NULL DEFAULT 'bronze'"],
   ];
@@ -612,6 +652,29 @@ if (isServer && !globalForPrisma.schemaFixed) {
       const msg = e instanceof Error ? e.message : String(e);
       if (!msg.includes('already exists')) {
         console.warn(`[db:fix] Could not create LoyaltyTier: ${msg}`);
+      }
+    }
+
+    // ── Reco 14: Create Supplier table if missing (SQLite) ──
+    try {
+      await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "Supplier" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "name" TEXT NOT NULL,
+        "contactName" TEXT NOT NULL DEFAULT '',
+        "phone" TEXT NOT NULL DEFAULT '',
+        "email" TEXT NOT NULL DEFAULT '',
+        "address" TEXT NOT NULL DEFAULT '',
+        "category" TEXT NOT NULL DEFAULT 'general',
+        "notes" TEXT NOT NULL DEFAULT '',
+        "restaurantId" TEXT NOT NULL,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`);
+      await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Supplier_restaurantId_idx" ON "Supplier"("restaurantId")`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!msg.includes('already exists')) {
+        console.warn(`[db:fix] Could not create Supplier: ${msg}`);
       }
     }
 

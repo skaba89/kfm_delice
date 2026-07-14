@@ -112,6 +112,7 @@ model Restaurant {
   promoCodes        PromoCode[]
   chatMessages      ChatMessage[]
   loyaltyTiers      LoyaltyTier[]
+  suppliers         Supplier[]
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -221,6 +222,8 @@ model Customer {
   tier              String   @default("bronze")
   favoriteItemIds   String   @default("[]") // JSON array of menuItem IDs (Reco 3)
   birthday          String   @default("") // ISO date (Reco 8 — offers anniversaire)
+  referralCode      String   @default("") // Reco 11 — code parrainage unique
+  referredBy        String   @default("") // Reco 11 — code du parrain
   status            String   @default("active") // active, inactive
   mustChangePassword Boolean @default(false)
   loginAttempts     Int      @default(0)
@@ -391,6 +394,8 @@ model Staff {
   status       String   @default("active") // active, inactive, on_leave
   hireDate     String   @default("")
   notes        String   @default("")
+  weeklySchedule String @default("[]") // Reco 13 — JSON: [{day, startHour, endHour}] shifts
+  totalHours   Float    @default(0) // Reco 13 — heures travaillées cumulées
   restaurantId String
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   createdAt    DateTime   @default(now())
@@ -635,6 +640,27 @@ model ChatMessage {
 
   @@index([restaurantId, createdAt])
   @@index([restaurantId])
+}
+
+// ────────────────────────────────────────────────────────────────
+// Supplier — fournisseurs (Reco 14)
+// ────────────────────────────────────────────────────────────────
+model Supplier {
+  id            String   @id @default(cuid())
+  name          String
+  contactName   String   @default("")
+  phone         String   @default("")
+  email         String   @default("")
+  address       String   @default("")
+  category      String   @default("general") // ingredients, drinks, packaging, equipment
+  notes         String   @default("")
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([restaurantId])
+  @@index([restaurantId, category])
 }
 
 // ────────────────────────────────────────────────────────────────
