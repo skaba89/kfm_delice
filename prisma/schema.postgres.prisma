@@ -66,6 +66,7 @@ model Account {
   contractStartDate        String   @default("")
   contractEndDate          String   @default("")
   trialEndsAt              String   @default("")
+  commissionRate           Float    @default(0) // % commission plateforme (Reco 1)
 
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
