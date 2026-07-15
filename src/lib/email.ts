@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import nodemailer from 'nodemailer';
 import { RESTO } from './constants';
 
@@ -106,15 +107,15 @@ async function sendViaSmtp(payload: EmailPayload): Promise<{ success: boolean; p
 // ---------------------------------------------------------------------------
 
 function sendViaConsole(payload: EmailPayload): { success: boolean; provider: EmailProvider } {
-  console.log('\n╔══════════════════════════════════════════════════════════════╗');
-  console.log('║  EMAIL (console fallback — no provider configured)          ║');
-  console.log('╠══════════════════════════════════════════════════════════════╣');
-  console.log(`║  To      : ${payload.to}`);
-  console.log(`║  Subject : ${payload.subject}`);
-  console.log('║  HTML    : (see below)');
-  console.log('╚══════════════════════════════════════════════════════════════╝');
-  console.log(payload.html);
-  console.log('— end of email —\n');
+  logger.debug('\n╔══════════════════════════════════════════════════════════════╗');
+  logger.debug('║  EMAIL (console fallback — no provider configured)          ║');
+  logger.debug('╠══════════════════════════════════════════════════════════════╣');
+  logger.debug(`║  To      : ${payload.to}`);
+  logger.debug(`║  Subject : ${payload.subject}`);
+  logger.debug('║  HTML    : (see below)');
+  logger.debug('╚══════════════════════════════════════════════════════════════╝');
+  logger.debug(payload.html);
+  logger.debug('— end of email —\n');
 
   return { success: true, provider: 'console' };
 }

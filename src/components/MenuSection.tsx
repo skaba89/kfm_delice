@@ -213,7 +213,7 @@ export function MenuSection() {
                   <Card className="overflow-hidden hover:shadow-xl transition-all group dark:bg-gray-900 dark:border-gray-800">
                     <div className="h-48 overflow-hidden relative bg-gradient-to-br from-orange-100 to-amber-100 dark:from-gray-800 dark:to-gray-700 flex items-center justify-center">
                       {item.image ? (
-                        <img src={item.image} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                        <img src={item.image} alt={item.name} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                       ) : (
                         <span className="text-6xl opacity-30">🍽️</span>
                       )}

@@ -11,7 +11,7 @@ export function PublicFooter() {
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-8 mb-12">
           <div>
             <div className="flex items-center gap-2.5 mb-4">
-              <img src="/images/icon-192.png" alt="KFM Delice" className="w-10 h-10 rounded-xl shadow-lg object-cover" />
+              <img src="/images/icon-192.png" alt="KFM Delice" loading="lazy" className="w-10 h-10 rounded-xl shadow-lg object-cover" />
               <div><p className="font-extrabold text-lg">KFM Delice</p><p className="text-[10px] text-gray-400 uppercase tracking-widest">Restaurant & Bar</p></div>
             </div>
             <p className="text-sm text-gray-400 leading-relaxed">{RESTO.description}</p>

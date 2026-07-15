@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || '';
 
 export function isPushNotificationSupported(): boolean {
@@ -13,7 +14,7 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
   if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return null;
   try {
     const registration = await navigator.serviceWorker.register('/sw.js');
-    console.log('[SW] Service Worker registered:', registration.scope);
+    logger.debug('[SW] Service Worker registered:', registration.scope);
     return registration;
   } catch (error) {
     console.error('[SW] Registration failed:', error);
@@ -146,7 +147,7 @@ export function setupInstallPromptListener(
     e.preventDefault();
     deferredPrompt = e as BeforeInstallPromptEvent;
     onAvailable?.(true);
-    console.log('[PWA] Install prompt ready');
+    logger.debug('[PWA] Install prompt ready');
   };
 
   window.addEventListener('beforeinstallprompt', handler);
@@ -163,7 +164,7 @@ export function setupInstallPromptListener(
  */
 export async function showInstallPrompt(): Promise<boolean> {
   if (!deferredPrompt) {
-    console.log('[PWA] No install prompt available');
+    logger.debug('[PWA] No install prompt available');
     return false;
   }
 

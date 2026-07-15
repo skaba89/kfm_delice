@@ -20,7 +20,7 @@ export function PublicNavbarDynamic({ restaurant, slug, onAdminClick, onCustomer
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
         <a href={rPath || "/"} className="flex items-center gap-2">
           {restaurant.logo ? (
-            <img src={restaurant.logo} alt={restaurant.name} className="h-8 w-8 rounded-lg object-cover" />
+            <img src={restaurant.logo} alt={restaurant.name} loading="lazy" className="h-8 w-8 rounded-lg object-cover" />
           ) : (
             <div className="h-8 w-8 rounded-lg flex items-center justify-center text-white font-bold text-sm" style={{ backgroundColor: restaurant.primaryColor || "#ea580c" }}>
               {restaurant.name.charAt(0)}

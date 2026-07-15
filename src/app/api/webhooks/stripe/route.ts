@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { logAudit } from "@/lib/audit";
@@ -113,7 +114,7 @@ async function handleEvent(event: any, request: Request) {
           request,
         }).catch(() => {});
 
-        console.log(`[stripe-webhook] Payment confirmed for order ${orderId}`);
+        logger.debug(`[stripe-webhook] Payment confirmed for order ${orderId}`);
       }
       break;
     }
@@ -126,7 +127,7 @@ async function handleEvent(event: any, request: Request) {
           where: { id: orderId },
           data: { paymentStatus: "failed" },
         }).catch(() => {});
-        console.log(`[stripe-webhook] Payment expired for order ${orderId}`);
+        logger.debug(`[stripe-webhook] Payment expired for order ${orderId}`);
       }
       break;
     }
@@ -139,14 +140,14 @@ async function handleEvent(event: any, request: Request) {
           where: { id: orderId },
           data: { paymentStatus: "failed" },
         }).catch(() => {});
-        console.log(`[stripe-webhook] Payment failed for order ${orderId}`);
+        logger.debug(`[stripe-webhook] Payment failed for order ${orderId}`);
       }
       break;
     }
 
     default:
       // Unhandled event type — log but don't error
-      console.log(`[stripe-webhook] Unhandled event: ${event.type}`);
+      logger.debug(`[stripe-webhook] Unhandled event: ${event.type}`);
   }
 
   return NextResponse.json({ received: true });

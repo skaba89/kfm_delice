@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { PrismaClient } from '@prisma/client'
 
 // ─── Database URL resolution ───────────────────────────────────────
@@ -56,9 +57,9 @@ if (isServer) {
       ? 'postgres'
       : 'sqlite';
   if (isProduction) {
-    console.log(`[db] Database provider: ${dbProvider}`);
+    logger.debug(`[db] Database provider: ${dbProvider}`);
   } else {
-    console.log(`[db] Database provider: ${dbProvider} (DATABASE_URL=${finalDatabaseUrl})`);
+    logger.debug(`[db] Database provider: ${dbProvider} (DATABASE_URL=${finalDatabaseUrl})`);
   }
 }
 
@@ -237,7 +238,7 @@ if (isServer && !globalForPrisma.schemaFixed) {
             )
             WHERE "restaurantId" = '' OR "restaurantId" IS NULL
           `);
-          console.log('[db:pg-fix] Linked orphan admins to first restaurant');
+          logger.debug('[db:pg-fix] Linked orphan admins to first restaurant');
         } catch (e: unknown) {
           // Non-fatal — might fail if Restaurant table is empty
         }
@@ -450,7 +451,7 @@ if (isServer && !globalForPrisma.schemaFixed) {
           }
         }
 
-        console.log('[db:pg-fix] PostgreSQL safety-net schema check complete');
+        logger.debug('[db:pg-fix] PostgreSQL safety-net schema check complete');
       } catch (outerError) {
         console.error('[db:pg-fix] FATAL error in safety net:', outerError);
       } finally {
@@ -678,7 +679,7 @@ if (isServer && !globalForPrisma.schemaFixed) {
       }
     }
 
-    console.log('[db:fix] Schema fix complete');
+    logger.debug('[db:fix] Schema fix complete');
     dbReadyResolve();
   })();
   } // end SQLite-only branch

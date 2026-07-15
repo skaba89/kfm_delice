@@ -132,7 +132,7 @@ export function MenuSectionDynamic({ restaurant, slug }: Props) {
                       <Card className="overflow-hidden hover:shadow-lg transition-all group dark:bg-gray-800 dark:border-gray-700">
                         <div className="h-40 overflow-hidden relative">
                           {item.image ? (
-                            <img src={item.image} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                            <img src={item.image} alt={item.name} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center" style={{ background: `linear-gradient(135deg, ${primaryColor}22, ${primaryColor}11)` }}>
                               <UtensilsCrossed className="w-8 h-8" style={{ color: `${primaryColor}66` }} />

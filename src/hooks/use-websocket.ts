@@ -1,4 +1,5 @@
 "use client";
+import { logger } from "@/lib/logger";
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 
@@ -128,7 +129,7 @@ export function useWebSocket(
 
     // Skip WebSocket connection if the platform doesn't support it
     if (!isWSSupported()) {
-      console.log('[WS] WebSocket not supported on this platform, skipping connection.');
+      logger.debug('[WS] WebSocket not supported on this platform, skipping connection.');
       return;
     }
 
@@ -138,13 +139,13 @@ export function useWebSocket(
       if (!autoReconnect || !mountedRef.current) return;
 
       if (reconnectAttemptRef.current >= maxReconnectAttempts) {
-        console.log(`[WS] Max reconnect attempts (${maxReconnectAttempts}) reached. Giving up.`);
+        logger.debug(`[WS] Max reconnect attempts (${maxReconnectAttempts}) reached. Giving up.`);
         return;
       }
 
       const delay = getReconnectDelay();
       reconnectAttemptRef.current++;
-      console.log(`[WS] Reconnecting in ${delay}ms (attempt ${reconnectAttemptRef.current}/${maxReconnectAttempts})...`);
+      logger.debug(`[WS] Reconnecting in ${delay}ms (attempt ${reconnectAttemptRef.current}/${maxReconnectAttempts})...`);
       reconnectTimerRef.current = setTimeout(doConnect, delay);
     }
 
@@ -168,7 +169,7 @@ export function useWebSocket(
           if (!mountedRef.current) return;
           setConnected(true);
           reconnectAttemptRef.current = 0; // Reset attempt counter on successful connection
-          console.log(`[WS] Connected as ${userType}:${userId}`);
+          logger.debug(`[WS] Connected as ${userType}:${userId}`);
           startHeartbeat(ws!);
         };
 
@@ -204,17 +205,17 @@ export function useWebSocket(
           // 4003 = session expired (reconnect immediately)
           // 4004 = server at capacity (retry with backoff)
           if (closeEvent.code === 4001) {
-            console.log('[WS] Connection rejected (invalid credentials). Not reconnecting.');
+            logger.debug('[WS] Connection rejected (invalid credentials). Not reconnecting.');
             return;
           }
 
           if (closeEvent.code === 4003) {
             // Session expired, reconnect immediately
             reconnectAttemptRef.current = 0;
-            console.log('[WS] Session expired, reconnecting immediately...');
+            logger.debug('[WS] Session expired, reconnecting immediately...');
             reconnectTimerRef.current = setTimeout(doConnect, 500);
           } else {
-            console.log(`[WS] Disconnected (code: ${closeEvent.code}), will reconnect...`);
+            logger.debug(`[WS] Disconnected (code: ${closeEvent.code}), will reconnect...`);
             scheduleReconnect();
           }
         };

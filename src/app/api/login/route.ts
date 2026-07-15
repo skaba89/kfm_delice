@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { verifyPassword, generateToken } from "@/lib/auth";
@@ -15,7 +16,7 @@ async function ensureDbSeeded() {
     try {
       const count = await db.restaurant.count();
       if (count > 0) {
-        console.log(`[auto-seed] DB already has ${count} restaurant(s), skipping login-time seed.`);
+        logger.debug(`[auto-seed] DB already has ${count} restaurant(s), skipping login-time seed.`);
         return;
       }
       // NOTE: Login-time auto-seed is intentionally minimal — it does NOT
@@ -26,8 +27,8 @@ async function ensureDbSeeded() {
       //
       // This login-time fallback only exists for emergency local-dev
       // scenarios and is gated by ALLOW_LOGIN_AUTO_SEED=true (off by default).
-      console.log("[auto-seed] Empty DB detected — login-time seed is minimal.");
-      console.log("[auto-seed] For full demo data, run scripts/auto-seed.cjs or set ALLOW_AUTO_SEED=true on Render.");
+      logger.debug("[auto-seed] Empty DB detected — login-time seed is minimal.");
+      logger.debug("[auto-seed] For full demo data, run scripts/auto-seed.cjs or set ALLOW_AUTO_SEED=true on Render.");
     } catch (err) {
       console.error("[auto-seed] Failed:", err);
       _seedPromise = null; // Allow retry

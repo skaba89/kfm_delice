@@ -153,7 +153,7 @@ export function MenuTab({
           {uploadingImage && <p className="text-xs text-orange-500 mt-1">Téléchargement en cours...</p>}
           {crud.form.image && (
             <div className="mt-2 w-24 h-24 rounded-lg overflow-hidden border dark:border-gray-600">
-              <img src={crud.form.image} alt="Aperçu" className="w-full h-full object-cover" />
+              <img src={crud.form.image} alt="Aperçu" loading="lazy" className="w-full h-full object-cover" />
             </div>
           )}
         </div>

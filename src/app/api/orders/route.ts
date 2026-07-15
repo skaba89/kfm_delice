@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, authenticateAny, hasRole } from "@/lib/auth";
@@ -620,7 +621,7 @@ export async function PATCH(request: Request) {
             const { updateCustomerTier } = await import("@/lib/loyalty-tiers");
             const newTier = await updateCustomerTier(fullOrder.customerId, fullOrder.restaurantId);
             if (newTier) {
-              console.log(`[orders] Customer ${fullOrder.customerId} promoted to tier: ${newTier}`);
+              logger.debug(`[orders] Customer ${fullOrder.customerId} promoted to tier: ${newTier}`);
               // Broadcast tier upgrade via WebSocket (non-blocking)
               try {
                 const { broadcastToType } = await import("@/lib/websocket-server");

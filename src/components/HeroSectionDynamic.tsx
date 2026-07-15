@@ -34,7 +34,7 @@ export function HeroSectionDynamic({ restaurant, slug }: Props) {
           </Badge>
 
           {restaurant.logo ? (
-            <img src={restaurant.logo} alt={restaurant.name} className="w-20 h-20 rounded-2xl mx-auto mb-4 shadow-xl object-cover" />
+            <img src={restaurant.logo} alt={restaurant.name} loading="lazy" className="w-20 h-20 rounded-2xl mx-auto mb-4 shadow-xl object-cover" />
           ) : (
             <div className="w-20 h-20 rounded-2xl mx-auto mb-4 shadow-xl flex items-center justify-center text-white text-3xl font-bold bg-white/20 backdrop-blur-sm">
               {restaurant.name.charAt(0)}

@@ -109,7 +109,7 @@ export function useCrudState<TEntity, TForm>(
         const body = config.prepareUpdate
           ? config.prepareUpdate(form, editing)
           : (form as Record<string, unknown>);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         await apiPatch(config.apiEndpoint, { id: (editing as any).id, ...body });
       } else {
         const body = config.prepareCreate

@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { logAudit } from "@/lib/audit";
@@ -72,7 +73,7 @@ export async function POST(
       paymentStatus = 'failed';
     }
 
-    console.log(`[webhook/${provider}] orderId=${orderId}, status=${providerStatus} → ${paymentStatus}, txnId=${transactionId}`);
+    logger.debug(`[webhook/${provider}] orderId=${orderId}, status=${providerStatus} → ${paymentStatus}, txnId=${transactionId}`);
 
     // ── Find the order ──
     const order = await db.order.findFirst({
@@ -133,14 +134,14 @@ export async function POST(
         request,
       }).catch(() => {});
 
-      console.log(`[webhook/${provider}] ✓ Payment confirmed for order ${orderId}`);
+      logger.debug(`[webhook/${provider}] ✓ Payment confirmed for order ${orderId}`);
     } else if (paymentStatus === 'failed') {
       await db.order.update({
         where: { id: orderId },
         data: { paymentStatus: 'failed' },
       });
 
-      console.log(`[webhook/${provider}] ✗ Payment failed for order ${orderId}`);
+      logger.debug(`[webhook/${provider}] ✗ Payment failed for order ${orderId}`);
     }
 
     // Always return 200 to acknowledge receipt (providers retry on non-2xx)
