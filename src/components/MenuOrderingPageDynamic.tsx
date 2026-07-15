@@ -51,6 +51,18 @@ export function MenuOrderingPageDynamic() {
   const { restaurant, slug, loading: restLoading, error: restError } = useRestaurant();
   const { customer, driver } = useAuth();
 
+  // Bug fix: quand on arrive via un QR code (tableToken dans l'URL),
+  // on masque les boutons Admin/Livreur de la navbar — le client ne
+  // doit voir que le menu et le panier (parcours commande uniquement).
+  const [isQrScanMode, setIsQrScanMode] = useState(false);
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const hasTableToken = params.has("tableToken") || !!sessionStorage.getItem("kfm-table-token");
+      setIsQrScanMode(hasTableToken);
+    }
+  }, []);
+
   // ── Menu items ────────────────────────────────────────────
   const [menuItems, setMenuItems] = useState<MenuItemDB[]>([]);
   const [menuLoading, setMenuLoading] = useState(true);
@@ -288,12 +300,12 @@ export function MenuOrderingPageDynamic() {
       <PublicNavbarDynamic
         restaurant={restaurant}
         slug={slug}
-        onAdminClick={() => router.push("/admin/login")}
-        onCustomerClick={() => {
+        onAdminClick={isQrScanMode ? undefined : () => router.push("/admin/login")}
+        onCustomerClick={isQrScanMode ? undefined : () => {
           if (customer) router.push("/client");
           else router.push("/client/login");
         }}
-        onDriverClick={() => {
+        onDriverClick={isQrScanMode ? undefined : () => {
           if (driver) router.push("/driver");
           else router.push("/driver/login");
         }}

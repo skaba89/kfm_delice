@@ -6,9 +6,9 @@ import type { RestaurantDB } from "@/lib/types";
 interface Props {
   restaurant: RestaurantDB;
   slug: string | null;
-  onAdminClick: () => void;
-  onCustomerClick: () => void;
-  onDriverClick: () => void;
+  onAdminClick?: () => void;
+  onCustomerClick?: () => void;
+  onDriverClick?: () => void;
   customer?: { name: string } | null;
 }
 
@@ -32,15 +32,21 @@ export function PublicNavbarDynamic({ restaurant, slug, onAdminClick, onCustomer
           <a href={`${rPath}/menu`} className="hidden sm:inline-flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors">
             <UtensilsCrossed className="w-4 h-4" /> Menu
           </a>
-          <a href={`${rPath}/reservation`} className="hidden sm:inline-flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors">
-            <Clock className="w-4 h-4" /> Réserver
-          </a>
-          <button onClick={onCustomerClick} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors">
-            <User className="w-4 h-4" /> <span className="hidden sm:inline">{customer ? "Mon compte" : "Connexion"}</span>
-          </button>
-          <button onClick={onDriverClick} className="hidden sm:flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors">
-            <Truck className="w-4 h-4" /> Livreur
-          </button>
+          {onCustomerClick && (
+            <a href={`${rPath}/reservation`} className="hidden sm:inline-flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors">
+              <Clock className="w-4 h-4" /> Réserver
+            </a>
+          )}
+          {onCustomerClick && (
+            <button onClick={onCustomerClick} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors">
+              <User className="w-4 h-4" /> <span className="hidden sm:inline">{customer ? "Mon compte" : "Connexion"}</span>
+            </button>
+          )}
+          {onDriverClick && (
+            <button onClick={onDriverClick} className="hidden sm:flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors">
+              <Truck className="w-4 h-4" /> Livreur
+            </button>
+          )}
         </div>
       </div>
     </nav>

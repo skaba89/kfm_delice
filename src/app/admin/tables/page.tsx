@@ -57,6 +57,10 @@ export default function AdminTablesPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<RestaurantTable | null>(null);
   const [qrDialog, setQrDialog] = useState<RestaurantTable | null>(null);
+  // Bug fix: par défaut on ne montre que les tables actives.
+  // L'admin peut cocher "Afficher les tables supprimées" pour voir les
+  // tables désactivées (soft-delete).
+  const [showInactive, setShowInactive] = useState(false);
 
   // ── Form state ──
   const [formName, setFormName] = useState("");
@@ -230,7 +234,16 @@ export default function AdminTablesPage() {
               Tables & QR Codes
             </h1>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showInactive}
+                onChange={(e) => setShowInactive(e.target.checked)}
+                className="rounded"
+              />
+              Afficher les tables supprimées
+            </label>
             <Button variant="outline" onClick={load} disabled={loading}>
               <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} />
               Rafraîchir
@@ -258,7 +271,7 @@ export default function AdminTablesPage() {
           </Card>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {tables.map((t) => (
+            {tables.filter(t => showInactive || t.active).map((t) => (
               <Card
                 key={t.id}
                 className={`overflow-hidden ${!t.active ? "opacity-60" : ""} dark:bg-gray-900 dark:border-gray-800`}
