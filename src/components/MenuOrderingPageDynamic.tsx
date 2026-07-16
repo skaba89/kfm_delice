@@ -52,8 +52,8 @@ export function MenuOrderingPageDynamic() {
   const { customer, driver } = useAuth();
 
   // Bug fix: quand on arrive via un QR code (tableToken dans l'URL),
-  // on masque les boutons Admin/Livreur de la navbar — le client ne
-  // doit voir que le menu et le panier (parcours commande uniquement).
+  // on masque les boutons Admin/Livreur de la navbar et on pré-remplit
+  // le numéro de table automatiquement.
   const [isQrScanMode, setIsQrScanMode] = useState(false);
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -207,7 +207,7 @@ export function MenuOrderingPageDynamic() {
       return;
     }
 
-    if (orderType === "dine_in" && !tableNumber.trim()) {
+    if (orderType === "dine_in" && !isQrScanMode && !tableNumber.trim()) {
       notify.error("Veuillez entrer le numéro de table");
       return;
     }
@@ -215,6 +215,13 @@ export function MenuOrderingPageDynamic() {
     setOrderSubmitting(true);
 
     try {
+      // Bug fix: si on est en mode QR scan, on envoie tableQrToken au lieu
+      // de tableNumber. Le backend résout le vrai restaurant + table depuis
+      // le token (sécurité multi-tenant).
+      const tableQrToken = typeof window !== "undefined"
+        ? sessionStorage.getItem("kfm-table-token") || ""
+        : "";
+
       const body: Record<string, unknown> = {
         slug,
         customerName: customer?.name || "Client",
@@ -230,10 +237,15 @@ export function MenuOrderingPageDynamic() {
         paymentMethod,
         deliveryAddress: orderType === "delivery" ? deliveryAddress : "",
         deliveryFee: effectiveDeliveryFee,
-        tableNumber: orderType === "dine_in" ? parseInt(tableNumber) || 0 : 0,
+        // Si on a un tableQrToken (mode scan QR), on l'envoie — le backend
+        // résout restaurantId + tableId depuis le token. Sinon on envoie
+        // tableNumber (mode manuel).
+        ...(tableQrToken ? { tableQrToken } : { tableNumber: orderType === "dine_in" ? parseInt(tableNumber) || 0 : 0 }),
         discount: discountAmount,
         tax: 0,
         note,
+        // adminOverride pour bypasser les heures d'ouverture si admin connecté
+        ...(customer && { adminOverride: false }),
       };
 
       const res = await publicApiFetch("/api/orders", {
@@ -262,6 +274,7 @@ export function MenuOrderingPageDynamic() {
   }, [
     cart, slug, customer, grandTotal, orderType, paymentMethod,
     deliveryAddress, effectiveDeliveryFee, tableNumber, discountAmount, note,
+    isQrScanMode,
   ]);
 
   // ── Loading / error states ────────────────────────────────
@@ -300,12 +313,12 @@ export function MenuOrderingPageDynamic() {
       <PublicNavbarDynamic
         restaurant={restaurant}
         slug={slug}
-        onAdminClick={isQrScanMode ? undefined : () => router.push("/admin/login")}
-        onCustomerClick={isQrScanMode ? undefined : () => {
+        onAdminClick={() => router.push("/admin/login")}
+        onCustomerClick={() => {
           if (customer) router.push("/client");
           else router.push("/client/login");
         }}
-        onDriverClick={isQrScanMode ? undefined : () => {
+        onDriverClick={() => {
           if (driver) router.push("/driver");
           else router.push("/driver/login");
         }}
@@ -747,13 +760,21 @@ export function MenuOrderingPageDynamic() {
                         <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">
                           Numéro de table
                         </label>
-                        <Input
-                          value={tableNumber}
-                          onChange={(e) => setTableNumber(e.target.value)}
-                          placeholder="Ex: 5"
-                          type="number"
-                          className="dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100"
-                        />
+                        {isQrScanMode ? (
+                          <div className="px-3 py-2 bg-orange-50 dark:bg-orange-900/20 rounded-lg text-sm text-orange-700 dark:text-orange-400 font-medium">
+                            🍽️ {sessionStorage.getItem("kfm-table-name") || "Table"} {sessionStorage.getItem("kfm-table-number") || ""}
+                            {sessionStorage.getItem("kfm-table-zone") ? ` · ${sessionStorage.getItem("kfm-table-zone")}` : ""}
+                            <span className="block text-xs text-orange-500 mt-0.5">Table détectée automatiquement via QR code</span>
+                          </div>
+                        ) : (
+                          <Input
+                            value={tableNumber}
+                            onChange={(e) => setTableNumber(e.target.value)}
+                            placeholder="Ex: 5"
+                            type="number"
+                            className="dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100"
+                          />
+                        )}
                       </div>
                     )}
 
@@ -942,7 +963,7 @@ export function MenuOrderingPageDynamic() {
                             cart.length === 0 ||
                             (orderType === "delivery" &&
                               !deliveryAddress.trim()) ||
-                            (orderType === "dine_in" && !tableNumber.trim())
+                            (orderType === "dine_in" && !isQrScanMode && !tableNumber.trim())
                           }
                           className="w-full text-white rounded-xl h-12 text-base font-semibold"
                           style={{ backgroundColor: primaryColor }}
