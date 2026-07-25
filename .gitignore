@@ -81,3 +81,4 @@ server.log
 .git-backup-*/
 secrets-production.txt
 prisma/data/*.db
+render.yaml.sqlite
