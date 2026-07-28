@@ -32,15 +32,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
     const body = await request.json();
-    const { name, contactName, phone, email, address, category, notes } = body;
+    // Validation: sanitize + validate all string fields
+    const name = typeof body.name === "string" ? body.name.trim().slice(0, 200) : "";
     if (!name) return NextResponse.json({ error: "Nom requis" }, { status: 400 });
+    const contactName = typeof body.contactName === "string" ? body.contactName.trim().slice(0, 200) : "";
+    const phone = typeof body.phone === "string" ? body.phone.trim().slice(0, 50) : "";
+    const email = typeof body.email === "string" ? body.email.trim().slice(0, 200) : "";
+    const address = typeof body.address === "string" ? body.address.trim().slice(0, 500) : "";
+    const category = typeof body.category === "string" ? body.category.trim().slice(0, 100) : "general";
+    const notes = typeof body.notes === "string" ? body.notes.trim().slice(0, 1000) : "";
 
     const supplier = await db.supplier.create({
       data: {
         restaurantId: admin.restaurantId,
-        name, contactName: contactName || "", phone: phone || "",
-        email: email || "", address: address || "",
-        category: category || "general", notes: notes || "",
+        name, contactName, phone, email, address, category, notes,
       },
     });
     return NextResponse.json(supplier, { status: 201 });

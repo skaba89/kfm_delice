@@ -50,10 +50,15 @@ export async function POST(request: Request) {
     if (!customer) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
     const body = await request.json();
-    const { code } = body as { code?: string };
-    if (!code) return NextResponse.json({ error: "Code requis" }, { status: 400 });
+    // Validation: code must be a non-empty string, max 50 chars, alphanumeric
+    const rawCode = typeof body.code === "string" ? body.code.trim() : "";
+    if (!rawCode) return NextResponse.json({ error: "Code requis" }, { status: 400 });
+    if (rawCode.length > 50) return NextResponse.json({ error: "Code trop long" }, { status: 400 });
+    if (!/^[A-Za-z0-9_-]+$/.test(rawCode)) {
+      return NextResponse.json({ error: "Code invalide — caractères alphanumériques uniquement" }, { status: 400 });
+    }
 
-    const normalizedCode = code.trim().toUpperCase();
+    const normalizedCode = rawCode.toUpperCase();
 
     // Check if customer already has a referral
     const c = await db.customer.findUnique({

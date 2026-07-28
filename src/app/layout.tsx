@@ -5,6 +5,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { Providers } from "@/components/Providers";
 import { PwaInstallPrompt } from "@/components/PwaInstallPrompt";
+import { CookieConsent } from "@/components/CookieConsent";
 import { MustChangePasswordDialog } from "@/components/auth/MustChangePasswordDialog";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
@@ -76,6 +77,7 @@ export default function RootLayout({
             <MustChangePasswordDialog />
             <Toaster position="top-right" richColors closeButton />
             <PwaInstallPrompt />
+            <CookieConsent />
             <div className="fixed bottom-4 right-4 z-40">
               <LanguageSwitcher compact />
             </div>
