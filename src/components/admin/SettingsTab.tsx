@@ -321,6 +321,7 @@ export function SettingsTab({ apiFetch, apiPatch, apiPut, adminRole, admins = []
                     </div>
                   ) : (
                     <div className="w-20 h-20 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-600 flex items-center justify-center bg-gray-50 dark:bg-gray-800">
+                      {/* eslint-disable-next-line jsx-a11y/alt-text */}
                       <Image className="w-8 h-8 text-gray-400" />
                     </div>
                   )}
