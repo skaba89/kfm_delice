@@ -152,7 +152,7 @@ jobs:
           E2E_ADMIN_PASSWORD: "AdminKFM2026!"
           E2E_SLUG: "kfm-delice"
           E2E_SAFE_MODE: "true"
-        run: python3 scripts/e2e-qr-tables.py || true
+        run: python3 scripts/e2e-qr-tables.py
 
       - name: Upload QR E2E report
         if: always()

@@ -65,7 +65,7 @@ const { secret: _JWT_SECRET, valid: jwtSecretValid } = resolveJwtSecretForEdge()
 // via provider signatures (Stripe-Signature, etc.), NOT via JWT.
 // The route handlers enforce signature verification themselves.
 const PUBLIC_GET_ROUTES = ['/api/menu', '/api/reviews', '/api/tracking', '/api/restaurant', '/api/restaurants', '/api/diagnose', '/api/seed', '/api/loyalty/rewards', '/api/loyalty/tiers', '/api/status', '/api/qr/table', '/api/currency/convert'];
-const PUBLIC_POST_ROUTES = ['/api/login', '/api/customer-login', '/api/customer-register', '/api/driver-login', '/api/orders', '/api/reservations', '/api/seed', '/api/register-restaurant', '/api/platform-login', '/api/reviews', '/api/promo-codes/validate', '/api/customer/favorites', '/api/customer/reorder', '/api/customer/birthday-offer', '/api/customer/referral', '/api/webhooks/stripe', '/api/webhooks/payment'];
+const PUBLIC_POST_ROUTES = ['/api/login', '/api/customer-login', '/api/customer-register', '/api/driver-login', '/api/orders', '/api/reservations', '/api/seed', '/api/register-restaurant', '/api/platform-login', '/api/reviews', '/api/promo-codes/validate', '/api/customer/favorites', '/api/customer/reorder', '/api/customer/birthday-offer', '/api/customer/referral', '/api/webhooks/stripe', '/api/webhooks/payment', '/api/refresh', '/api/logout'];
 const PUBLIC_ANY_ROUTES = ['/api']; // health check
 
 // Auth endpoints that need rate limiting

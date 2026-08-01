@@ -53,7 +53,7 @@ function getJwtSecret(): string {
   return _cachedSecret;
 }
 
-const JWT_EXPIRES_IN = '24h';
+const JWT_EXPIRES_IN = (process.env.JWT_ACCESS_EXPIRES_IN || '15m') as string; // Mission 7: short-lived access token
 
 // Hash a password
 export async function hashPassword(password: string): Promise<string> {
@@ -88,7 +88,7 @@ export function generateToken(payload: TokenPayload): string {
     payload,
     getJwtSecret(),
     {
-      expiresIn: JWT_EXPIRES_IN,
+      expiresIn: JWT_EXPIRES_IN as any,
       issuer: JWT_ISSUER,
       audience: JWT_AUDIENCE,
       jwtid: `${payload.type}-${payload.id}-${Date.now()}-${Math.random().toString(36).substring(2, 10)}`,

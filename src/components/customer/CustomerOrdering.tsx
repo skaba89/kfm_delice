@@ -99,7 +99,7 @@ export function CustomerOrdering({
                       {/* Photo du plat (si disponible) */}
                       {item.image ? (
                         <div className="relative h-32 w-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          { }
                           <img src={item.image} alt={item.name} className="w-full h-full object-cover" loading="lazy" />
                           {item.badge && (
                             <Badge className="absolute top-2 right-2 bg-amber-500/90 text-white text-[10px] backdrop-blur-sm">{item.badge}</Badge>
