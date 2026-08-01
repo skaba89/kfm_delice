@@ -23,8 +23,10 @@ async function main() {
   const db = new PrismaClient();
   try {
     // Find all truly failed migrations
+    // Note: _prisma_migrations columns are: id, checksum, finished_at, migration_name,
+    // logs, rolled_back_at, started_at, applied_steps_count
     const failedMigrations = await db.$queryRawUnsafe(
-      `SELECT migration_name, migration_script FROM _prisma_migrations
+      `SELECT migration_name FROM _prisma_migrations
        WHERE finished_at IS NULL
          AND rolled_back_at IS NULL
          AND started_at IS NOT NULL`
