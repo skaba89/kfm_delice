@@ -35,6 +35,7 @@ export interface InitPaymentParams {
   currency?: string;
   returnUrl?: string;
   notifyUrl?: string;
+  restaurantId?: string; // Mission 4: for Stripe metadata
 }
 
 export interface InitPaymentResult {

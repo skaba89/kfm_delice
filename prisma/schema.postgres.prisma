@@ -35,10 +35,15 @@ model PlatformAdmin {
   name         String
   role         String   @default("super_admin") // super_admin, support
   status       String   @default("active") // active, inactive
-  // 2FA TOTP fields
+  // 2FA TOTP fields — secret is AES-256-GCM encrypted (Mission 7)
   twoFactorEnabled    Boolean  @default(false)
-  twoFactorSecret     String?  // encrypted TOTP secret
+  twoFactorSecret     String?  // encrypted TOTP secret (AES-256-GCM)
   twoFactorBackupCodes String? // JSON array of hashed backup codes
+  // ── Mission 7: session security ──
+  tokenVersion        Int      @default(0) // bump to revoke all sessions
+  mustChangePassword  Boolean  @default(false)
+  loginAttempts       Int      @default(0)
+  lockedUntil         DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -143,6 +148,12 @@ model Restaurant {
   chatMessages      ChatMessage[]
   loyaltyTiers      LoyaltyTier[]
   suppliers         Supplier[]
+  // ── Mission 1/2/3/4/9 back-relations ──
+  orderItems        OrderItem[]
+  idempotencyKeys   IdempotencyKey[]
+  promotionRedemptions PromotionRedemption[]
+  webhookEvents     WebhookEvent[]
+  customerFavorites CustomerFavorite[]
 
   @@index([status])
   @@index([plan])
@@ -226,6 +237,8 @@ model Admin {
   // ── Account security fields ──
   loginAttempts     Int      @default(0) // failed login attempts counter
   lockedUntil       DateTime? // null = not locked; set a future time to lock
+  // ── Mission 7: session security ──
+  tokenVersion      Int      @default(0) // bump to revoke all active sessions
   restaurantId      String
   restaurant        Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   // ── SaaS Account fields ──
@@ -265,6 +278,8 @@ model Customer {
   // ── Account security fields ──
   loginAttempts     Int      @default(0)
   lockedUntil       DateTime?
+  // ── Mission 7: session security ──
+  tokenVersion      Int      @default(0) // bump to revoke all active sessions
   restaurantId      String
   restaurant        Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   createdAt         DateTime   @default(now())
@@ -273,6 +288,7 @@ model Customer {
   reservations      Reservation[]
   reviews           Review[]
   loyaltyHistory    LoyaltyPointsHistory[]
+  favorites         CustomerFavorite[]
 
   @@unique([email, restaurantId])
   @@index([restaurantId])
@@ -295,6 +311,8 @@ model MenuItem {
   stockItem    StockItem? @relation("MenuItemStock", fields: [stockItemId], references: [id], onDelete: SetNull)
   restaurantId String
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  favorites    CustomerFavorite[]
+  orderItems   OrderItem[]
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
@@ -363,6 +381,9 @@ model Order {
   table         RestaurantTable? @relation(fields: [tableId], references: [id], onDelete: SetNull)
   tableNumberStr String   @default("") // snapshot of table.number (string)
   payments      Payment[]
+  orderItems    OrderItem[]
+  idempotencyKey IdempotencyKey?
+  promotionRedemption PromotionRedemption?
   restaurantId  String
   restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   createdAt     DateTime   @default(now())
@@ -586,6 +607,7 @@ model PromoCode {
   expiresAt       DateTime?
   restaurantId    String
   restaurant      Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  redemptions     PromotionRedemption[]
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -736,3 +758,144 @@ model AuditLog {
   @@index([entityType])
   @@index([createdAt])
 }
+
+// ────────────────────────────────────────────────────────────────
+// Mission 1: OrderItem — normalized line items (replaces JSON snapshot)
+// ────────────────────────────────────────────────────────────────
+model OrderItem {
+  id            String   @id @default(cuid())
+  orderId       String
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId    String
+  menuItem      MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Restrict)
+  name          String   // snapshot at time of order
+  unitPrice     BigInt   // snapshot at time of order (GNF)
+  quantity      Int
+  note          String   @default("")
+  lineTotal     BigInt   // unitPrice * quantity
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+
+  @@index([orderId])
+  @@index([menuItemId])
+  @@index([restaurantId])
+}
+
+// ────────────────────────────────────────────────────────────────
+// Mission 2: IdempotencyKey — atomic deduplication of order creation
+// ────────────────────────────────────────────────────────────────
+model IdempotencyKey {
+  id            String   @id @default(cuid())
+  key           String   // client-supplied idempotency key
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  orderId       String?  @unique // the order created (null until order is committed)
+  order         Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  customerId    String?  // null for anonymous orders
+  requestHash   String   @default("") // SHA-256 of normalized payload (defense-in-depth)
+  status        String   @default("pending") // pending, completed, failed
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([restaurantId, key])
+  @@index([restaurantId, status])
+  @@index([expiresAt])
+}
+
+// ────────────────────────────────────────────────────────────────
+// Mission 3: PromotionRedemption — audit log of promo code usage
+// ────────────────────────────────────────────────────────────────
+model PromotionRedemption {
+  id            String   @id @default(cuid())
+  promoCodeId   String
+  promoCode     PromoCode @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
+  orderId       String
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  customerId    String?  // null for anonymous orders
+  customerFingerprint String @default("") // hash of phone+IP for anonymous abuse prevention
+  discountAmount BigInt
+  code          String   // snapshot of the code at redemption time
+  createdAt     DateTime @default(now())
+
+  @@unique([orderId]) // one promo per order
+  @@index([promoCodeId, createdAt])
+  @@index([restaurantId, createdAt])
+  @@index([customerId])
+}
+
+// ────────────────────────────────────────────────────────────────
+// Mission 4: WebhookEvent — idempotent webhook processing
+// ────────────────────────────────────────────────────────────────
+model WebhookEvent {
+  id              String   @id @default(cuid())
+  provider        String   // stripe, orange_money, mtn_momo, wave
+  providerEventId String   // unique event ID from provider (e.g. Stripe evt_...)
+  eventType       String   // checkout.session.completed, etc.
+  payload         Json     // raw event payload
+  status          String   @default("pending") // pending, processed, failed, ignored
+  processedAt     DateTime?
+  errorMessage    String   @default("")
+  restaurantId    String?
+  restaurant      Restaurant? @relation(fields: [restaurantId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+
+  @@unique([provider, providerEventId])
+  @@index([provider, status])
+  @@index([restaurantId, createdAt])
+}
+
+// ────────────────────────────────────────────────────────────────
+// Mission 9: CustomerFavorite — normalized favorites (replaces JSON string)
+// ────────────────────────────────────────────────────────────────
+model CustomerFavorite {
+  id            String   @id @default(cuid())
+  customerId    String
+  customer      Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  menuItemId    String
+  menuItem      MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+
+  @@unique([customerId, menuItemId])
+  @@index([customerId])
+  @@index([restaurantId])
+}
+
+// ────────────────────────────────────────────────────────────────
+// Mission 7: RefreshToken — rotatable refresh tokens for JWT auth
+// ────────────────────────────────────────────────────────────────
+model RefreshToken {
+  id            String   @id @default(cuid())
+  tokenHash     String   @unique // SHA-256 of the refresh token
+  userId        String
+  userType      String   // admin, customer, driver, platform_admin
+  restaurantId  String?
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  rotatedFrom   String?  // tokenHash this token was rotated from
+  createdAt     DateTime @default(now())
+
+  @@index([userId, userType])
+  @@index([expiresAt])
+}
+
+// ────────────────────────────────────────────────────────────────
+// Mission 7: RevokedToken — explicit JWT revocation (jti-based)
+// ────────────────────────────────────────────────────────────────
+model RevokedToken {
+  id            String   @id @default(cuid())
+  jti           String   @unique // JWT ID claim
+  userId        String
+  userType      String
+  expiresAt     DateTime // when the original JWT would have expired
+  reason        String   @default("revoked")
+  createdAt     DateTime @default(now())
+
+  @@index([expiresAt])
+}
+

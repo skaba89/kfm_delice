@@ -32,14 +32,22 @@ export async function POST(request: Request) {
       );
     }
 
-    // Generate new secret
-    const { secret, uri } = generateTwoFactorSecret(admin.email);
+    // Generate new secret — Mission 7: returns both plaintext + encrypted
+    const { secret, encryptedSecret, uri } = generateTwoFactorSecret(admin.email);
     const qrCodeDataUrl = await generateQRCodeDataUrl(uri);
 
-    // Store the pending secret temporarily (in-memory, NOT in DB)
-    // The verify endpoint will save it to DB only if the user provides a valid code.
-    // We return the secret to the client so it can be sent back on verify.
-    // This is safe because the secret alone is useless without the TOTP app.
+    // Mission 7: Store the ENCRYPTED secret in DB immediately as "pending".
+    // The verify endpoint will set twoFactorEnabled=true after the user
+    // provides a valid code. This prevents the plaintext secret from
+    // being transmitted back-and-forth between client and server.
+    // The plaintext is returned ONCE here so the user can scan the QR.
+    await db.platformAdmin.update({
+      where: { id: admin.id },
+      data: {
+        twoFactorSecret: encryptedSecret, // AES-256-GCM encrypted
+        twoFactorEnabled: false, // not enabled until verified
+      },
+    });
 
     return NextResponse.json({
       secret,

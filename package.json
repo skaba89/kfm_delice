@@ -18,11 +18,15 @@
     "db:seed:prod:dry": "bunx tsx scripts/seed-production.ts --dry-run",
     "db:seed:prod:yes": "bunx tsx scripts/seed-production.ts --yes",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit --skipLibCheck",
     "test:watch": "vitest",
     "e2e:saas": "python3 scripts/e2e-saas.py",
+    "e2e:playwright": "npx playwright test",
+    "e2e:playwright:install": "npx playwright install --with-deps chromium",
     "smoke": "bash scripts/smoke-render.sh",
     "ci:all": "npm run typecheck && npm run lint && npm run build && npm run test",
+    "ci:production": "npm run typecheck && npm run lint && npm run build && npm run test && npx playwright test",
     "schema:status": "bash scripts/switch-schema.sh status",
     "schema:sqlite": "bash scripts/switch-schema.sh sqlite",
     "schema:postgres": "bash scripts/switch-schema.sh postgres",
@@ -109,6 +113,7 @@
     "seed": "bunx tsx prisma/seed.ts"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

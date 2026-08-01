@@ -9,9 +9,13 @@ import { logAudit } from "@/lib/audit";
 
 /**
  * POST /api/platform/2fa/verify
- * Verifies the TOTP code and enables 2FA by saving the secret + backup codes.
+ * Verifies the TOTP code and enables 2FA.
  *
- * Body: { secret: string, code: string }
+ * Mission 7: The secret is already stored ENCRYPTED in the DB (from /setup).
+ * The client only sends the 6-digit code — not the secret. The server
+ * loads the encrypted secret from the DB, decrypts it, and verifies the code.
+ *
+ * Body: { code: string }
  */
 export async function POST(request: Request) {
   try {
@@ -22,17 +26,36 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { secret, code } = body;
+    const { code } = body as { code?: string };
 
-    if (!secret || !code) {
+    if (!code) {
       return NextResponse.json(
-        { error: "Secret et code requis" },
+        { error: "Code requis" },
         { status: 400 }
       );
     }
 
-    // Verify the TOTP code against the provided secret
-    const isValid = verifyTwoFactorCode(secret, code);
+    // ── Mission 7: Load the ENCRYPTED secret from DB (not from client) ──
+    const adminRecord = await db.platformAdmin.findUnique({
+      where: { id: admin.id },
+      select: { twoFactorSecret: true, twoFactorEnabled: true },
+    });
+
+    if (!adminRecord?.twoFactorSecret) {
+      return NextResponse.json(
+        { error: "Aucun secret 2FA en attente. Appelez /setup d'abord." },
+        { status: 400 }
+      );
+    }
+    if (adminRecord.twoFactorEnabled) {
+      return NextResponse.json(
+        { error: "2FA déjà activée" },
+        { status: 400 }
+      );
+    }
+
+    // Verify the TOTP code against the ENCRYPTED secret (decrypted internally)
+    const isValid = verifyTwoFactorCode(adminRecord.twoFactorSecret, code);
     if (!isValid) {
       return NextResponse.json(
         { error: "Code invalide. Vérifiez que votre app affiche le bon code." },
@@ -43,12 +66,11 @@ export async function POST(request: Request) {
     // Generate backup codes
     const { codes, hashes } = generateBackupCodes();
 
-    // Save secret + backup codes + enable 2FA
+    // Enable 2FA — the encrypted secret is already stored, just flip the flag
     await db.platformAdmin.update({
       where: { id: admin.id },
       data: {
         twoFactorEnabled: true,
-        twoFactorSecret: secret,
         twoFactorBackupCodes: hashes,
       },
     });

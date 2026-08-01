@@ -6,6 +6,7 @@ import { loginSchema } from "@/lib/validations";
 import { rateLimit } from "@/lib/rate-limit";
 import { logAudit } from "@/lib/audit";
 import { isAccountLocked, recordFailedLogin, resetLoginAttempts, MAX_LOGIN_ATTEMPTS_ADMIN } from "@/lib/account-security";
+import { issueTokenPair, setRefreshTokenCookie } from "@/lib/refresh-token";
 
 // Auto-seed lock to prevent concurrent seeding
 let _seedPromise: Promise<void> | null = null;
@@ -83,6 +84,7 @@ export async function POST(request: Request) {
         id: true, email: true, password: true, name: true,
         role: true, status: true, restaurantId: true,
         loginAttempts: true, lockedUntil: true,
+        mustChangePassword: true, // Mission 7: read from DB, not hardcoded
       },
     });
 
@@ -165,17 +167,30 @@ export async function POST(request: Request) {
       request,
     }).catch(() => { /* non-blocking */ });
 
-    return NextResponse.json({
+    // ── Mission 7: Issue refresh token (rotatable) + access JWT ──
+    const tokenPair = await issueTokenPair({
+      userId: admin.id,
+      userType: 'admin',
+      email: admin.email,
+      role: admin.role,
+      restaurantId: admin.restaurantId,
+      restaurantSlug,
+    });
+
+    const response = NextResponse.json({
       id: admin.id,
       email: admin.email,
       name: admin.name,
       role: admin.role,
       status: admin.status,
-      mustChangePassword: false,
+      mustChangePassword: admin.mustChangePassword, // Mission 7: from DB
       restaurantId: admin.restaurantId,
       restaurantSlug,
-      token,
+      token: tokenPair.accessToken, // short-lived access JWT
+      refreshTokenExpiresAt: tokenPair.expiresAt.toISOString(),
     });
+    setRefreshTokenCookie(response, tokenPair.refreshToken, tokenPair.expiresAt);
+    return response;
   } catch (error: unknown) {
     console.error("[login] Error:", error);
     const message = error instanceof Error ? error.message : "Erreur inconnue";
