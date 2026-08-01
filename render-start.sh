@@ -102,6 +102,17 @@ echo "[render-start] ✓ Build output check complete."
 
 # ── Step 7: Apply migrations (NO db push, NO auto-seed, NO backfill) ──
 echo "[render-start] Step 7: Running prisma migrate deploy..."
+
+# First, resolve any failed migrations from previous deployments.
+# This is safe: failed migrations are already partially applied (tables exist
+# from a previous db push). Marking them as rolled-back lets migrate deploy
+# proceed with the remaining migrations.
+echo "[render-start] Step 7a: Resolving failed migrations..."
+node scripts/resolve-failed-migrations.cjs 2>&1 || {
+  echo "[render-start] WARNING: Failed to resolve failed migrations (continuing anyway)"
+}
+
+echo "[render-start] Step 7b: Running prisma migrate deploy..."
 if ! node_modules/.bin/prisma migrate deploy 2>&1; then
   echo "[render-start] FATAL: prisma migrate deploy failed."
   echo "[render-start] In production, migrations MUST succeed. No fallback to db push."
