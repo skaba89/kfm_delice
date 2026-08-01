@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 /**
  * Invoice utilities — auto-generation, numbering, creation on delivery.
  */
@@ -125,7 +126,7 @@ export async function autoGenerateInvoice(
       request,
     }).catch(() => {});
 
-    console.log(`[invoice] ✓ Auto-generated ${invoiceNumber} for order ${orderId.slice(-8).toUpperCase()}`);
+    logger.debug(`[invoice] ✓ Auto-generated ${invoiceNumber} for order ${orderId.slice(-8).toUpperCase()}`);
   } catch (error) {
     console.warn('[invoice] Auto-generation failed (non-blocking):', error instanceof Error ? error.message : String(error));
   }

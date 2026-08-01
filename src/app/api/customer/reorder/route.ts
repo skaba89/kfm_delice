@@ -12,8 +12,10 @@ export async function POST(request: Request) {
     if (!customer) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
     const body = await request.json();
-    const { orderId } = body as { orderId?: string };
+    // Validation: orderId must be a non-empty string, max 100 chars
+    const orderId = typeof body.orderId === "string" ? body.orderId.trim() : "";
     if (!orderId) return NextResponse.json({ error: "orderId requis" }, { status: 400 });
+    if (orderId.length > 100) return NextResponse.json({ error: "orderId invalide" }, { status: 400 });
 
     // Fetch the original order — must belong to this customer
     const original = await db.order.findFirst({

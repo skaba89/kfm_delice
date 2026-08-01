@@ -30,6 +30,9 @@ services:
     branch: main
     buildCommand: bash render-build.sh
     startCommand: bash render-start.sh
+    healthCheckPath: /api/status
+    healthCheckInitialTimeoutSec: 60
+    autoDeploy: true
     envVars:
       - key: NODE_ENV
         value: production

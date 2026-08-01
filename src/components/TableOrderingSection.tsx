@@ -1,4 +1,5 @@
 "use client";
+import { logger } from "@/lib/logger";
 
 import { useState, useEffect } from "react";
 import { Star, RefreshCw, MessageCircle, ShoppingCart, Plus, Minus, X, CreditCard, CalendarCheck, CheckCircle2, Utensils, Calendar } from "lucide-react";
@@ -95,13 +96,13 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
   const cartCount = cart.reduce((sum, item) => sum + item.qty, 0);
 
   const submitOrder = async () => {
-    console.log("[submitOrder] START — cart.length:", cart.length, "submitting:", submitting);
+    logger.debug("[submitOrder] START — cart.length:", cart.length, "submitting:", submitting);
     if (cart.length === 0) {
-      console.log("[submitOrder] ABORT — cart is empty");
+      logger.debug("[submitOrder] ABORT — cart is empty");
       return;
     }
     if (submitting) {
-      console.log("[submitOrder] ABORT — already submitting");
+      logger.debug("[submitOrder] ABORT — already submitting");
       return;
     }
     setSubmitting(true);
@@ -130,7 +131,7 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
         qty: item.qty,
       }));
 
-      console.log("[submitOrder] Sending request to /api/orders", {
+      logger.debug("[submitOrder] Sending request to /api/orders", {
         itemsCount: orderItems.length,
         total: cartTotal,
         tableNumber,
@@ -152,7 +153,7 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
 
       const data = await response.json().catch(() => ({}));
 
-      console.log("[submitOrder] Response received", {
+      logger.debug("[submitOrder] Response received", {
         ok: response.ok,
         status: response.status,
         dataId: data?.id,
@@ -434,7 +435,7 @@ export function TableOrderingSection({ tableNumber }: { tableNumber: number }) {
                 <Card key={item.id} className="overflow-hidden hover:shadow-lg transition-all">
                   <div className="h-40 overflow-hidden relative bg-gradient-to-br from-orange-100 to-amber-100 flex items-center justify-center">
                     {item.image ? (
-                      <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                      <img src={item.image} alt={item.name} loading="lazy" className="w-full h-full object-cover" />
                     ) : (
                       <span className="text-5xl opacity-30">🍽️</span>
                     )}

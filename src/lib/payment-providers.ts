@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 /**
  * Payment provider abstraction for Guinean mobile money + cards.
  *
@@ -167,7 +168,7 @@ export async function initPayment(req: PaymentInitRequest): Promise<PaymentInitR
 
 async function initOrangeMoney(req: PaymentInitRequest): Promise<PaymentInitResponse> {
   if (isMockMode('orange_money')) {
-    console.log('[payment] Orange Money: mock mode (no credentials)');
+    logger.debug('[payment] Orange Money: mock mode (no credentials)');
     return {
       success: true,
       status: 'processing',
@@ -238,7 +239,7 @@ async function initOrangeMoney(req: PaymentInitRequest): Promise<PaymentInitResp
 
 async function initMtnMoMo(req: PaymentInitRequest): Promise<PaymentInitResponse> {
   if (isMockMode('mtn_money')) {
-    console.log('[payment] MTN MoMo: mock mode (no credentials)');
+    logger.debug('[payment] MTN MoMo: mock mode (no credentials)');
     return {
       success: true,
       status: 'processing',
@@ -288,7 +289,7 @@ async function initMtnMoMo(req: PaymentInitRequest): Promise<PaymentInitResponse
 
 async function initWave(req: PaymentInitRequest): Promise<PaymentInitResponse> {
   if (isMockMode('wave')) {
-    console.log('[payment] Wave: mock mode (no credentials)');
+    logger.debug('[payment] Wave: mock mode (no credentials)');
     return {
       success: true,
       status: 'processing',
@@ -338,7 +339,7 @@ async function initWave(req: PaymentInitRequest): Promise<PaymentInitResponse> {
 
 async function initStripe(req: PaymentInitRequest): Promise<PaymentInitResponse> {
   if (isMockMode('card')) {
-    console.log('[payment] Stripe: mock mode (no credentials)');
+    logger.debug('[payment] Stripe: mock mode (no credentials)');
     return {
       success: true,
       status: 'processing',

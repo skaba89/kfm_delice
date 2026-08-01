@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { logAudit } from "@/lib/audit";
@@ -276,7 +277,7 @@ async function handleEvent(
           where: { id: orderId },
           data: { paymentStatus: "failed" },
         }).catch(() => {});
-        console.log(`[stripe-webhook] Payment expired for order ${orderId}`);
+        logger.debug(`[stripe-webhook] Payment expired for order ${orderId}`);
       }
       return { success: true };
     }
@@ -289,13 +290,14 @@ async function handleEvent(
           where: { id: orderId },
           data: { paymentStatus: "failed" },
         }).catch(() => {});
-        console.log(`[stripe-webhook] Payment failed for order ${orderId}`);
+        logger.debug(`[stripe-webhook] Payment failed for order ${orderId}`);
       }
       return { success: true };
     }
 
     default:
-      console.log(`[stripe-webhook] Unhandled event: ${event.type}`);
+      // Unhandled event type — log but don't error
+      logger.debug(`[stripe-webhook] Unhandled event: ${event.type}`);
       return { success: true };
   }
 }

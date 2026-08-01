@@ -6,7 +6,7 @@ import {
   ShoppingBag, Bike, Car, RefreshCw,
   FileText, Wallet, Receipt, UserCog, ClipboardList,
   MessageSquare, CreditCard, Wifi, WifiOff, Package, Settings,
-  QrCode, MessageCircle, TrendingUp, Shield,
+  QrCode, MessageCircle, TrendingUp, Shield, Truck, Calendar,
 } from "lucide-react";
 import { OverviewTab } from "@/components/admin/OverviewTab";
 import { ReservationsTab } from "@/components/admin/ReservationsTab";
@@ -25,6 +25,8 @@ import { PaymentsTab } from "@/components/admin/PaymentsTab";
 import { InventoryTab } from "@/components/admin/InventoryTab";
 import { PosTab } from "@/components/admin/PosTab";
 import { TablesTab } from "@/components/admin/TablesTab";
+import { SuppliersTab } from "@/components/admin/SuppliersTab";
+import { ScheduleTab } from "@/components/admin/ScheduleTab";
 import { ChatTab } from "@/components/admin/ChatTab";
 import { AnalyticsTab } from "@/components/admin/AnalyticsTab";
 import { AuditLogTab } from "@/components/admin/AuditLogTab";
@@ -173,6 +175,8 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
     { id: "quotes", label: "Devis", icon: ClipboardList, badge: safeStats.sentQuotes || undefined },
     { id: "expenses", label: "Dépenses", icon: Wallet, badge: safeStats.expenseCount },
     { id: "inventory", label: "Stock", icon: Package, badge: (safeStats as { lowStockCount?: number })?.lowStockCount || undefined },
+    { id: "suppliers", label: "Fournisseurs", icon: Truck },
+    { id: "schedule", label: "Planning", icon: Calendar },
     { id: "payments", label: "Paiements", icon: CreditCard, badge: safeStats.pendingPayments || undefined },
     { id: "pos", label: "Caisse POS", icon: Receipt },
     { id: "tables", label: "QR Tables", icon: QrCode },
@@ -265,7 +269,7 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
     >
       {activeTab === "overview" && <OverviewTab stats={safeStats} orders={orders} apiFetch={apiFetch} />}
       {activeTab === "reservations" && <ReservationsTab reservations={reservations} apiPatch={apiPatch} />}
-      {activeTab === "orders" && <OrdersTab orders={orders} apiPatch={apiPatch} />}
+      {activeTab === "orders" && <OrdersTab orders={orders} apiPatch={apiPatch} apiFetch={apiFetch} />}
       {activeTab === "menu" && <MenuTab
         menuItems={menuItems}
         menuFilter={menuFilter} setMenuFilter={setMenuFilter}
@@ -312,6 +316,8 @@ export function AdminDashboard({ admin, onLogout }: { admin: AdminUser; onLogout
         apiDelete={apiDelete}
       />}
       {activeTab === "inventory" && <InventoryTab />}
+      {activeTab === "suppliers" && <SuppliersTab />}
+      {activeTab === "schedule" && <ScheduleTab />}
       {activeTab === "payments" && <PaymentsTab payments={payments} apiPatch={apiPatch} />}
       {activeTab === "pos" && <PosTabWithState menuItems={menuItems} orders={orders} loadData={loadData} />}
       {activeTab === "tables" && <TablesTab />}

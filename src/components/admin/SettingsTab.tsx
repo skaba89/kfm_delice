@@ -317,7 +317,7 @@ export function SettingsTab({ apiFetch, apiPatch, apiPut, adminRole, admins = []
                 <div className="flex items-center gap-4">
                   {settings.logo ? (
                     <div className="w-20 h-20 rounded-xl border-2 border-gray-200 dark:border-gray-600 overflow-hidden bg-white dark:bg-gray-800 flex items-center justify-center">
-                      <img src={settings.logo} alt="Logo" className="w-full h-full object-contain" />
+                      <img src={settings.logo} alt="Logo" loading="lazy" className="w-full h-full object-contain" />
                     </div>
                   ) : (
                     <div className="w-20 h-20 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-600 flex items-center justify-center bg-gray-50 dark:bg-gray-800">

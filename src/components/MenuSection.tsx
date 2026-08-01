@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Star, RefreshCw, ShoppingCart, Plus, Minus, X, CreditCard, Utensils, Bike, ShoppingBag, User, MapPin } from "lucide-react";
+import { Star, RefreshCw, ShoppingCart, Plus, Minus, X, CreditCard, Utensils, Bike, ShoppingBag, User, MapPin, Heart } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { AnimatedSection } from "@/components/AnimatedSection";
 import type { MenuItemDB } from "@/lib/types";
 import { MENU_CATS, formatPrice } from "@/lib/constants";
 import { publicApiFetch } from "@/lib/public-api";
+import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
 
 interface CartItem extends MenuItemDB {
@@ -213,7 +214,7 @@ export function MenuSection() {
                   <Card className="overflow-hidden hover:shadow-xl transition-all group dark:bg-gray-900 dark:border-gray-800">
                     <div className="h-48 overflow-hidden relative bg-gradient-to-br from-orange-100 to-amber-100 dark:from-gray-800 dark:to-gray-700 flex items-center justify-center">
                       {item.image ? (
-                        <img src={item.image} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                        <img src={item.image} alt={item.name} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                       ) : (
                         <span className="text-6xl opacity-30">🍽️</span>
                       )}
@@ -239,12 +240,32 @@ export function MenuSection() {
                           </button>
                         </div>
                       ) : (
-                        <button
-                          onClick={() => addToCart(item)}
-                          className="w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white rounded-lg py-2.5 text-sm font-semibold transition-all flex items-center justify-center gap-1.5"
-                        >
-                          <Plus className="w-4 h-4" /> Ajouter au panier
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => addToCart(item)}
+                            className="flex-1 bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white rounded-lg py-2.5 text-sm font-semibold transition-all flex items-center justify-center gap-1.5"
+                          >
+                            <Plus className="w-4 h-4" /> Ajouter au panier
+                          </button>
+                          <button
+                            onClick={async () => {
+                              try {
+                                const res = await publicApiFetch("/api/customer/favorites", {
+                                  method: "POST",
+                                  body: JSON.stringify({ itemId: item.id }),
+                                });
+                                if (res.ok) {
+                                  const data = await res.json();
+                                  toast.success(data.favoriteIds?.includes(item.id) ? "❤️ Ajouté aux favoris" : "Retiré des favoris");
+                                }
+                              } catch { /* non-blocking */ }
+                            }}
+                            className="p-2 rounded-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-all"
+                            title="Ajouter aux favoris"
+                          >
+                            <Heart className="w-4 h-4 text-gray-400 hover:text-red-500" />
+                          </button>
+                        </div>
                       )}
                     </CardContent>
                   </Card>

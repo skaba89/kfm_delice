@@ -71,6 +71,7 @@ model Account {
   contractStartDate        String   @default("")
   contractEndDate          String   @default("")
   trialEndsAt              String   @default("")
+  commissionRate           Float    @default(0) // % commission plateforme (Reco 1)
 
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
@@ -269,6 +270,9 @@ model Customer {
   totalSpent        BigInt   @default(0)
   tier              String   @default("bronze")
   favoriteItemIds   String   @default("[]")
+  birthday          String   @default("")
+  referralCode      String   @default("")
+  referredBy        String   @default("")
   status            String   @default("active") // active, inactive
   mustChangePassword Boolean @default(false) // force password change on first login
   // ── Account security fields ──
@@ -658,7 +662,8 @@ model StockItem {
   category      String   @default("general") // e.g. ingredients, drinks, packaging, cleaning
   quantity      Float    @default(0)
   unit          String   @default("unité") // kg, L, unité, bouteille, sac, etc.
-  minThreshold  Float    @default(0) // Low-stock alert threshold
+  minThreshold  Float    @default(0)
+  autoAlert     Boolean  @default(true)
   unitCost      Int      @default(0) // Purchase cost per unit (GNF)
   supplier      String   @default("")
   lastRestocked String   @default("") // ISO date string of last restock

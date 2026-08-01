@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { WebSocketServer, WebSocket } from 'ws';
 
 // Configuration
@@ -74,7 +75,7 @@ function startHeartbeat() {
     });
 
     if (expiredClients.length > 0) {
-      console.log(`[WS] Cleaned up ${expiredClients.length} expired client(s) (total: ${clients.size})`);
+      logger.debug(`[WS] Cleaned up ${expiredClients.length} expired client(s) (total: ${clients.size})`);
     }
   }, WS_CONFIG.heartbeatInterval);
 }
@@ -93,7 +94,7 @@ export function getWebSocketServer(): WebSocketServer {
   if (!wss) {
     try {
       wss = new WebSocketServer({ port: WS_CONFIG.port, maxPayload: 1024 * 1024 }); // 1MB max payload
-      console.log(`[WS] WebSocket server started on port ${WS_CONFIG.port}`);
+      logger.debug(`[WS] WebSocket server started on port ${WS_CONFIG.port}`);
 
       wss.on('connection', (ws, req) => {
         const url = new URL(req.url || '', `http://${req.headers.host}`);
@@ -153,7 +154,7 @@ export function getWebSocketServer(): WebSocketServer {
           isAlive: true,
         };
         clients.set(clientId, client);
-        console.log(`[WS] Client connected: ${clientId} (total: ${clients.size})`);
+        logger.debug(`[WS] Client connected: ${clientId} (total: ${clients.size})`);
 
         // Pong handler — mark client as alive
         ws.on('pong', () => {
@@ -184,7 +185,7 @@ export function getWebSocketServer(): WebSocketServer {
           if (current && current.ws === ws) {
             clients.delete(clientId);
           }
-          console.log(`[WS] Client disconnected: ${clientId} (total: ${clients.size})`);
+          logger.debug(`[WS] Client disconnected: ${clientId} (total: ${clients.size})`);
         });
 
         ws.on('error', (err) => {
@@ -299,7 +300,7 @@ function logEvent(event: string, data: unknown, userType?: string, userId?: stri
 export function registerClient(clientId: string, userId: string, userType: string) {
   // For polling, we just log the registration — no WebSocket needed
   logEvent('poll:registered', { clientId, userId, userType });
-  console.log(`[WS-Poll] Client registered: ${clientId}`);
+  logger.debug(`[WS-Poll] Client registered: ${clientId}`);
 }
 
 // Get events since a given timestamp for a specific user

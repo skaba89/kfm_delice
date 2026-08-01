@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,11 +16,7 @@ export function PlatformTwoFactor({ token }: { token: string }) {
   const [showDisable, setShowDisable] = useState(false);
 
   // Check 2FA status on mount
-  useEffect(() => {
-    checkStatus();
-  }, []);
-
-  const checkStatus = async () => {
+  const checkStatus = useCallback(async () => {
     try {
       const res = await fetch("/api/platform/2fa/status", {
         headers: { Authorization: `Bearer ${token}` },
@@ -32,7 +28,11 @@ export function PlatformTwoFactor({ token }: { token: string }) {
     } catch {
       // Status endpoint may not exist yet — default to disabled
     }
-  };
+  }, [token]);
+
+  useEffect(() => {
+    checkStatus();
+  }, [checkStatus]);
 
   return (
     <Card className="bg-gray-900 border-white/10">
@@ -194,7 +194,7 @@ function SetupDialog({
           <div className="space-y-4">
             {qrCode && (
               <div className="flex justify-center bg-white p-4 rounded-xl">
-                <img src={qrCode} alt="QR Code 2FA" className="w-48 h-48" />
+                <img src={qrCode} alt="QR Code 2FA" loading="lazy" className="w-48 h-48" />
               </div>
             )}
             <div>

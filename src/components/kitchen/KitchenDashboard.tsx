@@ -712,7 +712,7 @@ function RecipesTab({ apiFetch, topDishNames }: { apiFetch: (url: string, option
                 <div className="flex">
                   <div className="w-24 h-24 shrink-0 bg-gray-100 dark:bg-gray-700">
                     {item.image ? (
-                      <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                      <img src={item.image} alt={item.name} loading="lazy" className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
                         <UtensilsCrossed className="w-8 h-8 text-gray-300 dark:text-gray-500" />
@@ -754,7 +754,7 @@ function RecipesTab({ apiFetch, topDishNames }: { apiFetch: (url: string, option
             {/* Hero */}
             <div className="relative h-48 sm:h-64 bg-gradient-to-br from-orange-100 to-red-100 dark:from-orange-900/30 dark:to-red-900/30">
               {selectedItem.image ? (
-                <img src={selectedItem.image} alt={selectedItem.name} className="w-full h-full object-cover" />
+                <img src={selectedItem.image} alt={selectedItem.name} loading="lazy" className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center">
                   <Utensils className="w-16 h-16 text-orange-300 dark:text-orange-700" />

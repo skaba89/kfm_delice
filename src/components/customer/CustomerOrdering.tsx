@@ -99,8 +99,7 @@ export function CustomerOrdering({
                       {/* Photo du plat (si disponible) */}
                       {item.image ? (
                         <div className="relative h-32 w-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
-                          { }
-                          <img src={item.image} alt={item.name} className="w-full h-full object-cover" loading="lazy" />
+                          <img src={item.image} alt={item.name} loading="lazy" className="w-full h-full object-cover" />
                           {item.badge && (
                             <Badge className="absolute top-2 right-2 bg-amber-500/90 text-white text-[10px] backdrop-blur-sm">{item.badge}</Badge>
                           )}

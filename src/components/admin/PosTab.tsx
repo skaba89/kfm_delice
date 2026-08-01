@@ -221,7 +221,7 @@ export function PosTab({
                     {/* Afficher l'image du plat (même image que dans le menu public) */}
                     <div className="w-full h-20 rounded-lg overflow-hidden mb-2 bg-gray-100 dark:bg-gray-700">
                       {item.image ? (
-                        <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                        <img src={item.image} alt={item.name} loading="lazy" className="w-full h-full object-cover" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center">
                           {item.category === "entrees" ? <Leaf className="w-6 h-6 text-green-500" /> : item.category === "plats" ? <Flame className="w-6 h-6 text-orange-500" /> : item.category === "mer" ? <Fish className="w-6 h-6 text-blue-500" /> : item.category === "boissons" ? <CupSoda className="w-6 h-6 text-cyan-500" /> : <CakeSlice className="w-6 h-6 text-pink-500" />}
