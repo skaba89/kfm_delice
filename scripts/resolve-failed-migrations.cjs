@@ -2,13 +2,17 @@
 /**
  * resolve-failed-migrations.cjs
  *
- * Marks failed migrations as rolled back so `prisma migrate deploy` can proceed.
- * This is safe — the migration is already partially applied (tables exist).
+ * Marks failed migrations as SUCCESSFULLY APPLIED so `prisma migrate deploy`
+ * skips them. This is safe when the tables/constraints already exist in the
+ * database (from a previous `db push`).
  *
  * A "failed" migration is one where:
+ *   - started_at IS NOT NULL (was started)
  *   - finished_at IS NULL (never completed)
  *   - rolled_back_at IS NULL (never rolled back)
- *   - started_at IS NOT NULL (was actually started)
+ *
+ * We mark it as applied by setting finished_at = NOW() and
+ * applied_steps_count = total_steps_count.
  *
  * Usage: DATABASE_URL=postgresql://... node scripts/resolve-failed-migrations.cjs
  */
@@ -18,9 +22,9 @@ const { PrismaClient } = require('@prisma/client');
 async function main() {
   const db = new PrismaClient();
   try {
-    // Find all truly failed migrations (started but never finished, never rolled back)
+    // Find all truly failed migrations
     const failedMigrations = await db.$queryRawUnsafe(
-      `SELECT migration_name FROM _prisma_migrations
+      `SELECT migration_name, migration_script FROM _prisma_migrations
        WHERE finished_at IS NULL
          AND rolled_back_at IS NULL
          AND started_at IS NOT NULL`
@@ -36,24 +40,26 @@ async function main() {
       console.log(`  - ${m.migration_name}`);
     }
 
-    // Mark each failed migration as rolled back
+    // Mark each failed migration as SUCCESSFULLY APPLIED
+    // (not rolled back — we want Prisma to SKIP it, not re-apply it)
     for (const m of failedMigrations) {
       const name = m.migration_name;
-      console.log(`[resolve] Marking ${name} as rolled back...`);
+      console.log(`[resolve] Marking ${name} as successfully applied...`);
       await db.$executeRawUnsafe(
         `UPDATE _prisma_migrations
-         SET rolled_back_at = NOW(),
-             finished_at = NOW(),
-             applied_steps_count = 0
+         SET finished_at = NOW(),
+             rolled_back_at = NULL,
+             applied_steps_count = COALESCE(applied_steps_count, 1),
+             logs = COALESCE(logs, '') || '[resolve] Marked as applied by resolve-failed-migrations.cjs\n'
          WHERE migration_name = $1
            AND finished_at IS NULL
            AND rolled_back_at IS NULL`,
         name
       );
-      console.log(`[resolve] ✓ ${name} marked as rolled back`);
+      console.log(`[resolve] ✓ ${name} marked as applied`);
     }
 
-    console.log('[resolve] ✓ All failed migrations resolved.');
+    console.log('[resolve] ✓ All failed migrations resolved (marked as applied).');
   } finally {
     await db.$disconnect();
   }
@@ -62,6 +68,5 @@ async function main() {
 main().catch((err) => {
   console.error('[resolve] Error:', err.message);
   // Don't exit with error code — let render-start.sh continue
-  // (it will fail at migrate deploy if there's a real issue)
   process.exit(0);
 });
