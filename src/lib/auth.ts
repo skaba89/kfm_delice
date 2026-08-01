@@ -66,7 +66,7 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 }
 
 // ────────────────────────────────────────────────────────────────
-// JWT Token Generation — Mission 7 hardening
+// JWT Token Generation — Mission 7 hardening + Mission 5 (Phase 3)
 // ────────────────────────────────────────────────────────────────
 
 // Extended JWT payload with tenant context
@@ -77,15 +77,20 @@ interface TokenPayload {
   type: 'admin' | 'customer' | 'driver' | 'platform_admin';
   restaurantId?: string;
   restaurantSlug?: string;
+  tokenVersion?: number; // Mission 5: bump to revoke all sessions
 }
 
 const JWT_ISSUER = process.env.JWT_ISSUER || 'kfm-delice';
 const JWT_AUDIENCE = process.env.JWT_AUDIENCE || 'kfm-delice-users';
 
 // Generate a JWT token — Mission 7: adds issuer, audience, jti
+// Mission 5: includes tokenVersion for session revocation
 export function generateToken(payload: TokenPayload): string {
   return jwt.sign(
-    payload,
+    {
+      ...payload,
+      tokenVersion: payload.tokenVersion ?? 0,
+    },
     getJwtSecret(),
     {
       expiresIn: JWT_EXPIRES_IN as any,
@@ -103,9 +108,12 @@ interface JwtPayload {
   type: 'admin' | 'customer' | 'driver' | 'platform_admin';
   restaurantId?: string;
   restaurantSlug?: string;
+  tokenVersion?: number;
+  jti?: string;
 }
 
 // Verify a JWT token — Mission 7: verifies issuer + audience
+// Mission 5: also extracts tokenVersion + jti for caller to check revocation
 export function verifyToken(token: string): JwtPayload | null {
   try {
     const decoded = jwt.verify(token, getJwtSecret(), {
@@ -118,6 +126,96 @@ export function verifyToken(token: string): JwtPayload | null {
     return null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Mission 5: Check if a JWT's jti has been explicitly revoked.
+ * Must be called AFTER verifyToken() succeeds.
+ * Returns true if the token is revoked (should be rejected).
+ */
+export async function isTokenRevoked(payload: JwtPayload): Promise<boolean> {
+  if (!payload.jti) return false;
+  try {
+    const revoked = await db.revokedToken.findUnique({
+      where: { jti: payload.jti },
+      select: { id: true },
+    });
+    return revoked !== null;
+  } catch {
+    // If DB is unreachable, fail-open (don't block all requests)
+    // but log the error for investigation
+    console.error('[auth] Failed to check RevokedToken:', payload.jti);
+    return false;
+  }
+}
+
+/**
+ * Mission 5: Check if the tokenVersion in the JWT matches the DB.
+ * If the DB tokenVersion is higher than the JWT's, the token is stale
+ * (password changed, session revoked, etc.) and must be rejected.
+ * Returns true if the token is valid (versions match).
+ */
+export async function isTokenVersionValid(payload: JwtPayload): Promise<boolean> {
+  if (payload.tokenVersion === undefined) return true; // backwards compat
+  try {
+    let dbTokenVersion: number | undefined;
+    if (payload.type === 'admin') {
+      const admin = await db.admin.findUnique({
+        where: { id: payload.id },
+        select: { tokenVersion: true },
+      });
+      dbTokenVersion = admin?.tokenVersion;
+    } else if (payload.type === 'customer') {
+      const customer = await db.customer.findUnique({
+        where: { id: payload.id },
+        select: { tokenVersion: true },
+      });
+      dbTokenVersion = customer?.tokenVersion;
+    } else if (payload.type === 'platform_admin') {
+      const platformAdmin = await db.platformAdmin.findUnique({
+        where: { id: payload.id },
+        select: { tokenVersion: true },
+      });
+      dbTokenVersion = platformAdmin?.tokenVersion;
+    }
+    // If we can't find the user, reject
+    if (dbTokenVersion === undefined) return false;
+    return dbTokenVersion === payload.tokenVersion;
+  } catch {
+    console.error('[auth] Failed to check tokenVersion for user:', payload.id);
+    return false; // fail-closed if DB is unreachable
+  }
+}
+
+/**
+ * Mission 5: Revoke a single JWT by its jti.
+ */
+export async function revokeToken(jti: string, userId: string, userType: string, expiresAt: Date, reason: string = 'revoked'): Promise<void> {
+  try {
+    await db.revokedToken.create({
+      data: { jti, userId, userType, expiresAt, reason },
+    });
+  } catch {
+    // Already revoked (P2002) — ignore
+  }
+}
+
+/**
+ * Mission 5: Bump tokenVersion to revoke ALL active sessions for a user.
+ * Called on password change, account lock, admin force-logout, etc.
+ */
+export async function revokeAllUserSessions(userId: string, userType: string): Promise<void> {
+  try {
+    if (userType === 'admin') {
+      await db.admin.update({ where: { id: userId }, data: { tokenVersion: { increment: 1 } } });
+    } else if (userType === 'customer') {
+      await db.customer.update({ where: { id: userId }, data: { tokenVersion: { increment: 1 } } });
+    } else if (userType === 'platform_admin') {
+      await db.platformAdmin.update({ where: { id: userId }, data: { tokenVersion: { increment: 1 } } });
+    }
+  } catch (e) {
+    console.error('[auth] Failed to bump tokenVersion:', e);
   }
 }
 

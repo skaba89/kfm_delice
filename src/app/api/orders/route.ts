@@ -12,13 +12,26 @@ import { rateLimit } from "@/lib/rate-limit";
 import { createOrderAtomically } from "@/lib/order-service";
 import { createHash } from "crypto";
 
-// GET: Admin auth required OR customer auth (customers only see their own orders)
+// GET: Role-based order listing (Mission 4 — Phase 3)
+//   - customer: only their own orders (by customerId, NEVER by customerName)
+//   - driver: only orders assigned to them (driverId) or proposed (proposedToDriverId)
+//   - kitchen: minimal view (status, items, table) — no customer PII
+//   - admin/manager/cashier/etc.: all orders in their restaurant
+//   - platform_admin: 403 here (use /api/platform/... endpoints)
 export async function GET(request: Request) {
   try {
     await dbReady;
     const auth = await authenticateAny(request);
     if (!auth) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+
+    // Platform admins must use their own endpoints
+    if (auth.type === "platform_admin") {
+      return NextResponse.json(
+        { error: "Les administrateurs de plateforme doivent utiliser /api/platform/orders", code: "USE_PLATFORM_ENDPOINT" },
+        { status: 403 }
+      );
     }
 
     const sp = new URL(request.url).searchParams;
@@ -29,7 +42,6 @@ export async function GET(request: Request) {
     const orderTypeFilter = parseStatusFilter(sp, ['dine_in', 'takeaway', 'delivery'], 'orderType');
     const tableFilter = sp.get("tableNumber");
 
-    // Use restaurantId from authenticated user (all auth types include it)
     const restaurantId = auth.restaurantId || await getRestaurantId(request);
     if (!restaurantId) return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
 
@@ -49,12 +61,10 @@ export async function GET(request: Request) {
       ...extraFilter,
     });
 
-    // If customer, filter by customerId (prefer FK) with fallback to customerName
+    // ── Mission 4: Customer — customerId ONLY, never customerName ──
     if (auth.type === "customer") {
-      const customer = await db.customer.findUnique({ where: { id: auth.id } });
-      if (!customer) return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
-
-      const where = buildWhere({ OR: [{ customerId: customer.id }, { customerName: customer.name, customerId: null }] });
+      // Filter strictly by customerId — no customerName fallback (that was a security hole)
+      const where = buildWhere({ customerId: auth.id });
       const [orders, total] = await Promise.all([
         db.order.findMany({
           where,
@@ -72,7 +82,65 @@ export async function GET(request: Request) {
       });
     }
 
-    // Admin: see all orders with filters
+    // ── Mission 4: Driver — only assigned or proposed orders ──
+    if (auth.type === "driver") {
+      const where = buildWhere({
+        OR: [
+          { driverId: auth.id },
+          { proposedToDriverId: auth.id },
+        ],
+      });
+      const [orders, total] = await Promise.all([
+        db.order.findMany({
+          where,
+          orderBy: { [sortBy]: sortOrder },
+          select: {
+            id: true, status: true, orderType: true, paymentStatus: true,
+            total: true, deliveryAddress: true, deliveryFee: true,
+            customerName: true, phone: true, tableNumber: true, tableNumberStr: true,
+            createdAt: true, updatedAt: true,
+            driverId: true, assignmentStatus: true, proposedAt: true,
+            estimatedDeliveryTime: true, deliveryLat: true, deliveryLng: true,
+          },
+          skip: prismaSkip(page, limit),
+          take: prismaTake(limit),
+        }),
+        db.order.count({ where }),
+      ]);
+      const totalPages = Math.ceil(total / limit);
+      return NextResponse.json({
+        data: bigIntToNumber(orders),
+        pagination: { page, limit, total, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
+      });
+    }
+
+    // ── Mission 4: Kitchen — minimal view (no customer PII) ──
+    if (auth.type === "admin" && auth.role === "kitchen") {
+      const where = buildWhere({
+        status: { in: ['confirmed', 'preparing', 'ready'] },
+      });
+      const [orders, total] = await Promise.all([
+        db.order.findMany({
+          where,
+          orderBy: { [sortBy]: sortOrder },
+          select: {
+            id: true, status: true, orderType: true, items: true,
+            tableNumber: true, tableNumberStr: true, note: true,
+            createdAt: true, updatedAt: true,
+          },
+          skip: prismaSkip(page, limit),
+          take: prismaTake(limit),
+        }),
+        db.order.count({ where }),
+      ]);
+      const totalPages = Math.ceil(total / limit);
+      return NextResponse.json({
+        data: bigIntToNumber(orders),
+        pagination: { page, limit, total, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
+      });
+    }
+
+    // ── Admin/manager/cashier/etc.: all orders in their restaurant ──
     const where = buildWhere();
     const [orders, total] = await Promise.all([
       db.order.findMany({
@@ -230,53 +298,68 @@ export async function POST(request: Request) {
 
     const order = result.order as { id: string; customerName: string; orderType: string; status: string; tableNumber?: number; total: unknown; items: unknown };
 
-    if (tableId) {
-      await logAudit({
-        actorId: customerId || "anonymous",
-        actorType: customerId ? "customer" : "public",
-        action: "table_order_create",
-        entityType: "Order",
-        entityId: order.id,
-        restaurantId,
-        after: { tableId, tableNumberStr, orderId: order.id },
-        request,
-      }).catch(() => {});
-    }
+    // ── Mission 3: Skip side-effects on idempotent replay ──
+    // When created === false, the order already existed (replay of the same
+    // idempotency key with the same payload). We must NOT:
+    //   - re-send the confirmation email
+    //   - re-broadcast the WebSocket "new order" notification
+    //   - re-decrement stock (would double-deduct)
+    //   - re-create an audit log entry
+    const isNewlyCreated = result.created !== false;
 
-    try {
-      const { broadcastToType } = await import("@/lib/websocket-server");
-      const { WSEvents } = await import("@/lib/ws-events");
-      broadcastToType("admin", WSEvents.ORDER_NEW, {
-        orderId: order.id,
-        customerName: order.customerName,
-        orderType: order.orderType,
-        status: order.status,
-        tableNumberStr,
-      });
+    if (isNewlyCreated) {
+      // Audit table-order creation
       if (tableId) {
-        broadcastToType("admin", "TABLE_ORDER_NEW", { restaurantId, orderId: order.id, tableNumber: tableNumberStr });
+        await logAudit({
+          actorId: customerId || "anonymous",
+          actorType: customerId ? "customer" : "public",
+          action: "table_order_create",
+          entityType: "Order",
+          entityId: order.id,
+          restaurantId,
+          after: { tableId, tableNumberStr, orderId: order.id },
+          request,
+        }).catch(() => {});
       }
-    } catch { /* WS not available */ }
 
-    try {
-      const { notifyNewOrder } = await import("@/lib/notifications-service");
-      notifyNewOrder(restaurantId, {
-        id: order.id,
-        customerName: order.customerName,
-        total: Number(order.total),
-        orderType: order.orderType,
-        tableNumber: order.tableNumber,
-        items: typeof order.items === "string" ? order.items : JSON.stringify(order.items),
-      });
-    } catch { /* email failed */ }
+      // WebSocket: notify admin of new order
+      try {
+        const { broadcastToType } = await import("@/lib/websocket-server");
+        const { WSEvents } = await import("@/lib/ws-events");
+        broadcastToType("admin", WSEvents.ORDER_NEW, {
+          orderId: order.id,
+          customerName: order.customerName,
+          orderType: order.orderType,
+          status: order.status,
+          tableNumberStr,
+        });
+        if (tableId) {
+          broadcastToType("admin", "TABLE_ORDER_NEW", { restaurantId, orderId: order.id, tableNumber: tableNumberStr });
+        }
+      } catch { /* WS not available */ }
 
-    try {
-      const { decrementStockForOrder } = await import("@/lib/stock-manager");
-      const orderedItems = JSON.parse(
-        typeof order.items === "string" ? order.items : JSON.stringify(order.items)
-      ) as { name: string; qty: number }[];
-      decrementStockForOrder(order.id, restaurantId, orderedItems);
-    } catch { /* stock decrement failed */ }
+      // Email notification to restaurant admins (non-blocking)
+      try {
+        const { notifyNewOrder } = await import("@/lib/notifications-service");
+        notifyNewOrder(restaurantId, {
+          id: order.id,
+          customerName: order.customerName,
+          total: Number(order.total),
+          orderType: order.orderType,
+          tableNumber: order.tableNumber,
+          items: typeof order.items === "string" ? order.items : JSON.stringify(order.items),
+        });
+      } catch { /* email failed */ }
+
+      // Decrement stock for ordered items (non-blocking)
+      try {
+        const { decrementStockForOrder } = await import("@/lib/stock-manager");
+        const orderedItems = JSON.parse(
+          typeof order.items === "string" ? order.items : JSON.stringify(order.items)
+        ) as { name: string; qty: number }[];
+        decrementStockForOrder(order.id, restaurantId, orderedItems);
+      } catch { /* stock decrement failed */ }
+    }
 
     return NextResponse.json(bigIntToNumber(order), { status: result.status });
   } catch (error) {

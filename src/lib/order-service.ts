@@ -52,12 +52,16 @@ export interface CreateOrderResult {
   order?: unknown;
   error?: string;
   code?: string;
+  created?: boolean; // Mission 3: false on idempotent replay, true on new creation
 }
 
 /**
  * Create an order with full server-side validation and atomic idempotency.
  *
- * Throws on validation errors; returns the created or existing order.
+ * Mission 3 (Phase 3):
+ *   - Compares requestHash on replay → 409 if mismatch
+ *   - Returns created:false on replay
+ *   - Side effects (email, WS, stock, audit) are skipped by the caller when created=false
  */
 export async function createOrderAtomically(
   input: CreateOrderInput,
@@ -67,7 +71,6 @@ export async function createOrderAtomically(
 
   // ── Step 1: Idempotency check (atomic) ──
   if (input.idempotencyKey) {
-    // Try to find an existing completed order for this key + restaurant
     const existing = await db.idempotencyKey.findUnique({
       where: {
         restaurantId_key: { restaurantId, key: input.idempotencyKey },
@@ -76,14 +79,21 @@ export async function createOrderAtomically(
     });
 
     if (existing) {
-      // If the key is expired and has no order, allow re-creation
       const isExpired = existing.expiresAt < new Date();
       if (existing.orderId && existing.order) {
-        // Idempotent replay — return the existing order
-        return { success: true, status: 200, order: existing.order };
+        // ── Mission 3: Compare requestHash on replay ──
+        if (existing.requestHash && existing.requestHash !== rawBodyHash) {
+          return {
+            success: false,
+            status: 409,
+            error: 'Clé d\'idempotence utilisée avec un payload différent',
+            code: 'IDEMPOTENCY_HASH_MISMATCH',
+          };
+        }
+        // Idempotent replay — return the existing order, created=false
+        return { success: true, status: 200, order: existing.order, created: false };
       }
       if (!isExpired && existing.status === 'pending') {
-        // Another concurrent request is in flight — reject to prevent duplicate
         return {
           success: false,
           status: 409,
@@ -363,7 +373,7 @@ export async function createOrderAtomically(
       ...(process.env.DATABASE_URL?.startsWith('postgresql') ? { isolationLevel: Prisma.TransactionIsolationLevel.Serializable } : {}),
     });
 
-    return { success: true, status: 201, order: result };
+    return { success: true, status: 201, order: result, created: true };
   } catch (error) {
     // If it's a unique constraint violation on idempotency key,
     // a concurrent request already created the order — return it.
@@ -378,7 +388,7 @@ export async function createOrderAtomically(
             include: { order: true },
           });
           if (existing?.order) {
-            return { success: true, status: 200, order: existing.order };
+            return { success: true, status: 200, order: existing.order, created: false };
           }
         }
         return {

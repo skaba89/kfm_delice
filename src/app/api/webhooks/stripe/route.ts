@@ -133,14 +133,33 @@ export async function POST(request: Request) {
 
     if (!result.success) {
       console.error(`[stripe-webhook] Event ${providerEventId} processing failed: ${result.error}`);
-      // Return 200 anyway so Stripe doesn't retry indefinitely for business errors
-      // (e.g. amount mismatch). For signature errors we already returned 400 above.
-      return NextResponse.json({ received: true, error: result.error });
+      // ── Mission 6: Distinguish definitive vs transitory errors ──
+      // Definitive (return 200 — Stripe won't retry, event is logged as failed):
+      //   - No orderId/restaurantId in metadata
+      //   - Order not found
+      //   - Amount/currency mismatch (possible fraud)
+      // Transitory (return 500 — Stripe will retry):
+      //   - Transaction timeout / serialization failure
+      //   - DB connection lost
+      const isTransitory = result.error?.includes('Transaction failed') ||
+                           result.error?.includes('P2034') ||
+                           result.error?.includes('P2028') ||
+                           result.error?.includes('timeout');
+      if (isTransitory) {
+        // Return 500 so Stripe retries the event later
+        return NextResponse.json(
+          { error: result.error, transitory: true },
+          { status: 500 }
+        );
+      }
+      // Definitive error — return 200 so Stripe doesn't retry
+      return NextResponse.json({ received: true, error: result.error, definitive: true });
     }
 
     return NextResponse.json({ received: true });
   } catch (error) {
     console.error("[stripe-webhook] Error:", error);
+    // ── Mission 6: Return 500 on unexpected errors so Stripe retries ──
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
