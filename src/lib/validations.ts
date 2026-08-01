@@ -60,6 +60,64 @@ export const orderSchema = z.object({
   customerId: z.string().optional(),
 });
 
+// ────────────────────────────────────────────────────────────────
+// Mission 1: Strict schema for PUBLIC order creation (POST /api/orders)
+//
+// The public endpoint MUST NOT accept sensitive fields from the client.
+// The server computes: total, discount, deliveryFee, tax, status,
+// paymentStatus, customerId, driverId — all derived from the DB or JWT.
+//
+// Only these fields are accepted from the client:
+//   items[{menuItemId, quantity, note}], orderType, customerName, phone,
+//   deliveryAddress, paymentMethod, tableQrToken, promoCode, tip, note,
+//   idempotencyKey
+// ────────────────────────────────────────────────────────────────
+
+export const publicOrderItemSchema = z.object({
+  menuItemId: z.string().min(1, 'menuItemId requis'),
+  quantity: z.number().int().min(1, 'Quantité min 1').max(99, 'Quantité max 99'),
+  note: z.string().max(500, 'Note trop longue (max 500)').optional(),
+});
+
+export const publicOrderSchema = z.object({
+  items: z.array(publicOrderItemSchema).min(1, 'Panier vide').max(50, 'Trop d\'articles (max 50)'),
+  orderType: z.enum(['dine_in', 'takeaway', 'delivery']).default('dine_in'),
+  customerName: z.string().max(200).optional(),
+  phone: z.string().max(50).optional(),
+  deliveryAddress: z.string().max(1000).optional(),
+  paymentMethod: z.enum(['cash', 'orange_money', 'mtn_money', 'wave', 'card']).default('cash'),
+  tableQrToken: z.string().max(200).optional(),
+  promoCode: z.string().max(50).optional(),
+  tip: z.number().min(0).max(10000000).optional(), // validated against 50% of total server-side
+  note: z.string().max(1000).optional(),
+  idempotencyKey: z.string().min(1).max(200).optional(),
+  // Explicitly REJECTED fields — if present, the request is rejected.
+  // This prevents injection of server-authoritative values.
+}).strict();
+
+// ── Build a deny-list check for sensitive fields ──
+const FORBIDDEN_ORDER_FIELDS = [
+  'total', 'subtotal', 'discount', 'tax', 'deliveryFee',
+  'status', 'paymentStatus', 'customerId', 'driverId',
+  'platformCommission', 'driverEarning', 'assignmentStatus',
+  'proposedToDriverId', 'proposedAt',
+];
+
+/**
+ * Check if a raw request body contains forbidden fields.
+ * Returns the list of forbidden field names found (empty = OK).
+ */
+export function detectForbiddenOrderFields(rawBody: unknown): string[] {
+  if (typeof rawBody !== 'object' || rawBody === null) return [];
+  const found: string[] = [];
+  for (const field of FORBIDDEN_ORDER_FIELDS) {
+    if (field in (rawBody as Record<string, unknown>)) {
+      found.push(field);
+    }
+  }
+  return found;
+}
+
 export const paymentSchema = z.object({
   orderId: z.string().min(1, 'ID commande requis'),
   method: z.enum(['cash', 'orange_money', 'mtn_money', 'wave', 'card'], { message: 'Méthode de paiement invalide' }),

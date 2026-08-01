@@ -26,6 +26,7 @@ export interface PaymentInitRequest {
   phone?: string; // customer phone (for mobile money)
   customerName?: string;
   returnUrl?: string; // URL to redirect after payment
+  restaurantId?: string; // Mission 4: for Stripe metadata
 }
 
 export interface PaymentInitResponse {
@@ -68,7 +69,18 @@ const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
 
 // ── Mock mode detection ────────────────────────────────────────
 
+const IS_PRODUCTION_MODE = process.env.APP_MODE === 'production';
+
+/**
+ * Mission 4: Detect if a payment method is in mock mode.
+ * In production (APP_MODE=production), mock mode is FORBIDDEN —
+ * if credentials are missing, the provider is considered unavailable
+ * rather than falling back to mock.
+ */
 function isMockMode(method: PaymentMethod): boolean {
+  // In production, NEVER use mock mode — credentials must be set.
+  if (IS_PRODUCTION_MODE) return false;
+
   switch (method) {
     case 'orange_money':
       return !ORANGE_MONEY_CLIENT_ID || !ORANGE_MONEY_CLIENT_SECRET;
@@ -83,10 +95,40 @@ function isMockMode(method: PaymentMethod): boolean {
   }
 }
 
+/**
+ * Mission 4: Check if a payment method is fully configured.
+ * In production, unconfigured methods must be rejected (not mocked).
+ */
+function isProviderConfigured(method: PaymentMethod): boolean {
+  switch (method) {
+    case 'cash':
+      return true; // cash never needs external credentials
+    case 'orange_money':
+      return !!(ORANGE_MONEY_CLIENT_ID && ORANGE_MONEY_CLIENT_SECRET);
+    case 'mtn_money':
+      return !!(MTN_MOMO_SUBSCRIPTION_KEY && MTN_MOMO_API_KEY);
+    case 'wave':
+      return !!WAVE_API_KEY;
+    case 'card':
+      return !!STRIPE_SECRET_KEY;
+    default:
+      return false;
+  }
+}
+
 // ── Init payment ───────────────────────────────────────────────
 
 export async function initPayment(req: PaymentInitRequest): Promise<PaymentInitResponse> {
   try {
+    // ── Mission 4: In production, reject unconfigured providers ──
+    if (IS_PRODUCTION_MODE && !isProviderConfigured(req.method)) {
+      return {
+        success: false,
+        status: 'failed',
+        error: `Provider "${req.method}" is not configured. Payment method unavailable in production.`,
+      };
+    }
+
     switch (req.method) {
       case 'cash':
         // Cash payments are always "pending" — confirmed manually by staff
@@ -144,7 +186,18 @@ async function initOrangeMoney(req: PaymentInitRequest): Promise<PaymentInitResp
     },
     body: 'grant_type=client_credentials',
   });
+  // ── Mission 4: Verify response.ok ──
+  if (!tokenRes.ok) {
+    return {
+      success: false,
+      status: 'failed',
+      error: `Orange Money OAuth failed: ${tokenRes.status} ${tokenRes.statusText}`,
+    };
+  }
   const tokenData = await tokenRes.json();
+  if (!tokenData.access_token) {
+    return { success: false, status: 'failed', error: 'Orange Money: no access_token in response' };
+  }
 
   // 2. Create payment
   const payRes = await fetch(`${ORANGE_MONEY_API_URL}/omcoreapis/1.0.2/mp/init`, {
@@ -162,6 +215,15 @@ async function initOrangeMoney(req: PaymentInitRequest): Promise<PaymentInitResp
       returnUrl: req.returnUrl || `${process.env.PUBLIC_APP_URL}/payment/success`,
     }),
   });
+  // ── Mission 4: Verify response.ok ──
+  if (!payRes.ok) {
+    const errText = await payRes.text().catch(() => '');
+    return {
+      success: false,
+      status: 'failed',
+      error: `Orange Money payment init failed: ${payRes.status} ${errText.substring(0, 200)}`,
+    };
+  }
   const payData = await payRes.json();
 
   return {
@@ -250,7 +312,19 @@ async function initWave(req: PaymentInitRequest): Promise<PaymentInitResponse> {
       business_id: WAVE_BUSINESS_ID,
     }),
   });
+  // ── Mission 4: Verify response.ok ──
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    return {
+      success: false,
+      status: 'failed',
+      error: `Wave checkout session failed: ${res.status} ${errText.substring(0, 200)}`,
+    };
+  }
   const data = await res.json();
+  if (!data.id || !data.wave_launch_url) {
+    return { success: false, status: 'failed', error: 'Wave: incomplete response (missing id or wave_launch_url)' };
+  }
 
   return {
     success: true,
@@ -273,7 +347,7 @@ async function initStripe(req: PaymentInitRequest): Promise<PaymentInitResponse>
     };
   }
 
-  // Real Stripe Checkout Session
+  // Real Stripe Checkout Session — Mission 4: include metadata + client_reference_id
   const res = await fetch('https://api.stripe.com/v1/checkout/sessions', {
     method: 'POST',
     headers: {
@@ -288,9 +362,24 @@ async function initStripe(req: PaymentInitRequest): Promise<PaymentInitResponse>
       'line_items[0][quantity]': '1',
       'success_url': req.returnUrl || `${process.env.PUBLIC_APP_URL}/payment/success`,
       'cancel_url': `${process.env.PUBLIC_APP_URL}/payment/cancel`,
+      'client_reference_id': req.orderId,
+      'metadata[orderId]': req.orderId,
+      ...(req.restaurantId && { 'metadata[restaurantId]': req.restaurantId }),
     }),
   });
+  // ── Mission 4: Verify response.ok ──
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    return {
+      success: false,
+      status: 'failed',
+      error: `Stripe checkout session failed: ${res.status} ${errText.substring(0, 200)}`,
+    };
+  }
   const data = await res.json();
+  if (!data.id || !data.url) {
+    return { success: false, status: 'failed', error: 'Stripe: incomplete response (missing id or url)' };
+  }
 
   return {
     success: true,

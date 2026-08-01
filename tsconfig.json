@@ -41,6 +41,8 @@
     "examples",
     "download",
     "src/__tests__",
+    "e2e",
+    "playwright.config.ts",
     "hotel-booking-pro",
     "kfm_delice",
     "datasphere-innovation-ia-plateform",

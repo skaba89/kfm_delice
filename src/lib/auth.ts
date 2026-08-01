@@ -66,7 +66,7 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 }
 
 // ────────────────────────────────────────────────────────────────
-// JWT Token Generation
+// JWT Token Generation — Mission 7 hardening
 // ────────────────────────────────────────────────────────────────
 
 // Extended JWT payload with tenant context
@@ -79,9 +79,21 @@ interface TokenPayload {
   restaurantSlug?: string;
 }
 
-// Generate a JWT token
+const JWT_ISSUER = process.env.JWT_ISSUER || 'kfm-delice';
+const JWT_AUDIENCE = process.env.JWT_AUDIENCE || 'kfm-delice-users';
+
+// Generate a JWT token — Mission 7: adds issuer, audience, jti
 export function generateToken(payload: TokenPayload): string {
-  return jwt.sign(payload, getJwtSecret(), { expiresIn: JWT_EXPIRES_IN });
+  return jwt.sign(
+    payload,
+    getJwtSecret(),
+    {
+      expiresIn: JWT_EXPIRES_IN,
+      issuer: JWT_ISSUER,
+      audience: JWT_AUDIENCE,
+      jwtid: `${payload.type}-${payload.id}-${Date.now()}-${Math.random().toString(36).substring(2, 10)}`,
+    }
+  );
 }
 
 interface JwtPayload {
@@ -93,10 +105,13 @@ interface JwtPayload {
   restaurantSlug?: string;
 }
 
-// Verify a JWT token
+// Verify a JWT token — Mission 7: verifies issuer + audience
 export function verifyToken(token: string): JwtPayload | null {
   try {
-    const decoded = jwt.verify(token, getJwtSecret());
+    const decoded = jwt.verify(token, getJwtSecret(), {
+      issuer: JWT_ISSUER,
+      audience: JWT_AUDIENCE,
+    });
     if (typeof decoded === 'object' && decoded !== null && 'id' in decoded && 'type' in decoded) {
       return decoded as JwtPayload;
     }

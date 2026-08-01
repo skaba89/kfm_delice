@@ -8,11 +8,13 @@
 import { Secret, TOTP } from "otpauth";
 import QRCode from "qrcode";
 import { createHash, randomBytes } from "crypto";
+import { encryptString, decryptString } from "./crypto";
 
 // ── Secret generation ──────────────────────────────────────────
 
 export function generateTwoFactorSecret(email: string): {
-  secret: string;
+  secret: string; // plaintext base32 — only returned to show QR once
+  encryptedSecret: string; // AES-256-GCM ciphertext for DB storage
   uri: string;
 } {
   // Generate a random 20-byte secret for TOTP
@@ -25,8 +27,10 @@ export function generateTwoFactorSecret(email: string): {
     period: 30,
     secret: secretObj,
   });
+  const plaintextSecret = totp.secret.base32;
   return {
-    secret: totp.secret.base32,
+    secret: plaintextSecret,
+    encryptedSecret: encryptString(plaintextSecret),
     uri: totp.toString(),
   };
 }
@@ -43,8 +47,14 @@ export async function generateQRCodeDataUrl(otpauthUri: string): Promise<string>
 
 // ── Code verification ──────────────────────────────────────────
 
-export function verifyTwoFactorCode(secretBase32: string, code: string): boolean {
+/**
+ * Verify a TOTP code against an ENCRYPTED secret (stored in DB).
+ * Decrypts the secret first, then validates the code.
+ */
+export function verifyTwoFactorCode(encryptedSecret: string, code: string): boolean {
   if (!code || code.length !== 6) return false;
+  const secretBase32 = decryptString(encryptedSecret);
+  if (!secretBase32) return false;
   const totp = new TOTP({
     issuer: "KFM Delice",
     algorithm: "SHA1",

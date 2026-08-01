@@ -82,6 +82,7 @@ export async function POST(request: Request) {
         id: true, email: true, password: true, name: true,
         role: true, status: true, restaurantId: true,
         loginAttempts: true, lockedUntil: true,
+        mustChangePassword: true, // Mission 7: read from DB, not hardcoded
       },
     });
 
@@ -170,7 +171,7 @@ export async function POST(request: Request) {
       name: admin.name,
       role: admin.role,
       status: admin.status,
-      mustChangePassword: false,
+      mustChangePassword: admin.mustChangePassword, // Mission 7: from DB
       restaurantId: admin.restaurantId,
       restaurantSlug,
       token,

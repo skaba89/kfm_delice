@@ -151,6 +151,7 @@ export async function POST(request: Request) {
       phone: phone || "",
       amount: Number(order.total),
       orderId,
+      restaurantId: order.restaurantId, // Mission 4: for Stripe metadata
     });
 
     if (!result.success) {
