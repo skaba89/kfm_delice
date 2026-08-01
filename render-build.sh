@@ -10,6 +10,13 @@ else
   echo "[render-build] DATABASE_URL is NOT SET"
 fi
 
+# ── Install ALL dependencies (including dev) ──────────────────
+# Render may skip devDependencies when NODE_ENV=production.
+# We MUST install them because @tailwindcss/postcss and tailwindcss
+# are needed at build time for PostCSS/Tailwind CSS processing.
+echo "[render-build] Installing dependencies (including dev)..."
+npm ci --include=dev || npm install --include=dev
+
 # ── Determine which Prisma schema to use ──────────────────────
 case "$DATABASE_URL" in
   postgresql://*|postgres://*)
