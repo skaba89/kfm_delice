@@ -1,22 +1,28 @@
 #!/bin/bash
 # ───────────────────────────────────────────────────────────────────
-# render-start.sh — Production-safe startup (Mission 5)
+# render-start.sh — Production-safe startup (Mission 5 — Phase 4)
 # ───────────────────────────────────────────────────────────────────
 # This script runs ONLY:
 #   1. Production safety check (check-production-safety.cjs)
-#   2. prisma validate
-#   3. prisma migrate deploy
-#   4. Read-only schema verification
-#   5. next start
+#   2. Select PostgreSQL schema
+#   3. prisma generate (only if needed)
+#   4. prisma validate
+#   5. Provider verification
+#   6. Read-only verification of QR migration state
+#   7. prisma migrate deploy
+#   8. Read-only verification after migration
+#   9. next start
 #
 # It NEVER runs:
 #   - prisma db push (destructive — can drop columns)
-#   - ALTER TABLE / CREATE TABLE scripts
+#   - ALTER TABLE / CREATE TABLE scripts (except in repair-qr-migration.cjs
+#     which uses conditional IF NOT EXISTS / DO $$ blocks)
 #   - Auto-seed (creates demo accounts with known credentials)
-#   - Backfill scripts (rattachement automatique au premier restaurant)
+#   - Backfill scripts
 #   - --accept-data-loss
+#   - Generic auto-resolve of ALL failed migrations
 #
-# Any error is FATAL and stops the deployment.
+# Any error is FATAL and stops the deployment (set -euo pipefail).
 # ───────────────────────────────────────────────────────────────────
 
 set -euo pipefail
@@ -100,34 +106,26 @@ test -d node_modules/@prisma/client || { echo "[render-start] FATAL: @prisma/cli
 test -d node_modules/.prisma/client || { echo "[render-start] FATAL: .prisma/client missing"; exit 1; }
 echo "[render-start] ✓ Build output check complete."
 
-# ── Step 7: Apply migrations (NO db push, NO auto-seed, NO backfill) ──
-echo "[render-start] Step 7: Running prisma migrate deploy..."
-
-# First, resolve any failed migrations from previous deployments.
-# This is safe: failed migrations are already partially applied (tables exist
-# from a previous db push). Marking them as rolled-back lets migrate deploy
-# proceed with the remaining migrations.
-echo "[render-start] Step 7a: Resolving failed migrations..."
-node scripts/resolve-failed-migrations.cjs 2>&1 || {
-  echo "[render-start] WARNING: Failed to resolve failed migrations (continuing anyway)"
-}
+# ── Step 7: Repair QR migration (targeted, NOT generic) then migrate deploy ──
+echo "[render-start] Step 7: Repairing QR migration (if needed)..."
+if [ "$PROVIDER" = "postgres" ]; then
+  # This script:
+  #   - Verifies the QR migration objects (read-only)
+  #   - If all exist (chemin A): marks as applied via `prisma migrate resolve --applied`
+  #   - If some missing (chemin B): creates them with conditional SQL, then marks as applied
+  #   - ONLY targets 20260713000000_add_restaurant_table_qr
+  #   - Refuses to touch any other migration
+  node scripts/repair-qr-migration.cjs
+  echo "[render-start] ✓ QR migration repair complete."
+fi
 
 echo "[render-start] Step 7b: Running prisma migrate deploy..."
-if ! node_modules/.bin/prisma migrate deploy 2>&1; then
-  echo "[render-start] FATAL: prisma migrate deploy failed."
-  echo "[render-start] In production, migrations MUST succeed. No fallback to db push."
-  echo "[render-start] To fix: create a new migration with 'npx prisma migrate dev' on a dev DB,"
-  echo "[render-start] commit it, and redeploy."
-  exit 1
-fi
+node_modules/.bin/prisma migrate deploy
 echo "[render-start] ✓ Migrations applied."
 
-# ── Step 8: Read-only schema verification ──
+# ── Step 8: Read-only schema verification after migration ──
 echo "[render-start] Step 8: Read-only schema verification..."
-node scripts/verify-schema-read-only.cjs 2>/dev/null || {
-  echo "[render-start] WARNING: Read-only schema verification script not found or failed."
-  echo "[render-start] Continuing — migrations have already been applied."
-}
+node scripts/verify-schema-read-only.cjs
 echo "[render-start] ✓ Schema verification complete."
 
 # ── Step 9: Start the Next.js server ──
