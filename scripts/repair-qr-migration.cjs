@@ -194,6 +194,9 @@ async function main() {
       return;
     }
 
+    // If already rolled back, skip the --rolled-back step
+    const alreadyRolledBack = isRolledBack;
+
     console.log('[repair] Migration is in failed or rolled-back state.');
     console.log('[repair] Running verification to determine path (A or B)...');
 
@@ -211,6 +214,13 @@ async function main() {
       console.log('[repair] Marking migration as applied...');
       const ok = await runPrismaResolve('applied');
       if (!ok) {
+        // If --applied fails (e.g. P3012 not in failed state), the migration
+        // might already be applied — check the state again
+        const state2 = await getMigrationState(db);
+        if (state2?.finished_at !== null && state2?.rolled_back_at === null) {
+          console.log('[repair] ✓ Migration is already applied (state confirmed).');
+          return;
+        }
         console.error('[repair] ✗ Failed to mark migration as applied.');
         process.exit(1);
       }
@@ -221,12 +231,36 @@ async function main() {
     // ── CHEMIN B: Objects missing ──
     console.log('[repair] ── CHEMIN B: Some objects missing ──');
 
-    // Step B.1: Mark as rolled-back so prisma can re-apply
-    console.log('[repair] Step B.1: Marking migration as rolled-back...');
-    const rolledBack = await runPrismaResolve('rolled-back');
-    if (!rolledBack) {
-      console.error('[repair] ✗ Failed to mark migration as rolled-back.');
-      process.exit(1);
+    // Step B.1: Mark as rolled-back (only if not already rolled back)
+    if (!alreadyRolledBack) {
+      console.log('[repair] Step B.1: Marking migration as rolled-back...');
+      const rolledBack = await runPrismaResolve('rolled-back');
+      if (!rolledBack) {
+        // P3012 means the migration is not in a failed state — it might
+        // already be applied or rolled back. Check the state and proceed.
+        console.log('[repair] --rolled-back failed (P3012) — checking state...');
+        const state2 = await getMigrationState(db);
+        if (state2?.finished_at !== null && state2?.rolled_back_at === null) {
+          console.log('[repair] ✓ Migration is already applied. Skipping repair.');
+          return;
+        }
+        // If rolled_back_at is set, we can proceed to create objects
+        if (state2?.rolled_back_at !== null) {
+          console.log('[repair] ✓ Migration is already rolled back. Proceeding...');
+        } else {
+          // Still in a failed state but --rolled-back failed — try --applied directly
+          console.log('[repair] Attempting --applied directly...');
+          const appliedOk = await runPrismaResolve('applied');
+          if (!appliedOk) {
+            console.error('[repair] ✗ Both --rolled-back and --applied failed.');
+            process.exit(1);
+          }
+          console.log('[repair] ✓ Migration marked as applied.');
+          return;
+        }
+      }
+    } else {
+      console.log('[repair] Step B.1: Migration already rolled back. Skipping.');
     }
 
     // Step B.2: Create missing objects with conditional SQL
@@ -246,6 +280,12 @@ async function main() {
     console.log('[repair] Step B.4: All objects verified. Marking as applied...');
     const ok = await runPrismaResolve('applied');
     if (!ok) {
+      // Check if already applied
+      const state3 = await getMigrationState(db);
+      if (state3?.finished_at !== null && state3?.rolled_back_at === null) {
+        console.log('[repair] ✓ Migration is already applied (state confirmed).');
+        return;
+      }
       console.error('[repair] ✗ Failed to mark migration as applied.');
       process.exit(1);
     }
