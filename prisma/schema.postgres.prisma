@@ -151,6 +151,7 @@ model Restaurant {
   // ── Mission 1/2/3/4/9 back-relations ──
   orderItems        OrderItem[]
   idempotencyKeys   IdempotencyKey[]
+  paymentIdempotencyKeys PaymentIdempotencyKey[]
   promotionRedemptions PromotionRedemption[]
   webhookEvents     WebhookEvent[]
   customerFavorites CustomerFavorite[]
@@ -537,6 +538,7 @@ model Payment {
   failedReason    String   @default("")
   restaurantId    String
   restaurant      Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  paymentIdempotencyKeys PaymentIdempotencyKey[]
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
@@ -897,5 +899,28 @@ model RevokedToken {
   createdAt     DateTime @default(now())
 
   @@index([expiresAt])
+}
+
+// ────────────────────────────────────────────────────────────────
+// Mission 1 (Phase 3): PaymentIdempotencyKey — prevents double-charging
+// ────────────────────────────────────────────────────────────────
+model PaymentIdempotencyKey {
+  id            String   @id @default(cuid())
+  key           String   // client-supplied idempotency key
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  paymentId     String?  @unique // the payment created (null until committed)
+  payment       Payment?  @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  orderId       String   // the order being paid
+  requestHash   String   @default("") // SHA-256 of normalized payload
+  status        String   @default("pending") // pending, completed, failed
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([restaurantId, key])
+  @@index([restaurantId, status])
+  @@index([expiresAt])
+  @@index([orderId])
 }
 

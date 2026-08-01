@@ -40,6 +40,7 @@ export interface RefreshTokenPayload {
   role: string;
   restaurantId?: string;
   restaurantSlug?: string;
+  tokenVersion?: number; // Mission 5: for session revocation
 }
 
 /**
@@ -63,7 +64,7 @@ export async function issueTokenPair(payload: RefreshTokenPayload): Promise<Toke
     },
   });
 
-  // Issue a short-lived access JWT
+  // Issue a short-lived access JWT — Mission 5: include tokenVersion
   const accessToken = generateToken({
     id: payload.userId,
     email: payload.email,
@@ -71,6 +72,7 @@ export async function issueTokenPair(payload: RefreshTokenPayload): Promise<Toke
     type: payload.userType,
     restaurantId: payload.restaurantId,
     restaurantSlug: payload.restaurantSlug,
+    tokenVersion: payload.tokenVersion,
   });
 
   return { accessToken, refreshToken, expiresAt };
@@ -78,7 +80,12 @@ export async function issueTokenPair(payload: RefreshTokenPayload): Promise<Toke
 
 /**
  * Verify a refresh token and issue a new token pair (rotation).
- * The old refresh token is revoked atomically.
+ *
+ * Mission 5 (Phase 3): The rotation is now TRANSACTIONAL.
+ *   1. Atomically revoke the old token (UPDATE ... WHERE revokedAt IS NULL)
+ *      — if 0 rows updated, another concurrent request already rotated it.
+ *   2. Create the new refresh token in the same transaction.
+ *   3. Read tokenVersion from the user record to include in the new JWT.
  *
  * Returns null if the token is invalid, expired, or already revoked.
  */
@@ -96,12 +103,12 @@ export async function rotateRefreshToken(
   if (stored.revokedAt) return null; // already used/revoked
   if (stored.expiresAt < new Date()) return null; // expired
 
-  // Load the user to build the new access JWT payload
+  // Load the user to build the new access JWT payload — Mission 5: include tokenVersion
   let payload: RefreshTokenPayload | null = null;
   if (stored.userType === 'admin') {
     const admin = await db.admin.findUnique({
       where: { id: stored.userId },
-      select: { id: true, email: true, role: true, restaurantId: true, status: true },
+      select: { id: true, email: true, role: true, restaurantId: true, status: true, tokenVersion: true },
     });
     if (!admin || admin.status === 'inactive') return null;
     const restaurant = await db.restaurant.findUnique({
@@ -115,11 +122,12 @@ export async function rotateRefreshToken(
       role: admin.role,
       restaurantId: admin.restaurantId,
       restaurantSlug: restaurant?.slug || '',
+      tokenVersion: admin.tokenVersion,
     };
   } else if (stored.userType === 'customer') {
     const customer = await db.customer.findUnique({
       where: { id: stored.userId },
-      select: { id: true, email: true, restaurantId: true, status: true },
+      select: { id: true, email: true, restaurantId: true, status: true, tokenVersion: true },
     });
     if (!customer || customer.status === 'inactive') return null;
     const restaurant = await db.restaurant.findUnique({
@@ -133,6 +141,7 @@ export async function rotateRefreshToken(
       role: 'customer',
       restaurantId: customer.restaurantId,
       restaurantSlug: restaurant?.slug || '',
+      tokenVersion: customer.tokenVersion,
     };
   } else if (stored.userType === 'driver') {
     const driver = await db.driver.findUnique({
@@ -155,7 +164,7 @@ export async function rotateRefreshToken(
   } else if (stored.userType === 'platform_admin') {
     const platformAdmin = await db.platformAdmin.findUnique({
       where: { id: stored.userId },
-      select: { id: true, email: true, role: true, status: true },
+      select: { id: true, email: true, role: true, status: true, tokenVersion: true },
     });
     if (!platformAdmin || platformAdmin.status === 'inactive') return null;
     payload = {
@@ -163,25 +172,73 @@ export async function rotateRefreshToken(
       userType: 'platform_admin',
       email: platformAdmin.email,
       role: platformAdmin.role,
+      tokenVersion: platformAdmin.tokenVersion,
     };
   }
 
   if (!payload) return null;
 
-  // Issue new token pair
-  const newPair = await issueTokenPair(payload);
+  // ── Mission 5: Transactional rotation ──
+  // Atomically revoke the old token ONLY IF it's not already revoked.
+  // This prevents race conditions where two concurrent requests try to
+  // rotate the same token. The `updateMany` with `where: { revokedAt: null }`
+  // ensures only one of them succeeds.
+  try {
+    const result = await db.$transaction(async (tx) => {
+      // Conditional update: only revokes if not already revoked
+      const updateResult = await tx.refreshToken.updateMany({
+        where: { id: stored.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
 
-  // Revoke the old token + link the new one via rotatedFrom
-  await db.refreshToken.update({
-    where: { id: stored.id },
-    data: { revokedAt: new Date() },
-  });
-  await db.refreshToken.update({
-    where: { tokenHash: hashToken(newPair.refreshToken) },
-    data: { rotatedFrom: tokenHash },
-  });
+      if (updateResult.count === 0) {
+        // Another concurrent request already rotated this token
+        throw new Error('TOKEN_ALREADY_ROTATED');
+      }
 
-  return newPair;
+      // Issue the new refresh token
+      const newRefreshToken = randomBytes(48).toString('base64url');
+      const newTokenHash = hashToken(newRefreshToken);
+      const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_MS);
+
+      await tx.refreshToken.create({
+        data: {
+          tokenHash: newTokenHash,
+          userId: stored.userId,
+          userType: stored.userType,
+          restaurantId: stored.restaurantId || null,
+          expiresAt,
+          rotatedFrom: tokenHash,
+        },
+      });
+
+      return { newRefreshToken, newTokenHash, expiresAt };
+    }, {
+      timeout: 10000,
+    });
+
+    // Issue the new access JWT (outside the transaction — stateless)
+    const accessToken = generateToken({
+      id: payload.userId,
+      email: payload.email,
+      role: payload.role,
+      type: payload.userType,
+      restaurantId: payload.restaurantId,
+      restaurantSlug: payload.restaurantSlug,
+      tokenVersion: payload.tokenVersion,
+    });
+
+    return {
+      accessToken,
+      refreshToken: result.newRefreshToken,
+      expiresAt: result.expiresAt,
+    };
+  } catch (e) {
+    if (e instanceof Error && e.message === 'TOKEN_ALREADY_ROTATED') {
+      return null; // Token was already rotated by a concurrent request
+    }
+    throw e;
+  }
 }
 
 /**

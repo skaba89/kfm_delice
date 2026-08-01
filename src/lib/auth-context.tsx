@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from "react";
 import type { AdminUser, CustomerUser, DriverUser } from "@/lib/types";
 
 interface AuthState {
@@ -78,14 +78,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(RESTAURANT_SLUG_KEY);
   }, []);
 
+  // Mission 5: logout now calls /api/logout to revoke refresh tokens server-side
   const logout = useCallback(() => {
+    // Fire-and-forget — don't block the UI on the server call
+    fetch('/api/logout', {
+      method: 'POST',
+      credentials: 'include', // send the refresh_token cookie
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    }).catch(() => { /* network error — still clear local state */ });
+
     setToken(null);
     setAdmin(null);
     setCustomer(null);
     setDriver(null);
     setUserType(null);
     clearAuthStorage();
-  }, [clearAuthStorage]);
+  }, [clearAuthStorage, token]);
 
   const loginAdmin = useCallback((data: { token: string; id: string; email: string; name: string; role: string; restaurantId?: string; restaurantSlug?: string; mustChangePassword?: boolean }) => {
     const adminUser: AdminUser = { id: data.id, email: data.email, name: data.name, role: data.role, restaurantId: data.restaurantId, restaurantSlug: data.restaurantSlug, mustChangePassword: data.mustChangePassword };
@@ -155,6 +163,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [userType, admin, customer, driver]);
 
+  // ── Mission 5: Auto-refresh logic ──
+  // When a 401 is received, try to refresh the token ONCE, then replay
+  // the original request. If refresh fails, logout.
+  // A shared promise prevents multiple concurrent refresh calls.
+  const refreshPromiseRef = useRef<Promise<string | null> | null>(null);
+
+  const doRefresh = useCallback(async (): Promise<string | null> => {
+    // If a refresh is already in flight, reuse it
+    if (refreshPromiseRef.current) {
+      return refreshPromiseRef.current;
+    }
+    refreshPromiseRef.current = (async () => {
+      try {
+        const res = await fetch('/api/refresh', {
+          method: 'POST',
+          credentials: 'include', // send the refresh_token cookie
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (data.accessToken) {
+          setToken(data.accessToken);
+          return data.accessToken as string;
+        }
+        return null;
+      } catch {
+        return null;
+      } finally {
+        refreshPromiseRef.current = null;
+      }
+    })();
+    return refreshPromiseRef.current;
+  }, []);
+
   const apiFetch = useCallback(async (url: string, options?: RequestInit): Promise<Response> => {
     const headers: Record<string, string> = {
       ...(options?.headers as Record<string, string> || {}),
@@ -175,38 +216,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Add Content-Type for requests with body (but not for FormData)
     if (options?.body && !headers["Content-Type"]) {
-      // Don't set Content-Type for FormData — browser sets it automatically with boundary
       const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
       if (!isFormData) {
         headers["Content-Type"] = "application/json";
       }
     }
 
-    const res = await fetch(url, {
+    let res = await fetch(url, {
       ...options,
       headers,
     });
 
-    // Handle token expiration — only logout if we had a token and got 401
-    // This means our token is truly invalid/expired, not just a missing auth header
+    // ── Mission 5: Auto-refresh on 401 ──
+    // If we got a 401 and we have a token, try to refresh ONCE and replay.
     if (res.status === 401 && token) {
-      // Only logout for actual token issues, not for "auth required" on endpoints
-      try {
-        const clonedRes = res.clone();
-        const body = await clonedRes.json();
-        // Only logout for actual token issues (expired/invalid token)
-        if (body.error?.includes("expiré") || body.error?.includes("invalide") || body.error?.includes("Token") || body.error?.includes("expired") || body.error?.includes("invalid") || body.error?.includes("Unauthorized") || body.error?.includes("Token")) {
-          logout();
-        }
-      } catch {
-        // If we can't parse the response, DON'T auto-logout — it might just be
-        // a non-JSON 401 response (e.g. from a proxy or middleware).
-        // Only auto-logout if we're confident the token is invalid.
+      const newToken = await doRefresh();
+      if (newToken) {
+        // Replay the original request with the new token (only once)
+        headers["Authorization"] = `Bearer ${newToken}`;
+        res = await fetch(url, {
+          ...options,
+          headers,
+        });
+      } else {
+        // Refresh failed — logout
+        logout();
       }
     }
 
     return res;
-  }, [token, logout]);
+  }, [token, logout, doRefresh]);
 
   const isAuthenticated = !!token;
 

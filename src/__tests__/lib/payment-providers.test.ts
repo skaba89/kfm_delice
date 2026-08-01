@@ -55,7 +55,7 @@ describe('Mission 4: payments/index.ts — payment gateway abstraction', () => {
   });
 
   describe('initiatePayment — cash', () => {
-    it('should always succeed for cash payments', async () => {
+    it('should return pending status for cash (Mission 1: cashier confirms)', async () => {
       const result = await initiatePayment({
         method: 'cash',
         phone: '',
@@ -63,7 +63,7 @@ describe('Mission 4: payments/index.ts — payment gateway abstraction', () => {
         orderId: 'order-123',
       });
       expect(result.success).toBe(true);
-      expect(result.status).toBe('paid');
+      expect(result.status).toBe('pending'); // Mission 1: cash is pending until cashier confirms
       expect(result.transactionRef).toMatch(/^CASH_/);
     });
 
@@ -74,7 +74,7 @@ describe('Mission 4: payments/index.ts — payment gateway abstraction', () => {
   });
 
   describe('initiatePayment — card (mock mode, no Stripe key)', () => {
-    it('should return mock paid response in dev mode', async () => {
+    it('should return processing status in dev mode (Mission 1: Stripe webhook confirms)', async () => {
       const result = await initiatePayment({
         method: 'card',
         phone: '',
@@ -82,8 +82,9 @@ describe('Mission 4: payments/index.ts — payment gateway abstraction', () => {
         orderId: 'order-123',
       });
       expect(result.success).toBe(true);
-      expect(result.status).toBe('paid');
-      expect(result.transactionRef).toMatch(/^CARD_/);
+      expect(result.status).toBe('processing'); // Mission 1: card is processing until webhook
+      expect(result.transactionRef).toMatch(/^stripe-mock-/);
+      expect(result.paymentUrl).toContain('/payment/mock');
     });
   });
 

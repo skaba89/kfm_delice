@@ -85,6 +85,7 @@ export async function POST(request: Request) {
         role: true, status: true, restaurantId: true,
         loginAttempts: true, lockedUntil: true,
         mustChangePassword: true, // Mission 7: read from DB, not hardcoded
+        tokenVersion: true, // Mission 5: for session revocation
       },
     });
 
@@ -168,6 +169,7 @@ export async function POST(request: Request) {
     }).catch(() => { /* non-blocking */ });
 
     // ── Mission 7: Issue refresh token (rotatable) + access JWT ──
+    // Mission 5: include tokenVersion for session revocation
     const tokenPair = await issueTokenPair({
       userId: admin.id,
       userType: 'admin',
@@ -175,6 +177,7 @@ export async function POST(request: Request) {
       role: admin.role,
       restaurantId: admin.restaurantId,
       restaurantSlug,
+      tokenVersion: admin.tokenVersion,
     });
 
     const response = NextResponse.json({

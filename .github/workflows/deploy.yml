@@ -21,7 +21,7 @@ on:
       - "prisma/**"
       - "public/**"
       - "package.json"
-      - "bun.lock"
+      - "package-lock.json"
       - "next.config.ts"
       - "tsconfig.json"
       - "render.yaml"
@@ -31,7 +31,11 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
-    timeout-minutes: 5
+    timeout-minutes: 10
+    # Mission 7: require CI to pass before deploy
+    needs: [sqlite-check, postgres-check]
+    # Mission 7: use environment protection (uncomment when environment is created in repo settings)
+    # environment: production
     steps:
       - name: Check secret
         id: check
@@ -39,8 +43,8 @@ jobs:
           HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
         run: |
           if [ -z "$HOOK_URL" ]; then
-            echo "::warning::RENDER_DEPLOY_HOOK_URL not set - skipping"
-            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "::error::RENDER_DEPLOY_HOOK_URL not set - refusing to deploy"
+            exit 1
           else
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
