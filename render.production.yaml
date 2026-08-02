@@ -21,6 +21,8 @@ services:
     buildCommand: bash render-build.sh
     startCommand: bash render-start.sh
     envVars:
+      - key: NODE_VERSION
+        value: "22.18.0"
       - key: NODE_ENV
         value: production
       - key: APP_MODE

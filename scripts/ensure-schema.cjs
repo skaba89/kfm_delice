@@ -456,7 +456,7 @@ async function ensureSchema() {
   }
 
   // 4. Verify critical tables exist
-  const tables = await prisma.$queryRawUnsafe<Array<{ name: string }>>(
+  const tables = await prisma.$queryRawUnsafe(
     "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
   );
   const tableNames = tables.map(t => t.name);

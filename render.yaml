@@ -33,9 +33,10 @@ services:
     healthCheckPath: /api/status
     healthCheckInitialTimeoutSec: 60
     autoDeploy: true
-    # Mission 6: Pin Node.js LTS (Node 22 is LTS, compatible with Next.js 16 + Prisma 6)
-    nodeVersion: "22.18.0"
     envVars:
+      # Render reads NODE_VERSION (the former top-level nodeVersion key is ignored).
+      - key: NODE_VERSION
+        value: "22.18.0"
       - key: NODE_ENV
         value: production
       - key: APP_MODE

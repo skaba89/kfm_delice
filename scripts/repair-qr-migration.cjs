@@ -52,9 +52,11 @@ async function verify(db) {
 
 async function getMigrationState(db) {
   const result = await db.$queryRawUnsafe(`
-    SELECT migration_name, finished_at, rolled_back_at, started_at
+    SELECT id, migration_name, finished_at, rolled_back_at, started_at
     FROM _prisma_migrations
     WHERE migration_name = $1
+    ORDER BY started_at DESC
+    LIMIT 1
   `, MIGRATION_NAME);
   return result[0] || null;
 }
@@ -180,17 +182,40 @@ async function main() {
   try {
     // ── Step 1: Check migration state ──
     const state = await getMigrationState(db);
-    if (!state) {
-      console.log('[repair] Migration not in _prisma_migrations — nothing to repair.');
-      console.log('[repair] prisma migrate deploy will apply it normally.');
-      return;
-    }
-
-    const isFinished = state.finished_at !== null;
-    const isRolledBack = state.rolled_back_at !== null;
+    const isFinished = state?.finished_at !== null && state?.finished_at !== undefined;
+    const isRolledBack = state?.rolled_back_at !== null && state?.rolled_back_at !== undefined;
 
     if (isFinished && !isRolledBack) {
       console.log('[repair] ✓ Migration already marked as applied. Nothing to do.');
+      return;
+    }
+
+    if (!state) {
+      console.log('[repair] Migration has no history row.');
+      console.log('[repair] Checking whether its objects already exist before migrate deploy...');
+
+      const verifyResult = await verify(db);
+      if (verifyResult === 2) {
+        console.error('[repair] ✗ Database connection error during verification.');
+        process.exit(2);
+      }
+      if (verifyResult === 0) {
+        console.log('[repair] All QR objects already exist; recording the migration as applied.');
+        const applied = await runPrismaResolve('applied');
+        if (!applied) {
+          const stateAfterResolve = await getMigrationState(db);
+          if (stateAfterResolve?.finished_at !== null && stateAfterResolve?.rolled_back_at === null) {
+            console.log('[repair] ✓ Migration is already applied (state confirmed).');
+            return;
+          }
+          console.error('[repair] ✗ Failed to record existing QR objects as applied.');
+          process.exit(1);
+        }
+        console.log('[repair] ✓ Existing QR schema recorded as applied.');
+        return;
+      }
+
+      console.log('[repair] QR objects are absent or incomplete; migrate deploy will apply the migration normally.');
       return;
     }
 

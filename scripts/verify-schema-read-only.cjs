@@ -27,6 +27,7 @@ const REQUIRED_TABLES = [
   'Order',
   'Payment',
   'PromoCode',
+  'RestaurantTable',
 ];
 
 async function main() {
@@ -44,7 +45,9 @@ async function main() {
             WHERE table_schema = 'public'
             AND table_name = $1
           )::boolean`,
-          table.toLowerCase()
+          // Prisma creates quoted CamelCase table names in PostgreSQL.
+          // information_schema.table_name is therefore case-sensitive here.
+          table
         );
         const exists = result[0]?.exists;
         if (!exists) {
