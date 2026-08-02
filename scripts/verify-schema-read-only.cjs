@@ -18,6 +18,7 @@ const REQUIRED_TABLES = [
   'CustomerFavorite',
   'RefreshToken',
   'RevokedToken',
+  'PaymentIdempotencyKey',
   // Core tables
   'Account',
   'Restaurant',
