@@ -15,7 +15,7 @@ fi
 # We MUST install them because @tailwindcss/postcss and tailwindcss
 # are needed at build time for PostCSS/Tailwind CSS processing.
 echo "[render-build] Installing dependencies (including dev)..."
-npm ci --include=dev 2>/dev/null || npm install --include=dev
+npm ci --include=dev --no-audit --no-fund
 
 # ── Determine which Prisma schema to use ──────────────────────
 case "$DATABASE_URL" in
@@ -86,8 +86,15 @@ fi
 #
 # So we MUST ensure the Prisma Client is generated with the correct
 # provider BEFORE `next build` runs.
-echo "[render-build] Clearing cached Prisma client..."
-rm -rf node_modules/.prisma node_modules/@prisma/client
+echo "[render-build] Clearing generated Prisma client cache..."
+# Keep the installed @prisma/client package. Deleting it makes `prisma generate`
+# run an implicit npm install, which can prune devDependencies under
+# NODE_ENV=production and introduces a network dependency during generation.
+test -d node_modules/@prisma/client || {
+  echo "[render-build] FATAL: @prisma/client is missing after npm ci"
+  exit 1
+}
+rm -rf node_modules/.prisma
 
 echo "[render-build] Running prisma generate (provider=$PROVIDER)..."
 # Use node_modules/.bin/prisma (NOT npx prisma) — npx may download Prisma 7+
@@ -111,7 +118,11 @@ node scripts/check-prisma-provider.cjs
 # schema is configured). We've already generated the client above with
 # the correct provider, so we go straight to `next build`.
 echo "[render-build] Building Next.js (no standalone output)..."
-next build
+test -x node_modules/.bin/next || {
+  echo "[render-build] FATAL: local Next.js binary is missing"
+  exit 1
+}
+node_modules/.bin/next build
 
 # ── Verify the build succeeded ────────────────────────────────
 echo "[render-build] Verifying build output..."
