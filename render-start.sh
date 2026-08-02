@@ -82,7 +82,13 @@ fi
 
 # ── Step 3: Regenerate Prisma Client for the active provider ──
 echo "[render-start] Step 3: Regenerating Prisma Client (provider=$PROVIDER)..."
-rm -rf node_modules/.prisma node_modules/@prisma/client 2>/dev/null || true
+test -d node_modules/@prisma/client || {
+  echo "[render-start] FATAL: @prisma/client package missing from build artifact"
+  exit 1
+}
+# Only remove generated artifacts. Never delete the installed package here:
+# Prisma would otherwise attempt an npm install during service startup.
+rm -rf node_modules/.prisma 2>/dev/null || true
 node_modules/.bin/prisma generate
 echo "[render-start] ✓ Prisma Client regenerated."
 
