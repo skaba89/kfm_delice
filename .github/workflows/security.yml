@@ -136,7 +136,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.28.0 # pinned to a stable version (not @master)
+        uses: aquasecurity/trivy-action@v0.36.0 # patched release; never use a floating branch
         with:
           scan-type: fs
           scan-ref: .
