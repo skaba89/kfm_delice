@@ -181,6 +181,8 @@ jobs:
     env:
       DATABASE_URL: "file:./prisma/ci-test-e2e.db"
       JWT_SECRET: "ci-test-jwt-secret-not-for-production-32chars-min"
+      STRIPE_SECRET_KEY: "sk_test_ci-not-a-real-key"
+      STRIPE_WEBHOOK_SECRET: "whsec_ci-not-a-real-secret"
       NODE_ENV: "test"
       NEXT_TELEMETRY_DISABLED: "1"
 
