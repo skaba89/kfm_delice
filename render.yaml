@@ -31,7 +31,7 @@ services:
     buildCommand: bash render-build.sh
     startCommand: bash render-start.sh
     healthCheckPath: /api/status
-    healthCheckInitialTimeoutSec: 60
+    healthCheckInitialTimeoutSec: 300
     autoDeploy: true
     envVars:
       # Render reads NODE_VERSION (the former top-level nodeVersion key is ignored).
