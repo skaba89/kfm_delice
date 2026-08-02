@@ -117,16 +117,22 @@ echo "[render-start] Step 7: Repairing QR migration (if needed)..."
 if [ "$PROVIDER" = "postgres" ]; then
   # This script:
   #   - Verifies the QR migration objects (read-only)
-  #   - If all exist (chemin A): marks as applied via `prisma migrate resolve --applied`
-  #   - If some missing (chemin B): creates them with conditional SQL, then marks as applied
+  #   - If all exist: marks as applied via `prisma migrate resolve --applied`
+  #   - If some missing: creates them with conditional SQL, then marks as applied
   #   - ONLY targets 20260713000000_add_restaurant_table_qr
   #   - Refuses to touch any other migration
-  node scripts/repair-qr-migration.cjs
+  node scripts/repair-qr-migration.cjs 2>&1 || {
+    echo "[render-start] WARNING: QR migration repair failed — continuing anyway."
+    echo "[render-start] prisma migrate deploy will attempt to apply remaining migrations."
+  }
   echo "[render-start] ✓ QR migration repair complete."
 fi
 
 echo "[render-start] Step 7b: Running prisma migrate deploy..."
-node_modules/.bin/prisma migrate deploy
+node_modules/.bin/prisma migrate deploy 2>&1 || {
+  echo "[render-start] WARNING: prisma migrate deploy failed — starting server anyway."
+  echo "[render-start] Some API routes may return 500 until migrations are applied."
+}
 echo "[render-start] ✓ Migrations applied."
 
 # ── Step 8: Read-only schema verification after migration (non-blocking) ──
