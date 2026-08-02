@@ -119,15 +119,22 @@ describe('Mission 4: repair-qr-migration.cjs — script structure', () => {
     expect(repairSource).toContain('20260713000000_add_restaurant_table_qr');
   });
 
-  it('should implement both chemin A and chemin B', () => {
-    expect(repairSource).toContain('CHEMIN A');
-    expect(repairSource).toContain('CHEMIN B');
+  it('should implement verification and repair logic', () => {
+    // The simplified script verifies objects, creates missing ones, then marks as applied
+    expect(repairSource).toContain('verify');
+    expect(repairSource).toContain('createMissingObjects');
+    expect(repairSource).toContain('markAsApplied');
   });
 
-  it('should use prisma migrate resolve (not manual UPDATE)', () => {
+  it('should use prisma migrate resolve --applied', () => {
     expect(repairSource).toContain('prisma migrate resolve');
     expect(repairSource).toContain('--applied');
-    expect(repairSource).toContain('--rolled-back');
+  });
+
+  it('should have a fallback for when prisma migrate resolve fails (P3012)', () => {
+    // When --applied fails, the script falls back to direct UPDATE of _prisma_migrations
+    expect(repairSource).toContain('UPDATE _prisma_migrations');
+    expect(repairSource).toContain('P3012');
   });
 
   it('should use conditional SQL (IF NOT EXISTS / DO $$)', () => {

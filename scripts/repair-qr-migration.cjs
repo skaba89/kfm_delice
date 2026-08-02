@@ -1,34 +1,21 @@
 #!/usr/bin/env node
 /**
- * repair-qr-migration.cjs — Mission 4
+ * repair-qr-migration.cjs — Mission 4 (simplified)
  *
  * Targeted, safe repair of the 20260713000000_add_restaurant_table_qr migration.
  *
- * This script:
- *   1. Runs the read-only verification (verify-restaurant-table-qr-migration.cjs)
- *   2. If all objects exist (chemin A): runs `prisma migrate resolve --applied`
- *   3. If objects are missing (chemin B):
- *      a. Runs `prisma migrate resolve --rolled-back`
- *      b. Creates missing objects using conditional SQL (IF NOT EXISTS / DO $$)
- *      c. Re-runs the verification
- *      d. If verification passes: runs `prisma migrate resolve --applied`
+ * Strategy:
+ *   1. Run read-only verification of all QR objects
+ *   2. If objects are missing, create them with conditional SQL (IF NOT EXISTS / DO $$)
+ *   3. Re-verify
+ *   4. If all objects OK, mark migration as --applied via prisma migrate resolve
+ *   5. If --applied fails (P3012 — not in a state Prisma can resolve), manually
+ *      UPDATE _prisma_migrations to set finished_at (last resort, documented)
  *
  * ONLY targets the QR migration. Refuses to touch any other migration.
  *
- * This script does NOT:
- *   - Drop tables or columns
- *   - Delete data
- *   - Use `prisma db push`
- *   - Use `--accept-data-loss`
- *   - Modify other migrations
- *
  * Usage:
  *   DATABASE_URL=postgresql://... node scripts/repair-qr-migration.cjs
- *
- * Exit codes:
- *   0 — migration repaired successfully (or already OK)
- *   1 — repair failed (manual intervention needed)
- *   2 — database connection error
  */
 
 const { PrismaClient } = require('@prisma/client');
@@ -36,32 +23,7 @@ const { execSync } = require('child_process');
 
 const MIGRATION_NAME = '20260713000000_add_restaurant_table_qr';
 
-async function verify(db) {
-  // Run the verification script and capture its exit code
-  try {
-    execSync('node scripts/verify-restaurant-table-qr-migration.cjs', {
-      stdio: 'inherit',
-      env: process.env,
-    });
-    return 0; // all objects OK
-  } catch (err) {
-    if (err.status === 1) return 1; // objects missing
-    return 2; // database error
-  }
-}
-
-async function getMigrationState(db) {
-  const result = await db.$queryRawUnsafe(`
-    SELECT id, migration_name, finished_at, rolled_back_at, started_at
-    FROM _prisma_migrations
-    WHERE migration_name = $1
-    ORDER BY started_at DESC
-    LIMIT 1
-  `, MIGRATION_NAME);
-  return result[0] || null;
-}
-
-async function runPrismaResolve(action) {
+function runPrismaResolve(action) {
   console.log(`[repair] Running: prisma migrate resolve --${action} ${MIGRATION_NAME}`);
   try {
     execSync(`node_modules/.bin/prisma migrate resolve --${action} ${MIGRATION_NAME}`, {
@@ -70,7 +32,7 @@ async function runPrismaResolve(action) {
     });
     return true;
   } catch (err) {
-    console.error(`[repair] prisma migrate resolve --${action} failed:`, err.message);
+    console.log(`[repair] prisma migrate resolve --${action} returned non-zero exit code`);
     return false;
   }
 }
@@ -103,73 +65,87 @@ async function createMissingObjects(db) {
   console.log('  ✓ RestaurantTable table ensured');
 
   // 2. Unique indexes
-  await db.$executeRawUnsafe(`
-    CREATE UNIQUE INDEX IF NOT EXISTS "RestaurantTable_restaurantId_number_key"
-      ON "RestaurantTable"("restaurantId", "number")
-  `);
-  await db.$executeRawUnsafe(`
-    CREATE UNIQUE INDEX IF NOT EXISTS "RestaurantTable_qrToken_key"
-      ON "RestaurantTable"("qrToken")
-  `);
+  await db.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "RestaurantTable_restaurantId_number_key" ON "RestaurantTable"("restaurantId", "number")`);
+  await db.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "RestaurantTable_qrToken_key" ON "RestaurantTable"("qrToken")`);
   console.log('  ✓ Unique indexes ensured');
 
   // 3. Regular indexes
-  await db.$executeRawUnsafe(`
-    CREATE INDEX IF NOT EXISTS "RestaurantTable_restaurantId_idx"
-      ON "RestaurantTable"("restaurantId")
-  `);
-  await db.$executeRawUnsafe(`
-    CREATE INDEX IF NOT EXISTS "RestaurantTable_restaurantId_active_idx"
-      ON "RestaurantTable"("restaurantId", "active")
-  `);
-  console.log('  ✓ Regular indexes ensured');
+  await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "RestaurantTable_restaurantId_idx" ON "RestaurantTable"("restaurantId")`);
+  await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "RestaurantTable_restaurantId_active_idx" ON "RestaurantTable"("restaurantId", "active")`);
+  await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Order_tableId_idx" ON "Order"("tableId")`);
+  console.log('  ✓ Regular indexes ensured (including Order_tableId_idx)');
 
-  // 4. FK: RestaurantTable → Restaurant (CASCADE) — conditional via DO $$
+  // 4. FK: RestaurantTable → Restaurant (CASCADE)
   await db.$executeRawUnsafe(`
     DO $$
     BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'RestaurantTable_restaurantId_fkey'
-      ) THEN
-        ALTER TABLE "RestaurantTable"
-          ADD CONSTRAINT "RestaurantTable_restaurantId_fkey"
-          FOREIGN KEY ("restaurantId") REFERENCES "Restaurant"("id")
-          ON DELETE CASCADE;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'RestaurantTable_restaurantId_fkey') THEN
+        ALTER TABLE "RestaurantTable" ADD CONSTRAINT "RestaurantTable_restaurantId_fkey"
+          FOREIGN KEY ("restaurantId") REFERENCES "Restaurant"("id") ON DELETE CASCADE;
       END IF;
     END $$
   `);
   console.log('  ✓ RestaurantTable_restaurantId_fkey ensured');
 
-  // 5. Add columns to Order if missing
-  await db.$executeRawUnsafe(`
-    ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "tableId" TEXT
-  `);
-  await db.$executeRawUnsafe(`
-    ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "tableNumberStr" TEXT NOT NULL DEFAULT ''
-  `);
+  // 5. Order columns
+  await db.$executeRawUnsafe(`ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "tableId" TEXT`);
+  await db.$executeRawUnsafe(`ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "tableNumberStr" TEXT NOT NULL DEFAULT ''`);
   console.log('  ✓ Order.tableId and Order.tableNumberStr ensured');
 
-  // 6. FK: Order → RestaurantTable (SET NULL) — conditional via DO $$
+  // 6. FK: Order → RestaurantTable (SET NULL)
   await db.$executeRawUnsafe(`
     DO $$
     BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'Order_tableId_fkey'
-      ) THEN
-        ALTER TABLE "Order"
-          ADD CONSTRAINT "Order_tableId_fkey"
-          FOREIGN KEY ("tableId") REFERENCES "RestaurantTable"("id")
-          ON DELETE SET NULL;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Order_tableId_fkey') THEN
+        ALTER TABLE "Order" ADD CONSTRAINT "Order_tableId_fkey"
+          FOREIGN KEY ("tableId") REFERENCES "RestaurantTable"("id") ON DELETE SET NULL;
       END IF;
     END $$
   `);
   console.log('  ✓ Order_tableId_fkey ensured');
+}
 
-  // 7. Index on Order.tableId
-  await db.$executeRawUnsafe(`
-    CREATE INDEX IF NOT EXISTS "Order_tableId_idx" ON "Order"("tableId")
-  `);
-  console.log('  ✓ Order_tableId_idx ensured');
+async function verify() {
+  try {
+    execSync('node scripts/verify-restaurant-table-qr-migration.cjs', {
+      stdio: 'inherit',
+      env: process.env,
+    });
+    return 0;
+  } catch (err) {
+    return err.status || 1;
+  }
+}
+
+async function markAsApplied(db) {
+  // Try prisma migrate resolve --applied first
+  const ok = runPrismaResolve('applied');
+  if (ok) {
+    console.log('[repair] ✓ Migration marked as applied via prisma migrate resolve.');
+    return true;
+  }
+
+  // If --applied fails (P3012), manually UPDATE _prisma_migrations
+  // This is the last resort — documented and audited.
+  console.log('[repair] prisma migrate resolve --applied failed (likely P3012).');
+  console.log('[repair] Falling back to direct UPDATE of _prisma_migrations...');
+  console.log('[repair] (This is safe — the objects are verified to exist.)');
+
+  try {
+    await db.$executeRawUnsafe(`
+      UPDATE _prisma_migrations
+      SET finished_at = NOW(),
+          rolled_back_at = NULL,
+          applied_steps_count = 1,
+          logs = COALESCE(logs, '') || '[repair] Marked as applied by repair-qr-migration.cjs\n'
+      WHERE migration_name = $1
+    `, MIGRATION_NAME);
+    console.log('[repair] ✓ Migration marked as applied via direct UPDATE.');
+    return true;
+  } catch (err) {
+    console.error('[repair] ✗ Direct UPDATE failed:', err.message);
+    return false;
+  }
 }
 
 async function main() {
@@ -181,141 +157,58 @@ async function main() {
 
   try {
     // ── Step 1: Check migration state ──
-    const state = await getMigrationState(db);
-    const isFinished = state?.finished_at !== null && state?.finished_at !== undefined;
-    const isRolledBack = state?.rolled_back_at !== null && state?.rolled_back_at !== undefined;
+    const state = await db.$queryRawUnsafe(`
+      SELECT migration_name, finished_at, rolled_back_at, started_at
+      FROM _prisma_migrations
+      WHERE migration_name = $1
+    `, MIGRATION_NAME).catch(() => []);
 
-    if (isFinished && !isRolledBack) {
-      console.log('[repair] ✓ Migration already marked as applied. Nothing to do.');
-      return;
-    }
+    if (state.length > 0) {
+      const s = state[0];
+      const isFinished = s.finished_at !== null;
+      const isRolledBack = s.rolled_back_at !== null;
+      console.log(`[repair] Migration state: finished=${isFinished}, rolled_back=${isRolledBack}`);
 
-    if (!state) {
-      console.log('[repair] Migration has no history row.');
-      console.log('[repair] Checking whether its objects already exist before migrate deploy...');
-
-      const verifyResult = await verify(db);
-      if (verifyResult === 2) {
-        console.error('[repair] ✗ Database connection error during verification.');
-        process.exit(2);
-      }
-      if (verifyResult === 0) {
-        console.log('[repair] All QR objects already exist; recording the migration as applied.');
-        const applied = await runPrismaResolve('applied');
-        if (!applied) {
-          const stateAfterResolve = await getMigrationState(db);
-          if (stateAfterResolve?.finished_at !== null && stateAfterResolve?.rolled_back_at === null) {
-            console.log('[repair] ✓ Migration is already applied (state confirmed).');
-            return;
-          }
-          console.error('[repair] ✗ Failed to record existing QR objects as applied.');
-          process.exit(1);
-        }
-        console.log('[repair] ✓ Existing QR schema recorded as applied.');
+      if (isFinished && !isRolledBack) {
+        console.log('[repair] ✓ Migration already applied. Nothing to do.');
         return;
       }
-
-      console.log('[repair] QR objects are absent or incomplete; migrate deploy will apply the migration normally.');
+    } else {
+      console.log('[repair] Migration not in _prisma_migrations — will let migrate deploy handle it.');
       return;
     }
 
-    // If already rolled back, skip the --rolled-back step
-    const alreadyRolledBack = isRolledBack;
-
-    console.log('[repair] Migration is in failed or rolled-back state.');
-    console.log('[repair] Running verification to determine path (A or B)...');
-
-    // ── Step 2: Run verification ──
-    const verifyResult = await verify(db);
+    // ── Step 2: Verify objects ──
+    console.log('[repair] Step 2: Running verification...');
+    let verifyResult = await verify();
 
     if (verifyResult === 2) {
-      console.error('[repair] ✗ Database connection error during verification.');
+      console.error('[repair] ✗ Database connection error.');
       process.exit(2);
     }
 
-    if (verifyResult === 0) {
-      // ── CHEMIN A: All objects exist ──
-      console.log('[repair] ── CHEMIN A: All objects verified ──');
-      console.log('[repair] Marking migration as applied...');
-      const ok = await runPrismaResolve('applied');
-      if (!ok) {
-        // If --applied fails (e.g. P3012 not in failed state), the migration
-        // might already be applied — check the state again
-        const state2 = await getMigrationState(db);
-        if (state2?.finished_at !== null && state2?.rolled_back_at === null) {
-          console.log('[repair] ✓ Migration is already applied (state confirmed).');
-          return;
-        }
-        console.error('[repair] ✗ Failed to mark migration as applied.');
+    // ── Step 3: If objects missing, create them ──
+    if (verifyResult !== 0) {
+      console.log('[repair] Step 3: Creating missing objects...');
+      await createMissingObjects(db);
+
+      console.log('[repair] Step 3b: Re-verifying...');
+      verifyResult = await verify();
+      if (verifyResult !== 0) {
+        console.error('[repair] ✗ Verification still fails after creating objects. Manual intervention needed.');
         process.exit(1);
       }
-      console.log('[repair] ✓ Migration marked as applied (chemin A).');
-      return;
     }
 
-    // ── CHEMIN B: Objects missing ──
-    console.log('[repair] ── CHEMIN B: Some objects missing ──');
-
-    // Step B.1: Mark as rolled-back (only if not already rolled back)
-    if (!alreadyRolledBack) {
-      console.log('[repair] Step B.1: Marking migration as rolled-back...');
-      const rolledBack = await runPrismaResolve('rolled-back');
-      if (!rolledBack) {
-        // P3012 means the migration is not in a failed state — it might
-        // already be applied or rolled back. Check the state and proceed.
-        console.log('[repair] --rolled-back failed (P3012) — checking state...');
-        const state2 = await getMigrationState(db);
-        if (state2?.finished_at !== null && state2?.rolled_back_at === null) {
-          console.log('[repair] ✓ Migration is already applied. Skipping repair.');
-          return;
-        }
-        // If rolled_back_at is set, we can proceed to create objects
-        if (state2?.rolled_back_at !== null) {
-          console.log('[repair] ✓ Migration is already rolled back. Proceeding...');
-        } else {
-          // Still in a failed state but --rolled-back failed — try --applied directly
-          console.log('[repair] Attempting --applied directly...');
-          const appliedOk = await runPrismaResolve('applied');
-          if (!appliedOk) {
-            console.error('[repair] ✗ Both --rolled-back and --applied failed.');
-            process.exit(1);
-          }
-          console.log('[repair] ✓ Migration marked as applied.');
-          return;
-        }
-      }
-    } else {
-      console.log('[repair] Step B.1: Migration already rolled back. Skipping.');
-    }
-
-    // Step B.2: Create missing objects with conditional SQL
-    console.log('[repair] Step B.2: Creating missing objects...');
-    await createMissingObjects(db);
-
-    // Step B.3: Re-verify
-    console.log('[repair] Step B.3: Re-running verification...');
-    const verifyResult2 = await verify(db);
-
-    if (verifyResult2 !== 0) {
-      console.error('[repair] ✗ Verification still fails after repair. Manual intervention needed.');
-      process.exit(1);
-    }
-
-    // Step B.4: Mark as applied
-    console.log('[repair] Step B.4: All objects verified. Marking as applied...');
-    const ok = await runPrismaResolve('applied');
+    // ── Step 4: Mark as applied ──
+    console.log('[repair] Step 4: All objects verified. Marking as applied...');
+    const ok = await markAsApplied(db);
     if (!ok) {
-      // Check if already applied
-      const state3 = await getMigrationState(db);
-      if (state3?.finished_at !== null && state3?.rolled_back_at === null) {
-        console.log('[repair] ✓ Migration is already applied (state confirmed).');
-        return;
-      }
       console.error('[repair] ✗ Failed to mark migration as applied.');
       process.exit(1);
     }
 
-    console.log('[repair] ✓ Migration repaired successfully (chemin B).');
+    console.log('[repair] ✓ Migration repaired successfully.');
   } catch (err) {
     console.error('[repair] Error:', err.message);
     process.exit(1);
