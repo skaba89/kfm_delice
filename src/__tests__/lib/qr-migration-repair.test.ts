@@ -257,6 +257,10 @@ describe('Mission 5: render-start.sh — security checks', () => {
     expect(startSource).toContain('next start -p "$PORT" -H 0.0.0.0');
   });
 
+  it('should keep the installed @prisma/client package at startup', () => {
+    expect(startSource).not.toMatch(/rm -rf[^\n]*node_modules\/@prisma\/client/);
+  });
+
   it('should NOT have || true on critical steps', () => {
     // Check that critical commands don't have || true
     const lines = startSource.split('\n');
@@ -272,5 +276,33 @@ describe('Mission 5: render-start.sh — security checks', () => {
         throw new Error(`Found || true on critical command: ${trimmed}`);
       }
     }
+  });
+});
+
+describe('Render build and schema verification regressions', () => {
+  const buildSource = readFileSync(join(process.cwd(), 'render-build.sh'), 'utf-8');
+  const schemaVerifySource = readFileSync(
+    join(process.cwd(), 'scripts/verify-schema-read-only.cjs'),
+    'utf-8'
+  );
+  const renderBlueprint = readFileSync(join(process.cwd(), 'render.yaml'), 'utf-8');
+
+  it('uses the repository-local Next.js binary', () => {
+    expect(buildSource).toContain('node_modules/.bin/next build');
+    expect(buildSource).not.toMatch(/^next build$/m);
+  });
+
+  it('does not delete the installed Prisma Client package during build', () => {
+    expect(buildSource).not.toMatch(/rm -rf[^\n]*node_modules\/@prisma\/client/);
+  });
+
+  it('pins Render Node through the supported NODE_VERSION variable', () => {
+    expect(renderBlueprint).toContain('key: NODE_VERSION');
+    expect(renderBlueprint).not.toContain('nodeVersion:');
+  });
+
+  it('checks PostgreSQL quoted table names without lowercasing them', () => {
+    expect(schemaVerifySource).toContain("'RestaurantTable'");
+    expect(schemaVerifySource).not.toContain('table.toLowerCase()');
   });
 });
