@@ -7,6 +7,7 @@ import {
   Plus, Minus, Trash2, ShoppingCart, ShoppingBag, ChevronRight,
   RefreshCw, Search, UtensilsCrossed, Star, MessageCircle,
   Tag, Navigation, Clock, MapPin, Phone, ArrowLeft, Check,
+  X, Heart, ChevronDown, Sparkles, Truck, Zap, Soup,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -106,6 +107,29 @@ export function MenuOrderingPageDynamic() {
   const [orderSubmitting, setOrderSubmitting] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
 
+  // ── UX state: favorites, expandable descriptions, delivery time ──
+  const [favorites, setFavorites] = useState<Set<string>>(new Set());
+  const [expandedDesc, setExpandedDesc] = useState<Set<string>>(new Set());
+  const [deliveryTimePref, setDeliveryTimePref] = useState<"asap" | "1h" | "2h">("asap");
+
+  const toggleFavorite = useCallback((itemId: string) => {
+    setFavorites((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  }, []);
+
+  const toggleExpand = useCallback((itemId: string) => {
+    setExpandedDesc((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  }, []);
+
   // ── Set initial category ──────────────────────────────────
   useEffect(() => {
     if (categories.length > 0 && activeCat === "all") {
@@ -178,6 +202,28 @@ export function MenuOrderingPageDynamic() {
   const cartItemCount = useMemo(
     () => cart.reduce((s, c) => s + c.qty, 0),
     [cart]
+  );
+
+  // ── UX: popular items, recommendations, free-delivery progress ──
+  const popularItems = useMemo(
+    () => menuItems.filter((i) => i.available && i.popular),
+    [menuItems]
+  );
+  const recommendedInCart = useMemo(
+    () =>
+      popularItems
+        .filter((p) => !cart.some((c) => c.item.id === p.id))
+        .slice(0, 4),
+    [popularItems, cart]
+  );
+  const freeDeliveryThreshold = restaurant?.minDelivery ?? 15000;
+  const freeDeliveryProgress = Math.min(
+    100,
+    (cartSubtotal / freeDeliveryThreshold) * 100
+  );
+  const freeDeliveryRemaining = Math.max(
+    0,
+    freeDeliveryThreshold - cartSubtotal
   );
 
   // ── Filtered menu items ───────────────────────────────────
@@ -278,8 +324,12 @@ export function MenuOrderingPageDynamic() {
   ]);
 
   // ── Loading / error states ────────────────────────────────
-  if (restLoading || menuLoading) {
-    return <RestaurantLoading />;
+  if (restLoading) {
+    return (
+      <div role="status" aria-live="polite">
+        <RestaurantLoading />
+      </div>
+    );
   }
 
   if (restError || !restaurant) {
@@ -303,6 +353,7 @@ export function MenuOrderingPageDynamic() {
 
   const isOpen = isRestaurantOpen();
   const rPath = slug ? `/r/${slug}` : "";
+  const restaurantRating = restaurant.rating ?? 0;
 
   // ────────────────────────────────────────────────────────────
   // RENDER
@@ -328,12 +379,26 @@ export function MenuOrderingPageDynamic() {
       {/* ── Hero Banner ────────────────────────────────────── */}
       <section className="relative pt-16">
         <div
-          className="h-48 sm:h-64 bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center"
+          className="relative h-48 sm:h-64 bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center overflow-hidden"
           style={{
-            background: `linear-gradient(135deg, ${primaryColor}, ${secondaryColor})`,
+            background: restaurant.heroImage
+              ? `linear-gradient(135deg, ${primaryColor}, ${secondaryColor}), url(${restaurant.heroImage})`
+              : `linear-gradient(135deg, ${primaryColor}, ${secondaryColor})`,
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+            backgroundBlendMode: "overlay",
           }}
         >
-          <div className="text-center text-white px-4">
+          {/* Readability overlay */}
+          <div
+            className="absolute inset-0"
+            style={{
+              background:
+                "linear-gradient(180deg, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.45) 100%)",
+            }}
+            aria-hidden="true"
+          />
+          <div className="relative text-center text-white px-4">
             <motion.h1
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -345,7 +410,7 @@ export function MenuOrderingPageDynamic() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1 }}
-              className="text-white/80 text-sm sm:text-base mb-3"
+              className="text-white/90 text-sm sm:text-base mb-3 drop-shadow"
             >
               {restaurant.tagline}
             </motion.p>
@@ -353,16 +418,35 @@ export function MenuOrderingPageDynamic() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.2 }}
+              className="flex items-center justify-center gap-2 flex-wrap"
             >
+              {/* Open / Closed badge */}
               <Badge
                 className={`text-xs px-3 py-1 ${
                   isOpen
-                    ? "bg-green-500/90 text-white"
-                    : "bg-red-500/90 text-white"
+                    ? "bg-green-500/95 text-white"
+                    : "bg-red-500/95 text-white"
                 }`}
               >
                 <Clock className="w-3 h-3 mr-1" />
                 {isOpen ? "Ouvert maintenant" : "Fermé"}
+              </Badge>
+
+              {/* Rating badge */}
+              {restaurantRating > 0 && (
+                <Badge
+                  className="text-xs px-3 py-1 bg-white/95 text-gray-900"
+                  aria-label={`Note ${restaurantRating.toFixed(1)} sur 5`}
+                >
+                  <Star className="w-3 h-3 mr-1 fill-amber-400 text-amber-400" />
+                  {restaurantRating.toFixed(1)}
+                </Badge>
+              )}
+
+              {/* Delivery time badge */}
+              <Badge className="text-xs px-3 py-1 bg-black/40 text-white backdrop-blur-sm">
+                <Truck className="w-3 h-3 mr-1" />
+                ~30-45 min
               </Badge>
             </motion.div>
           </div>
@@ -430,10 +514,11 @@ export function MenuOrderingPageDynamic() {
               <div className="sticky top-24 space-y-1">
                 <button
                   onClick={() => setActiveCat("all")}
-                  className={`w-full flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium transition-all text-left ${
+                  aria-pressed={activeCat === "all"}
+                  className={`w-full relative flex items-center gap-2 pl-4 pr-3 py-3 rounded-xl text-sm font-medium transition-all text-left overflow-hidden ${
                     activeCat === "all"
                       ? "text-white shadow-lg"
-                      : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+                      : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
                   }`}
                   style={
                     activeCat === "all"
@@ -441,67 +526,115 @@ export function MenuOrderingPageDynamic() {
                       : undefined
                   }
                 >
-                  Tous
+                  {/* Active left border indicator */}
+                  {activeCat === "all" && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 rounded-r-full bg-white/90"
+                    />
+                  )}
+                  <UtensilsCrossed className="w-4 h-4 shrink-0" />
+                  <span className="flex-1 truncate">Tous</span>
                   <span
-                    className={`ml-auto text-xs ${
+                    className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
                       activeCat === "all"
-                        ? "text-white/70"
-                        : "text-gray-400"
+                        ? "bg-white/20 text-white"
+                        : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400"
                     }`}
                   >
                     {menuItems.filter((i) => i.available).length}
                   </span>
                 </button>
-                {categories.map((c) => (
-                  <button
-                    key={c.id}
-                    onClick={() => setActiveCat(c.id)}
-                    className={`w-full flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium transition-all text-left ${
-                      activeCat === c.id
-                        ? "text-white shadow-lg"
-                        : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
-                    }`}
-                    style={
-                      activeCat === c.id
-                        ? { backgroundColor: primaryColor }
-                        : undefined
-                    }
-                  >
-                    {c.name}
-                    <span
-                      className={`ml-auto text-xs ${
-                        activeCat === c.id
-                          ? "text-white/70"
-                          : "text-gray-400"
+                {categories.map((c) => {
+                  const isActive = activeCat === c.id;
+                  return (
+                    <button
+                      key={c.id}
+                      onClick={() => setActiveCat(c.id)}
+                      aria-pressed={isActive}
+                      className={`w-full relative flex items-center gap-2 pl-4 pr-3 py-3 rounded-xl text-sm font-medium transition-all text-left overflow-hidden ${
+                        isActive
+                          ? "text-white shadow-lg"
+                          : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
                       }`}
+                      style={isActive ? { backgroundColor: primaryColor } : undefined}
                     >
-                      {menuItems.filter(
-                        (i) => i.category === c.id && i.available
-                      ).length}
-                    </span>
-                  </button>
-                ))}
+                      {isActive && (
+                        <span
+                          aria-hidden="true"
+                          className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 rounded-r-full bg-white/90"
+                        />
+                      )}
+                      <Soup className="w-4 h-4 shrink-0" />
+                      <span className="flex-1 truncate">{c.name}</span>
+                      <span
+                        className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
+                          isActive
+                            ? "bg-white/20 text-white"
+                            : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400"
+                        }`}
+                      >
+                        {menuItems.filter(
+                          (i) => i.category === c.id && i.available
+                        ).length}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </aside>
 
             {/* ── Items area ────────────────────────────────── */}
             <div className="flex-1 min-w-0">
               {/* Search bar */}
-              <div className="relative mb-4">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <div className="relative mb-3">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" aria-hidden="true" />
                 <Input
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Rechercher un plat..."
-                  className="pl-9 bg-white dark:bg-gray-800"
+                  aria-label="Rechercher un plat"
+                  className="pl-9 pr-9 bg-white dark:bg-gray-800"
                 />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    aria-label="Effacer la recherche"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 dark:hover:text-gray-200 transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
               </div>
 
+              {/* Popular search suggestions */}
+              {!searchQuery && popularItems.length > 0 && (
+                <div className="flex items-center gap-2 mb-4 overflow-x-auto scrollbar-hide pb-1">
+                  <Sparkles
+                    className="w-3.5 h-3.5 shrink-0"
+                    style={{ color: primaryColor }}
+                    aria-hidden="true"
+                  />
+                  {popularItems.slice(0, 5).map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => setSearchQuery(p.name)}
+                      className="text-xs font-medium px-2.5 py-1 rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600 whitespace-nowrap shrink-0 transition-colors"
+                    >
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               {/* Mobile category scroll */}
-              <div className="lg:hidden flex gap-2 overflow-x-auto pb-3 scrollbar-hide -mx-4 px-4 mb-4">
+              <div
+                className="lg:hidden flex gap-2 overflow-x-auto pb-3 scrollbar-hide -mx-4 px-4 mb-4 snap-x snap-mandatory"
+                style={{ scrollPaddingLeft: "1rem" }}
+              >
                 <button
                   onClick={() => setActiveCat("all")}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold whitespace-nowrap transition-all shrink-0 ${
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold whitespace-nowrap transition-all shrink-0 snap-center ${
                     activeCat === "all"
                       ? "text-white shadow-lg"
                       : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700"
@@ -518,7 +651,7 @@ export function MenuOrderingPageDynamic() {
                   <button
                     key={c.id}
                     onClick={() => setActiveCat(c.id)}
-                    className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold whitespace-nowrap transition-all shrink-0 ${
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold whitespace-nowrap transition-all shrink-0 snap-center ${
                       activeCat === c.id
                         ? "text-white shadow-lg"
                         : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700"
@@ -550,16 +683,52 @@ export function MenuOrderingPageDynamic() {
                 </motion.div>
               )}
 
-              {/* Empty state */}
-              {filteredItems.length === 0 ? (
-                <div className="text-center py-16">
-                  <ShoppingBag className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
-                  <p className="text-gray-500 dark:text-gray-400 text-lg font-medium mb-1">
+              {/* Loading skeletons while menu items load */}
+              {menuLoading ? (
+                <div
+                  className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4"
+                  role="status"
+                  aria-live="polite"
+                  aria-label="Chargement du menu"
+                >
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800"
+                    >
+                      <div className="h-40 bg-gray-200 dark:bg-gray-700 animate-pulse" />
+                      <div className="p-4 space-y-2">
+                        <div className="h-4 w-2/3 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+                        <div className="h-3 w-full bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+                        <div className="h-3 w-1/2 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+                        <div className="flex justify-end pt-2">
+                          <div className="h-8 w-20 bg-gray-200 dark:bg-gray-700 rounded-lg animate-pulse" />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : filteredItems.length === 0 ? (
+                /* Empty state */
+                <div className="text-center py-16" role="status">
+                  <div className="text-6xl mb-3" aria-hidden="true">🍽️</div>
+                  <ShoppingBag className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto mb-3" aria-hidden="true" />
+                  <p className="text-gray-600 dark:text-gray-300 text-lg font-semibold mb-1">
                     Aucun article trouvé
                   </p>
-                  <p className="text-gray-400 dark:text-gray-500 text-sm">
+                  <p className="text-gray-500 dark:text-gray-400 text-sm mb-4">
                     Essayez une autre catégorie ou recherche
                   </p>
+                  {searchQuery && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setSearchQuery("")}
+                      className="dark:border-gray-600"
+                    >
+                      <X className="w-3.5 h-3.5 mr-1" /> Effacer la recherche
+                    </Button>
+                  )}
                 </div>
               ) : (
                 <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -574,14 +743,24 @@ export function MenuOrderingPageDynamic() {
                           duration: 0.3,
                           delay: Math.min(idx * 0.04, 0.4),
                         }}
+                        className="group/card relative rounded-xl transition-transform duration-300 hover:-translate-y-0.5"
                       >
-                        <Card className="overflow-hidden hover:shadow-lg transition-all group dark:bg-gray-800 dark:border-gray-700">
+                        {/* Subtle gradient border on hover */}
+                        <div
+                          aria-hidden="true"
+                          className="absolute -inset-[1px] rounded-xl opacity-0 group-hover/card:opacity-100 transition-opacity duration-300 pointer-events-none"
+                          style={{
+                            background: `linear-gradient(135deg, ${primaryColor}, ${secondaryColor})`,
+                          }}
+                        />
+                        <Card className="overflow-hidden hover:shadow-xl transition-shadow duration-300 group dark:bg-gray-800 dark:border-gray-700">
                           <div className="h-40 overflow-hidden relative">
                             {item.image ? (
                               <img
                                 src={item.image}
                                 alt={item.name}
                                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                loading="lazy"
                               />
                             ) : (
                               <div
@@ -596,9 +775,20 @@ export function MenuOrderingPageDynamic() {
                                 />
                               </div>
                             )}
+                            {/* Top gradient for badge/heart legibility */}
+                            <div
+                              aria-hidden="true"
+                              className="absolute inset-x-0 top-0 h-12 bg-gradient-to-b from-black/30 to-transparent pointer-events-none"
+                            />
+                            {item.popular && (
+                              <Badge className="absolute top-2 left-2 bg-amber-500 text-white text-[10px] shadow-sm">
+                                <Star className="w-3 h-3 mr-0.5 fill-white" />{" "}
+                                Populaire
+                              </Badge>
+                            )}
                             {item.badge && (
                               <Badge
-                                className="absolute top-2 right-2 text-white text-[10px]"
+                                className={`absolute left-2 text-white text-[10px] shadow-sm ${item.popular ? "top-9" : "top-2"}`}
                                 style={{
                                   background: `linear-gradient(to right, ${primaryColor}, ${secondaryColor})`,
                                 }}
@@ -606,22 +796,35 @@ export function MenuOrderingPageDynamic() {
                                 {item.badge}
                               </Badge>
                             )}
-                            {item.popular && (
-                              <Badge className="absolute top-2 left-2 bg-amber-500 text-white text-[10px]">
-                                <Star className="w-3 h-3 mr-0.5 fill-white" />{" "}
-                                Populaire
-                              </Badge>
-                            )}
                             {inCart && (
                               <div className="absolute bottom-2 right-2">
                                 <Badge
-                                  className="text-white text-[10px] px-2"
+                                  className="text-white text-[10px] px-2 shadow-sm"
                                   style={{ backgroundColor: primaryColor }}
                                 >
                                   {inCart.qty} dans le panier
                                 </Badge>
                               </div>
                             )}
+                            {/* Favorite quick-add heart */}
+                            <button
+                              onClick={() => toggleFavorite(item.id)}
+                              aria-label={
+                                favorites.has(item.id)
+                                  ? `Retirer ${item.name} des favoris`
+                                  : `Ajouter ${item.name} aux favoris`
+                              }
+                              aria-pressed={favorites.has(item.id)}
+                              className="absolute top-2 right-2 w-8 h-8 rounded-full bg-white/95 dark:bg-gray-900/90 backdrop-blur-sm flex items-center justify-center shadow-sm hover:scale-110 active:scale-95 transition-transform focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-1"
+                            >
+                              <Heart
+                                className={`w-4 h-4 transition-colors ${
+                                  favorites.has(item.id)
+                                    ? "fill-red-500 text-red-500"
+                                    : "text-gray-600 dark:text-gray-300"
+                                }`}
+                              />
+                            </button>
                           </div>
                           <CardContent className="p-4">
                             <div className="flex justify-between items-start mb-2">
@@ -636,9 +839,35 @@ export function MenuOrderingPageDynamic() {
                               </span>
                             </div>
                             {item.description && (
-                              <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 mb-3">
-                                {item.description}
-                              </p>
+                              <div className="mb-3">
+                                <p
+                                  className={`text-xs text-gray-500 dark:text-gray-400 ${
+                                    expandedDesc.has(item.id) ? "" : "line-clamp-2"
+                                  }`}
+                                >
+                                  {item.description}
+                                </p>
+                                {item.description.length > 80 && (
+                                  <button
+                                    onClick={() => toggleExpand(item.id)}
+                                    className="text-[11px] font-medium mt-1 inline-flex items-center gap-0.5 hover:underline focus:outline-none focus:underline"
+                                    style={{ color: primaryColor }}
+                                    aria-expanded={expandedDesc.has(item.id)}
+                                  >
+                                    {expandedDesc.has(item.id) ? (
+                                      <>
+                                        Voir moins{" "}
+                                        <ChevronDown className="w-3 h-3 rotate-180" />
+                                      </>
+                                    ) : (
+                                      <>
+                                        Voir plus{" "}
+                                        <ChevronDown className="w-3 h-3" />
+                                      </>
+                                    )}
+                                  </button>
+                                )}
+                              </div>
                             )}
                             <div className="flex items-center justify-end">
                               {inCart ? (
@@ -647,18 +876,23 @@ export function MenuOrderingPageDynamic() {
                                     onClick={() =>
                                       updateCartQty(item.id, inCart.qty - 1)
                                     }
-                                    className="w-7 h-7 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                                    aria-label={`Réduire la quantité de ${item.name}`}
+                                    className="w-7 h-7 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-400"
                                   >
                                     <Minus className="w-3 h-3" />
                                   </button>
-                                  <span className="text-sm font-semibold w-6 text-center dark:text-gray-200">
+                                  <span
+                                    className="text-sm font-semibold w-6 text-center dark:text-gray-200"
+                                    aria-live="polite"
+                                  >
                                     {inCart.qty}
                                   </span>
                                   <button
                                     onClick={() =>
                                       updateCartQty(item.id, inCart.qty + 1)
                                     }
-                                    className="w-7 h-7 rounded-lg flex items-center justify-center text-white transition-colors"
+                                    aria-label={`Augmenter la quantité de ${item.name}`}
+                                    className="w-7 h-7 rounded-lg flex items-center justify-center text-white transition-colors hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-white/50"
                                     style={{ backgroundColor: primaryColor }}
                                   >
                                     <Plus className="w-3 h-3" />
@@ -668,8 +902,9 @@ export function MenuOrderingPageDynamic() {
                                 <Button
                                   size="sm"
                                   onClick={() => addToCart(item)}
-                                  className="text-white text-xs rounded-lg h-8"
+                                  className="text-white text-xs rounded-lg h-8 hover:opacity-90"
                                   style={{ backgroundColor: primaryColor }}
+                                  aria-label={`Ajouter ${item.name} au panier, ${formatPriceLocal(item.price)}`}
                                 >
                                   <Plus className="w-3 h-3 mr-1" /> Ajouter
                                 </Button>
@@ -714,7 +949,8 @@ export function MenuOrderingPageDynamic() {
                           <button
                             key={type}
                             onClick={() => setOrderType(type)}
-                            className={`p-3 sm:p-4 rounded-xl border text-sm font-medium transition-all ${
+                            aria-pressed={orderType === type}
+                            className={`p-3 sm:p-4 rounded-xl border text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-gray-300 ${
                               orderType === type
                                 ? "border-current bg-opacity-5"
                                 : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500"
@@ -733,6 +969,47 @@ export function MenuOrderingPageDynamic() {
                           </button>
                         )
                       )}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Delivery time selector */}
+                <Card className="dark:bg-gray-800 dark:border-gray-700">
+                  <CardContent className="p-4 sm:p-6">
+                    <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
+                      <Clock className="w-5 h-5" style={{ color: primaryColor }} />
+                      Heure de {orderType === "delivery" ? "livraison" : "récupération"}
+                    </h3>
+                    <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                      {([
+                        { id: "asap" as const, label: "Dès que possible", sub: "~30 min", icon: Zap },
+                        { id: "1h" as const, label: "Dans 1h", sub: "+60 min", icon: Clock },
+                        { id: "2h" as const, label: "Dans 2h", sub: "+120 min", icon: Clock },
+                      ]).map(({ id, label, sub, icon: Icon }) => (
+                        <button
+                          key={id}
+                          onClick={() => setDeliveryTimePref(id)}
+                          aria-pressed={deliveryTimePref === id}
+                          className={`p-3 sm:p-4 rounded-xl border text-sm font-medium transition-all flex flex-col items-center gap-1 focus:outline-none focus:ring-2 focus:ring-gray-300 ${
+                            deliveryTimePref === id
+                              ? "border-current bg-opacity-5"
+                              : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500"
+                          }`}
+                          style={
+                            deliveryTimePref === id
+                              ? {
+                                  borderColor: primaryColor,
+                                  backgroundColor: `${primaryColor}0D`,
+                                  color: primaryColor,
+                                }
+                              : undefined
+                          }
+                        >
+                          <Icon className="w-4 h-4" />
+                          <span className="font-medium leading-tight text-center">{label}</span>
+                          <span className="text-[10px] opacity-70">{sub}</span>
+                        </button>
+                      ))}
                     </div>
                   </CardContent>
                 </Card>
@@ -858,9 +1135,10 @@ export function MenuOrderingPageDynamic() {
                     </h3>
 
                     {cart.length === 0 ? (
-                      <div className="text-center py-6">
-                        <ShoppingCart className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
-                        <p className="text-gray-500 dark:text-gray-400 text-sm">
+                      <div className="text-center py-6" role="status">
+                        <div className="text-4xl mb-2" aria-hidden="true">🛒</div>
+                        <ShoppingCart className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto mb-3" aria-hidden="true" />
+                        <p className="text-gray-600 dark:text-gray-300 text-sm font-medium">
                           Votre panier est vide
                         </p>
                       </div>
@@ -878,18 +1156,20 @@ export function MenuOrderingPageDynamic() {
                                   onClick={() =>
                                     updateCartQty(c.item.id, c.qty - 1)
                                   }
-                                  className="w-5 h-5 rounded bg-gray-100 dark:bg-gray-700 flex items-center justify-center"
+                                  aria-label={`Réduire la quantité de ${c.item.name}`}
+                                  className="w-5 h-5 rounded bg-gray-100 dark:bg-gray-700 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-300"
                                 >
                                   <Minus className="w-3 h-3 text-gray-500 dark:text-gray-400" />
                                 </button>
-                                <span className="text-xs font-semibold w-5 text-center dark:text-gray-200">
+                                <span className="text-xs font-semibold w-5 text-center dark:text-gray-200" aria-live="polite">
                                   {c.qty}
                                 </span>
                                 <button
                                   onClick={() =>
                                     updateCartQty(c.item.id, c.qty + 1)
                                   }
-                                  className="w-5 h-5 rounded bg-gray-100 dark:bg-gray-700 flex items-center justify-center"
+                                  aria-label={`Augmenter la quantité de ${c.item.name}`}
+                                  className="w-5 h-5 rounded bg-gray-100 dark:bg-gray-700 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-300"
                                 >
                                   <Plus className="w-3 h-3 text-gray-500 dark:text-gray-400" />
                                 </button>
@@ -902,7 +1182,8 @@ export function MenuOrderingPageDynamic() {
                               </span>
                               <button
                                 onClick={() => removeFromCart(c.item.id)}
-                                className="p-0.5 text-red-400 hover:text-red-600 transition-colors"
+                                aria-label={`Retirer ${c.item.name} du panier`}
+                                className="p-0.5 text-red-400 hover:text-red-600 transition-colors focus:outline-none focus:ring-2 focus:ring-red-300 rounded"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -955,7 +1236,7 @@ export function MenuOrderingPageDynamic() {
                           </div>
                         </div>
 
-                        {/* Submit button */}
+                        {/* Submit button with mini order preview */}
                         <Button
                           onClick={submitOrder}
                           disabled={
@@ -965,15 +1246,30 @@ export function MenuOrderingPageDynamic() {
                               !deliveryAddress.trim()) ||
                             (orderType === "dine_in" && !isQrScanMode && !tableNumber.trim())
                           }
-                          className="w-full text-white rounded-xl h-12 text-base font-semibold"
+                          className="w-full text-white rounded-xl h-auto py-3 text-base font-semibold flex flex-col gap-1 hover:opacity-95"
                           style={{ backgroundColor: primaryColor }}
+                          aria-label={`Confirmer la commande, ${cartItemCount} article(s), total ${formatPriceLocal(grandTotal)}`}
                         >
                           {orderSubmitting ? (
-                            <RefreshCw className="w-5 h-5 animate-spin mr-2" />
+                            <span className="flex items-center justify-center">
+                              <RefreshCw className="w-5 h-5 animate-spin mr-2" />
+                              Traitement...
+                            </span>
                           ) : (
-                            <ShoppingBag className="w-5 h-5 mr-2" />
+                            <>
+                              <span className="flex items-center justify-center gap-2">
+                                <ShoppingBag className="w-5 h-5" />
+                                Confirmer la commande
+                              </span>
+                              <span className="flex items-center justify-center gap-2 text-xs font-normal opacity-90">
+                                <span className="bg-white/20 rounded-full px-1.5 py-0.5">
+                                  {cartItemCount} art.
+                                </span>
+                                <span aria-hidden="true">·</span>
+                                <span className="font-bold">{formatPriceLocal(grandTotal)}</span>
+                              </span>
+                            </>
                           )}
-                          Confirmer — {formatPriceLocal(grandTotal)}
                         </Button>
                       </div>
                     )}
@@ -987,14 +1283,26 @@ export function MenuOrderingPageDynamic() {
 
       {/* ── Sticky cart bar (mobile) ─────────────────────────── */}
       {checkoutStep === "menu" && cart.length > 0 && (
-        <div className="sticky bottom-0 z-30 p-3 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md border-t border-gray-200 dark:border-gray-800 sm:hidden">
+        <div
+          className="sticky bottom-0 z-30 p-3 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-t border-gray-200 dark:border-gray-800 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] sm:hidden"
+          role="region"
+          aria-label="Barre du panier"
+        >
           <Button
             onClick={() => setCartOpen(true)}
-            className="w-full text-white rounded-xl h-12 shadow-lg"
+            className="w-full text-white rounded-xl h-12 shadow-lg hover:opacity-95"
             style={{ backgroundColor: primaryColor }}
+            aria-label={`Voir le panier, ${cartItemCount} article(s), total ${formatPriceLocal(grandTotal)}`}
           >
             <ShoppingCart className="w-5 h-5 mr-2" />
-            Voir le panier ({cartItemCount}) — {formatPriceLocal(grandTotal)}
+            <span className="flex items-center gap-2">
+              <span className="bg-white/20 rounded-full px-2 py-0.5 text-xs font-semibold">
+                {cartItemCount}
+              </span>
+              <span>Voir le panier</span>
+              <span className="font-bold" aria-hidden="true">·</span>
+              <span className="font-bold">{formatPriceLocal(grandTotal)}</span>
+            </span>
           </Button>
         </div>
       )}
@@ -1004,14 +1312,18 @@ export function MenuOrderingPageDynamic() {
         <div className="hidden sm:block fixed bottom-6 right-6 z-40">
           <Button
             onClick={() => setCartOpen(true)}
-            className="rounded-full h-14 px-6 shadow-xl text-white"
+            aria-label={`Ouvrir le panier, ${cartItemCount} article(s), total ${formatPriceLocal(grandTotal)}`}
+            className="rounded-full h-14 px-6 shadow-xl text-white hover:opacity-95 transition-opacity"
             style={{
               backgroundColor: primaryColor,
               boxShadow: `0 4px 14px ${primaryColor}44`,
             }}
           >
             <ShoppingCart className="w-5 h-5 mr-2" />
-            {cartItemCount} — {formatPriceLocal(grandTotal)}
+            <span className="bg-white/20 rounded-full px-2 py-0.5 text-xs font-semibold mr-2">
+              {cartItemCount}
+            </span>
+            <span className="font-bold">{formatPriceLocal(grandTotal)}</span>
           </Button>
         </div>
       )}
@@ -1031,10 +1343,14 @@ export function MenuOrderingPageDynamic() {
 
           {cart.length === 0 ? (
             <div className="flex-1 flex items-center justify-center p-6">
-              <div className="text-center">
-                <ShoppingCart className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
-                <p className="text-gray-500 dark:text-gray-400 mb-3">
+              <div className="text-center" role="status">
+                <div className="text-6xl mb-3" aria-hidden="true">🛒</div>
+                <ShoppingCart className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-4" aria-hidden="true" />
+                <p className="text-gray-600 dark:text-gray-300 font-semibold mb-1">
                   Votre panier est vide
+                </p>
+                <p className="text-gray-400 dark:text-gray-500 text-sm mb-4">
+                  Ajoutez de délicieux plats pour commencer
                 </p>
                 <Button
                   variant="outline"
@@ -1090,16 +1406,18 @@ export function MenuOrderingPageDynamic() {
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => updateCartQty(c.item.id, c.qty - 1)}
-                        className="w-6 h-6 rounded bg-gray-200 dark:bg-gray-600 flex items-center justify-center"
+                        aria-label={`Réduire la quantité de ${c.item.name}`}
+                        className="w-6 h-6 rounded bg-gray-200 dark:bg-gray-600 flex items-center justify-center hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-400"
                       >
                         <Minus className="w-3 h-3 text-gray-600 dark:text-gray-300" />
                       </button>
-                      <span className="text-sm font-semibold w-5 text-center dark:text-gray-200">
+                      <span className="text-sm font-semibold w-5 text-center dark:text-gray-200" aria-live="polite">
                         {c.qty}
                       </span>
                       <button
                         onClick={() => updateCartQty(c.item.id, c.qty + 1)}
-                        className="w-6 h-6 rounded bg-gray-200 dark:bg-gray-600 flex items-center justify-center"
+                        aria-label={`Augmenter la quantité de ${c.item.name}`}
+                        className="w-6 h-6 rounded bg-gray-200 dark:bg-gray-600 flex items-center justify-center hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-400"
                       >
                         <Plus className="w-3 h-3 text-gray-600 dark:text-gray-300" />
                       </button>
@@ -1109,16 +1427,101 @@ export function MenuOrderingPageDynamic() {
                     </span>
                     <button
                       onClick={() => removeFromCart(c.item.id)}
-                      className="p-1 text-red-400 hover:text-red-600 transition-colors"
+                      aria-label={`Retirer ${c.item.name} du panier`}
+                      className="p-1 text-red-400 hover:text-red-600 transition-colors focus:outline-none focus:ring-2 focus:ring-red-300 rounded"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </motion.div>
                 ))}
+
+                {/* Recommended items (popular, not yet in cart) */}
+                {recommendedInCart.length > 0 && (
+                  <div className="pt-3 mt-2 border-t border-dashed dark:border-gray-600">
+                    <p className="text-xs font-semibold text-gray-600 dark:text-gray-300 mb-2 flex items-center gap-1.5">
+                      <Sparkles
+                        className="w-3.5 h-3.5"
+                        style={{ color: primaryColor }}
+                      />
+                      Ajoutez aussi
+                    </p>
+                    <div className="flex gap-2 overflow-x-auto scrollbar-hide -mx-1 px-1 pb-1 snap-x">
+                      {recommendedInCart.map((rec) => (
+                        <button
+                          key={rec.id}
+                          onClick={() => addToCart(rec)}
+                          className="snap-start shrink-0 w-32 text-left p-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 transition-colors bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-300"
+                          aria-label={`Ajouter ${rec.name} au panier, ${formatPriceLocal(rec.price)}`}
+                        >
+                          <div className="w-full h-12 rounded overflow-hidden mb-1.5 bg-gray-100 dark:bg-gray-700">
+                            {rec.image ? (
+                              <img
+                                src={rec.image}
+                                alt=""
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center">
+                                <UtensilsCrossed className="w-4 h-4 text-gray-400" />
+                              </div>
+                            )}
+                          </div>
+                          <p className="text-xs font-medium text-gray-800 dark:text-gray-200 line-clamp-1">
+                            {rec.name}
+                          </p>
+                          <p
+                            className="text-xs font-bold"
+                            style={{ color: primaryColor }}
+                          >
+                            {formatPriceLocal(rec.price)}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Cart footer with totals */}
               <SheetFooter className="border-t dark:border-gray-700 p-4 space-y-3">
+                {/* Free delivery progress bar */}
+                {freeDeliveryThreshold > 0 && (
+                  <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Truck className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                      <p className="text-xs text-amber-700 dark:text-amber-300 flex-1">
+                        {freeDeliveryRemaining > 0 ? (
+                          <>
+                            Ajoutez{" "}
+                            <strong>
+                              {formatPriceLocal(freeDeliveryRemaining)}
+                            </strong>{" "}
+                            pour la livraison gratuite
+                          </>
+                        ) : (
+                          <strong>🎉 Livraison gratuite débloquée !</strong>
+                        )}
+                      </p>
+                    </div>
+                    <div
+                      className="h-2 bg-amber-100 dark:bg-amber-900/40 rounded-full overflow-hidden"
+                      role="progressbar"
+                      aria-valuenow={Math.round(freeDeliveryProgress)}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-label="Progression vers la livraison gratuite"
+                    >
+                      <div
+                        className="h-full rounded-full transition-all duration-500"
+                        style={{
+                          width: `${freeDeliveryProgress}%`,
+                          background: `linear-gradient(to right, ${primaryColor}, ${secondaryColor})`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+
                 {/* Loyalty discount */}
                 {discountPercent > 0 && (
                   <div className="flex items-center gap-2 p-2.5 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg">
@@ -1189,8 +1592,9 @@ export function MenuOrderingPageDynamic() {
           href={`https://wa.me/${restaurant.whatsapp.replace(/\s/g, "")}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="fixed bottom-6 left-6 z-50 w-14 h-14 rounded-full bg-green-500 hover:bg-green-600 text-white flex items-center justify-center shadow-lg shadow-green-500/30 transition-colors"
+          className="fixed bottom-6 left-6 z-50 w-14 h-14 rounded-full bg-green-500 hover:bg-green-600 text-white flex items-center justify-center shadow-lg shadow-green-500/30 transition-colors focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-offset-2"
           title="Commander via WhatsApp"
+          aria-label="Commander via WhatsApp"
         >
           <MessageCircle className="w-6 h-6" />
         </a>
