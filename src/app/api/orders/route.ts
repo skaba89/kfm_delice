@@ -359,14 +359,7 @@ export async function POST(request: Request) {
         });
       } catch { /* email failed */ }
 
-      // Decrement stock for ordered items (non-blocking)
-      try {
-        const { decrementStockForOrder } = await import("@/lib/stock-manager");
-        const orderedItems = JSON.parse(
-          typeof order.items === "string" ? order.items : JSON.stringify(order.items)
-        ) as { name: string; qty: number }[];
-        decrementStockForOrder(order.id, restaurantId, orderedItems);
-      } catch { /* stock decrement failed */ }
+      // Stock was already consumed atomically by createOrderAtomically().
     }
 
     return NextResponse.json(bigIntToNumber(order), { status: result.status });
