@@ -1,0 +1,37 @@
+name: Apply rebased stock route cleanup
+
+on:
+  push:
+    branches: [reliability/order-stock-atomicity]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: reliability/order-stock-atomicity
+          fetch-depth: 0
+      - name: Remove post-commit stock side effect
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          p = Path('src/app/api/orders/route.ts')
+          s = p.read_text()
+          old = '''      // Decrement stock for ordered items (non-blocking)\n      try {\n        const { decrementStockForOrder } = await import("@/lib/stock-manager");\n        const orderedItems = JSON.parse(\n          typeof order.items === "string" ? order.items : JSON.stringify(order.items)\n        ) as { name: string; qty: number }[];\n        decrementStockForOrder(order.id, restaurantId, orderedItems);\n      } catch { /* stock decrement failed */ }\n'''
+          if old not in s: raise SystemExit('route stock marker missing')
+          s = s.replace(old, '      // Stock was already consumed atomically by createOrderAtomically().\n', 1)
+          p.write_text(s)
+          PY
+      - name: Remove workflow and commit
+        run: |
+          rm .github/workflows/_apply-order-stock-route.yml
+          git config user.name "kfm-stock-hardening-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: remove post-commit stock side effect"
+          git push origin HEAD:reliability/order-stock-atomicity
