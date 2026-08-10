@@ -8,21 +8,20 @@
 #   3. prisma generate (only if needed)
 #   4. prisma validate
 #   5. Provider verification
-#   6. Read-only verification of QR migration state
-#   7. prisma migrate deploy
-#   8. Read-only verification after migration
+#   6. Build artifact verification
+#   7. Targeted QR migration repair + prisma migrate deploy
+#   8. Blocking read-only schema readiness verification
 #   9. next start
 #
 # It NEVER runs:
 #   - prisma db push (destructive — can drop columns)
-#   - ALTER TABLE / CREATE TABLE scripts (except in repair-qr-migration.cjs
-#     which uses conditional IF NOT EXISTS / DO $$ blocks)
+#   - --accept-data-loss
 #   - Auto-seed (creates demo accounts with known credentials)
 #   - Backfill scripts
-#   - --accept-data-loss
 #   - Generic auto-resolve of ALL failed migrations
 #
-# Any error is FATAL and stops the deployment (set -euo pipefail).
+# Production rule: a service with a broken/incomplete database is NOT ready.
+# Migration or readiness failures are fatal and prevent Next.js from starting.
 # ───────────────────────────────────────────────────────────────────
 
 set -euo pipefail
@@ -33,7 +32,7 @@ echo "[render-start] Current directory: $(pwd)"
 echo "[render-start] PORT=${PORT:-3000} HOSTNAME=$HOSTNAME"
 echo "[render-start] NODE_ENV=${NODE_ENV:-(not set)}"
 echo "[render-start] APP_MODE=${APP_MODE:-(not set)}"
-if [ -n "$DATABASE_URL" ]; then
+if [ -n "${DATABASE_URL:-}" ]; then
   echo "[render-start] DATABASE_URL is set (value hidden for security)"
 else
   echo "[render-start] DATABASE_URL is NOT SET"
@@ -49,8 +48,8 @@ detect_provider() {
   esac
 }
 
-if [ -z "$DATABASE_URL" ]; then
-  if [ "$NODE_ENV" = "production" ] || [ "$APP_MODE" = "production" ]; then
+if [ -z "${DATABASE_URL:-}" ]; then
+  if [ "${NODE_ENV:-}" = "production" ] || [ "${APP_MODE:-}" = "production" ]; then
     echo "[render-start] FATAL: DATABASE_URL is not set in production. Refusing to start."
     exit 1
   fi
@@ -115,33 +114,27 @@ echo "[render-start] ✓ Build output check complete."
 # ── Step 7: Repair QR migration (targeted, NOT generic) then migrate deploy ──
 echo "[render-start] Step 7: Repairing QR migration (if needed)..."
 if [ "$PROVIDER" = "postgres" ]; then
-  # This script:
-  #   - Verifies the QR migration objects (read-only)
-  #   - If all exist: marks as applied via `prisma migrate resolve --applied`
-  #   - If some missing: creates them with conditional SQL, then marks as applied
-  #   - ONLY targets 20260713000000_add_restaurant_table_qr
-  #   - Refuses to touch any other migration
+  # This repair remains best-effort because migrate deploy is the authoritative
+  # gate immediately afterwards. It only targets the historical QR migration.
   node scripts/repair-qr-migration.cjs 2>&1 || {
-    echo "[render-start] WARNING: QR migration repair failed — continuing anyway."
-    echo "[render-start] prisma migrate deploy will attempt to apply remaining migrations."
+    echo "[render-start] WARNING: targeted QR repair failed; strict migrate deploy will decide readiness."
   }
-  echo "[render-start] ✓ QR migration repair complete."
 fi
 
-echo "[render-start] Step 7b: Running prisma migrate deploy..."
-node_modules/.bin/prisma migrate deploy 2>&1 || {
-  echo "[render-start] WARNING: prisma migrate deploy failed — starting server anyway."
-  echo "[render-start] Some API routes may return 500 until migrations are applied."
-}
-echo "[render-start] ✓ Migrations applied."
+echo "[render-start] Step 7b: Running prisma migrate deploy (BLOCKING)..."
+if ! node_modules/.bin/prisma migrate deploy; then
+  echo "[render-start] FATAL: prisma migrate deploy failed. Refusing to start an inconsistent service."
+  exit 1
+fi
+echo "[render-start] ✓ Migrations applied successfully."
 
-# ── Step 8: Read-only schema verification after migration (non-blocking) ──
-echo "[render-start] Step 8: Read-only schema verification..."
-node scripts/verify-schema-read-only.cjs 2>&1 || {
-  echo "[render-start] WARNING: Schema verification found issues — continuing anyway."
-  echo "[render-start] The app may have runtime errors for missing tables."
-}
-echo "[render-start] ✓ Schema verification complete."
+# ── Step 8: Read-only schema verification after migration (BLOCKING) ──
+echo "[render-start] Step 8: Verifying runtime schema readiness (BLOCKING)..."
+if ! node scripts/verify-schema-read-only.cjs; then
+  echo "[render-start] FATAL: schema readiness verification failed. Refusing to start."
+  exit 1
+fi
+echo "[render-start] ✓ Schema readiness verified."
 
 # ── Step 9: Start the Next.js server ──
 echo "[render-start] ─────────────────────────────────────────────"
