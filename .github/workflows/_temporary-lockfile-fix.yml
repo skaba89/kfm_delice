@@ -1,0 +1,44 @@
+name: Temporary lockfile security fix
+
+on:
+  push:
+    branches: [agent/lockfile-security-fix]
+
+permissions:
+  contents: write
+
+jobs:
+  fix-lockfile:
+    if: github.repository == 'skaba89/kfm_delice'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout isolated branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/lockfile-security-fix
+          fetch-depth: 0
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Regenerate security-fixed lockfile
+        run: |
+          npm ci
+          npm audit fix --package-lock-only --omit=dev
+          npm audit --audit-level=high --omit=dev
+
+      - name: Commit lockfile only when changed
+        run: |
+          if git diff --quiet -- package-lock.json; then
+            echo "Lockfile already clean."
+            exit 0
+          fi
+          git config user.name "kfm-ci-lockfile-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add package-lock.json
+          git commit -m "fix: refresh lockfile for security advisories"
+          git push origin HEAD:agent/lockfile-security-fix
