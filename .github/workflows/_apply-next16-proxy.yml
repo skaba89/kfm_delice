@@ -1,0 +1,46 @@
+name: Apply Next 16 proxy migration
+
+on:
+  push:
+    branches: [chore/next16-proxy-migration]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chore/next16-proxy-migration
+          fetch-depth: 0
+
+      - name: Rename middleware convention to proxy
+        run: |
+          set -euo pipefail
+          test -f src/middleware.ts
+          test ! -e src/proxy.ts
+          mv src/middleware.ts src/proxy.ts
+          python3 <<'PY'
+          from pathlib import Path
+          p = Path('src/proxy.ts')
+          s = p.read_text()
+          old = 'export async function middleware(request: NextRequest) {'
+          new = 'export async function proxy(request: NextRequest) {'
+          if old not in s:
+              raise SystemExit('middleware export marker not found')
+          s = s.replace(old, new, 1)
+          s = s.replace('// Middleware\n', '// Proxy\n', 1)
+          p.write_text(s)
+          PY
+
+      - name: Remove one-shot workflow and commit
+        run: |
+          rm .github/workflows/_apply-next16-proxy.yml
+          git config user.name "kfm-next16-migration-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: migrate Next.js middleware convention to proxy"
+          git push origin HEAD:chore/next16-proxy-migration
