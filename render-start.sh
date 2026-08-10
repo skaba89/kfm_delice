@@ -9,7 +9,7 @@
 #   4. prisma validate
 #   5. Provider verification
 #   6. Build artifact verification
-#   7. Targeted QR migration repair + prisma migrate deploy
+#   7. Targeted known-migration repairs + prisma migrate deploy
 #   8. Blocking read-only schema readiness verification
 #   9. next start
 #
@@ -111,17 +111,25 @@ test -d node_modules/@prisma/client || { echo "[render-start] FATAL: @prisma/cli
 test -d node_modules/.prisma/client || { echo "[render-start] FATAL: .prisma/client missing"; exit 1; }
 echo "[render-start] ✓ Build output check complete."
 
-# ── Step 7: Repair QR migration (targeted, NOT generic) then migrate deploy ──
-echo "[render-start] Step 7: Repairing QR migration (if needed)..."
+# ── Step 7: Targeted historical migration recovery, then migrate deploy ──
 if [ "$PROVIDER" = "postgres" ]; then
-  # This repair remains best-effort because migrate deploy is the authoritative
-  # gate immediately afterwards. It only targets the historical QR migration.
+  echo "[render-start] Step 7a: Repairing failed PromoCode migration (if needed, BLOCKING)..."
+  if ! node scripts/repair-promo-migration.cjs; then
+    echo "[render-start] FATAL: targeted PromoCode migration repair failed. Refusing to alter migration history blindly."
+    exit 1
+  fi
+  echo "[render-start] ✓ PromoCode migration history is safe to continue."
+
+  echo "[render-start] Step 7b: Repairing QR migration (if needed)..."
+  # This older repair remains best-effort because migrate deploy is the
+  # authoritative gate immediately afterwards and the QR objects are also
+  # checked by the runtime schema verifier.
   node scripts/repair-qr-migration.cjs 2>&1 || {
     echo "[render-start] WARNING: targeted QR repair failed; strict migrate deploy will decide readiness."
   }
 fi
 
-echo "[render-start] Step 7b: Running prisma migrate deploy (BLOCKING)..."
+echo "[render-start] Step 7c: Running prisma migrate deploy (BLOCKING)..."
 if ! node_modules/.bin/prisma migrate deploy; then
   echo "[render-start] FATAL: prisma migrate deploy failed. Refusing to start an inconsistent service."
   exit 1
