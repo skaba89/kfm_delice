@@ -26,8 +26,7 @@ CREATE INDEX IF NOT EXISTS "Restaurant_status_idx" ON "Restaurant"("status");
 CREATE INDEX IF NOT EXISTS "Restaurant_plan_idx" ON "Restaurant"("plan");
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- Admin: tenant ownership is mandatory in the current application model.
--- Add nullable first so a legacy populated DB can be reconciled safely.
+-- Admin + Customer tenant ownership and current auth fields
 -- ─────────────────────────────────────────────────────────────────────────────
 ALTER TABLE "Admin" ADD COLUMN IF NOT EXISTS "restaurantId" TEXT;
 ALTER TABLE "Admin" ADD COLUMN IF NOT EXISTS "mustChangePassword" BOOLEAN NOT NULL DEFAULT false;
@@ -35,7 +34,6 @@ ALTER TABLE "Admin" ADD COLUMN IF NOT EXISTS "loginAttempts" INTEGER NOT NULL DE
 ALTER TABLE "Admin" ADD COLUMN IF NOT EXISTS "lockedUntil" TIMESTAMP(3);
 ALTER TABLE "Admin" ADD COLUMN IF NOT EXISTS "tokenVersion" INTEGER NOT NULL DEFAULT 0;
 
--- Customer has the same tenant requirement.
 ALTER TABLE "Customer" ADD COLUMN IF NOT EXISTS "restaurantId" TEXT;
 ALTER TABLE "Customer" ADD COLUMN IF NOT EXISTS "mustChangePassword" BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE "Customer" ADD COLUMN IF NOT EXISTS "loginAttempts" INTEGER NOT NULL DEFAULT 0;
@@ -46,6 +44,15 @@ ALTER TABLE "Customer" ADD COLUMN IF NOT EXISTS "favoriteItemIds" TEXT NOT NULL 
 ALTER TABLE "Customer" ADD COLUMN IF NOT EXISTS "birthday" TEXT NOT NULL DEFAULT '';
 ALTER TABLE "Customer" ADD COLUMN IF NOT EXISTS "referralCode" TEXT NOT NULL DEFAULT '';
 ALTER TABLE "Customer" ADD COLUMN IF NOT EXISTS "referredBy" TEXT NOT NULL DEFAULT '';
+
+-- Driver auth field is present in the current Prisma model but absent from the
+-- original migration chain.
+ALTER TABLE "Driver" ADD COLUMN IF NOT EXISTS "mustChangePassword" BOOLEAN NOT NULL DEFAULT false;
+
+-- Nullable customer links used by current relation-aware APIs.
+ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "customerId" TEXT;
+ALTER TABLE "Reservation" ADD COLUMN IF NOT EXISTS "customerId" TEXT;
+ALTER TABLE "Review" ADD COLUMN IF NOT EXISTS "customerId" TEXT;
 
 -- Safe backfill rule:
 --   * empty tables: nothing to do, NOT NULL can be applied immediately;
@@ -75,14 +82,15 @@ BEGIN
     END IF;
 END $$;
 
--- Empty fresh databases and safely backfilled single-tenant databases can now
--- enforce the invariant expected by Prisma.
 ALTER TABLE "Admin" ALTER COLUMN "restaurantId" SET NOT NULL;
 ALTER TABLE "Customer" ALTER COLUMN "restaurantId" SET NOT NULL;
 
 CREATE INDEX IF NOT EXISTS "Admin_restaurantId_idx" ON "Admin"("restaurantId");
 CREATE INDEX IF NOT EXISTS "Customer_restaurantId_idx" ON "Customer"("restaurantId");
 CREATE INDEX IF NOT EXISTS "Customer_restaurantId_email_idx" ON "Customer"("restaurantId", "email");
+CREATE INDEX IF NOT EXISTS "Order_customerId_idx" ON "Order"("customerId");
+CREATE INDEX IF NOT EXISTS "Reservation_customerId_idx" ON "Reservation"("customerId");
+CREATE INDEX IF NOT EXISTS "Review_customerId_idx" ON "Review"("customerId");
 
 DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Admin_restaurantId_fkey') THEN
@@ -100,7 +108,37 @@ DO $$ BEGIN
     END IF;
 END $$;
 
--- Current schema scopes customer emails by restaurant rather than globally.
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Order_customerId_fkey') THEN
+        ALTER TABLE "Order"
+        ADD CONSTRAINT "Order_customerId_fkey"
+        FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE SET NULL;
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Reservation_customerId_fkey') THEN
+        ALTER TABLE "Reservation"
+        ADD CONSTRAINT "Reservation_customerId_fkey"
+        FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE SET NULL;
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Review_customerId_fkey') THEN
+        ALTER TABLE "Review"
+        ADD CONSTRAINT "Review_customerId_fkey"
+        FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE SET NULL;
+    END IF;
+END $$;
+
+-- Current schema scopes customer emails and driver emails by restaurant rather
+-- than globally. Replace historical global unique indexes with tenant-scoped
+-- equivalents.
 DROP INDEX IF EXISTS "Customer_email_key";
 CREATE UNIQUE INDEX IF NOT EXISTS "Customer_email_restaurantId_key"
     ON "Customer"("email", "restaurantId");
+
+DROP INDEX IF EXISTS "Driver_email_key";
+CREATE UNIQUE INDEX IF NOT EXISTS "Driver_email_restaurantId_key"
+    ON "Driver"("email", "restaurantId");
