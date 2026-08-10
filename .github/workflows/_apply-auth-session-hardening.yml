@@ -1,0 +1,126 @@
+name: Apply auth session hardening
+
+on:
+  push:
+    branches: [agent/p1-auth-session-enforcement]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/p1-auth-session-enforcement
+          fetch-depth: 0
+
+      - name: Apply exact patch
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          p = Path('src/lib/auth.ts')
+          s = p.read_text()
+          marker = "/**\n * Mission 5: Revoke a single JWT by its jti.\n */"
+          helper = """/**
+ * Validate a cryptographically verified access-token session.
+ * jti revocation applies to every user type; tokenVersion applies to the
+ * identities that persist it in the current schema.
+ */
+export async function isAccessSessionValid(payload: JwtPayload): Promise<boolean> {
+  if (await isTokenRevoked(payload)) return false;
+  if (payload.type === 'driver') return true;
+  return isTokenVersionValid(payload);
+}
+
+"""
+          if 'export async function isAccessSessionValid' not in s:
+              if marker not in s: raise SystemExit('helper marker missing')
+              s = s.replace(marker, helper + marker, 1)
+
+          pairs = [
+            ("if (!payload || payload.type !== 'admin') return null;\n  try {", "if (!payload || payload.type !== 'admin') return null;\n  if (!(await isAccessSessionValid(payload))) return null;\n  try {"),
+            ("if (!payload || payload.type !== 'customer') return null;\n  try {", "if (!payload || payload.type !== 'customer') return null;\n  if (!(await isAccessSessionValid(payload))) return null;\n  try {"),
+            ("if (!payload || payload.type !== 'driver') return null;\n  try {", "if (!payload || payload.type !== 'driver') return null;\n  if (!(await isAccessSessionValid(payload))) return null;\n  try {"),
+            ("if (!payload) return null;\n  try {", "if (!payload) return null;\n  if (!(await isAccessSessionValid(payload))) return null;\n  try {"),
+            ("if (!payload || payload.type !== 'platform_admin') return null;\n  try {", "if (!payload || payload.type !== 'platform_admin') return null;\n  if (!(await isAccessSessionValid(payload))) return null;\n  try {"),
+          ]
+          for old, new in pairs:
+              if new not in s:
+                  if old not in s: raise SystemExit('auth marker missing')
+                  s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          p = Path('src/__tests__/lib/auth.test.ts')
+          t = p.read_text()
+          t = t.replace(
+            "    driver: { findUnique: vi.fn() },\n  },",
+            "    driver: { findUnique: vi.fn() },\n    platformAdmin: { findUnique: vi.fn() },\n    revokedToken: { findUnique: vi.fn() },\n  },",
+            1,
+          )
+          t = t.replace(
+            "import { hashPassword, verifyPassword, generateToken, verifyToken, extractToken } from '@/lib/auth';",
+            "import { hashPassword, verifyPassword, generateToken, verifyToken, extractToken, isAccessSessionValid, authenticateAdmin } from '@/lib/auth';\nimport { db } from '@/lib/db';",
+            1,
+          )
+          tests = r'''
+
+describe('access session enforcement', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('accepts a current non-revoked admin session', async () => {
+    const payload = verifyToken(generateToken({ id: 'a1', email: 'a@x.test', role: 'admin', type: 'admin', tokenVersion: 2 }))!;
+    vi.mocked(db.revokedToken.findUnique).mockResolvedValue(null as any);
+    vi.mocked(db.admin.findUnique).mockResolvedValue({ tokenVersion: 2 } as any);
+    await expect(isAccessSessionValid(payload)).resolves.toBe(true);
+  });
+
+  it('rejects an explicitly revoked jti', async () => {
+    const payload = verifyToken(generateToken({ id: 'a2', email: 'a@x.test', role: 'admin', type: 'admin', tokenVersion: 0 }))!;
+    vi.mocked(db.revokedToken.findUnique).mockResolvedValue({ id: 'revoked' } as any);
+    await expect(isAccessSessionValid(payload)).resolves.toBe(false);
+    expect(db.admin.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('rejects a stale tokenVersion', async () => {
+    const payload = verifyToken(generateToken({ id: 'a3', email: 'a@x.test', role: 'admin', type: 'admin', tokenVersion: 1 }))!;
+    vi.mocked(db.revokedToken.findUnique).mockResolvedValue(null as any);
+    vi.mocked(db.admin.findUnique).mockResolvedValue({ tokenVersion: 2 } as any);
+    await expect(isAccessSessionValid(payload)).resolves.toBe(false);
+  });
+
+  it('enforces revocation in authenticateAdmin', async () => {
+    const token = generateToken({ id: 'a4', email: 'a@x.test', role: 'admin', type: 'admin', tokenVersion: 0 });
+    vi.mocked(db.revokedToken.findUnique).mockResolvedValue({ id: 'revoked' } as any);
+    const req = new Request('https://example.com/api/orders', { headers: { Authorization: `Bearer ${token}` } });
+    await expect(authenticateAdmin(req)).resolves.toBeNull();
+    expect(db.admin.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('keeps drivers compatible while enforcing jti revocation', async () => {
+    const payload = verifyToken(generateToken({ id: 'd1', email: 'd@x.test', role: 'driver', type: 'driver' }))!;
+    vi.mocked(db.revokedToken.findUnique).mockResolvedValue(null as any);
+    await expect(isAccessSessionValid(payload)).resolves.toBe(true);
+  });
+});
+'''
+          marker = "\ndescribe('extractToken', () => {"
+          if "describe('access session enforcement'" not in t:
+              if marker not in t: raise SystemExit('test marker missing')
+              t = t.replace(marker, tests + marker, 1)
+          p.write_text(t)
+          PY
+
+      - name: Remove one-shot workflow and commit
+        run: |
+          rm .github/workflows/_apply-auth-session-hardening.yml
+          git config user.name "kfm-auth-hardening-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: enforce access session revocation"
+          git push origin HEAD:agent/p1-auth-session-enforcement
