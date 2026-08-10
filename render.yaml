@@ -1,18 +1,9 @@
 # ───────────────────────────────────────────────────────────────────
 # Render Blueprint — KFM Delice (PostgreSQL production)
 # ───────────────────────────────────────────────────────────────────
-# This Blueprint provisions:
-#   1. A managed PostgreSQL database (free tier — 90 days, then paid)
-#   2. A Next.js web service connected to it
-#
-# To use:
-#   1. Push this file to your repo as render.yaml (replacing the SQLite one)
-#   2. In Render dashboard → New → Blueprint → pick this repo
-#   3. Set the sync:false env vars (PUBLIC_APP_URL, SMTP_*, VAPID_*)
-#      in the Render dashboard after first deploy
-#
-# NOTE: Render's free PostgreSQL expires after 90 days. For long-term
-#       dev/staging, use the free SQLite render.yaml.sqlite instead.
+# Production deployments are triggered by the CI-gated GitHub workflow
+# (.github/workflows/deploy.yml). Render autoDeploy is disabled so a push to
+# main cannot bypass the blocking CI pipeline.
 # ───────────────────────────────────────────────────────────────────
 databases:
   - name: kfm-delice-db
@@ -30,11 +21,12 @@ services:
     branch: main
     buildCommand: bash render-build.sh
     startCommand: bash render-start.sh
+    # /api/status remains a liveness probe. DB/schema readiness is enforced
+    # before Next.js starts by render-start.sh.
     healthCheckPath: /api/status
     healthCheckInitialTimeoutSec: 300
-    autoDeploy: true
+    autoDeploy: false
     envVars:
-      # Render reads NODE_VERSION (the former top-level nodeVersion key is ignored).
       - key: NODE_VERSION
         value: "22.18.0"
       - key: NODE_ENV
@@ -57,7 +49,6 @@ services:
         sync: false
       - key: TENANT_STRATEGY
         value: slug-header
-      # ── Mission 6: All dangerous flags OFF in production ──
       - key: ALLOW_DEFAULT_TENANT
         value: "false"
       - key: ALLOW_AUTO_SEED
@@ -70,28 +61,24 @@ services:
         value: "false"
       - key: NEXT_PUBLIC_SHOW_DEMO_CREDS
         value: "false"
-      # ── Mission 6: Required secrets (sync: false = set in Render dashboard) ──
       - key: TOTP_ENCRYPTION_KEY
         sync: false
       - key: WEBHOOK_SECRET
         sync: false
       - key: SEED_TOKEN
         sync: false
-      # ── Stripe (optional — set if accepting card payments) ──
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
       - key: STRIPE_PUBLISHABLE_KEY
         sync: false
-      # ── Rate limiting: Redis/Upstash for multi-instance ──
       - key: REDIS_URL
         sync: false
       - key: UPSTASH_REDIS_REST_URL
         sync: false
       - key: UPSTASH_REDIS_REST_TOKEN
         sync: false
-      # ── Email ──
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT
@@ -104,31 +91,26 @@ services:
         sync: false
       - key: EMAIL_FROM
         value: "KFM Delice <noreply@kfm-delice.com>"
-      # ── Push notifications ──
       - key: NEXT_PUBLIC_VAPID_PUBLIC_KEY
         sync: false
       - key: VAPID_PRIVATE_KEY
         sync: false
       - key: VAPID_SUBJECT
         value: "mailto:admin@kfm-delice.com"
-      # ── Sentry ──
       - key: SENTRY_DSN
         sync: false
-      # ── Orange Money (Guinea) ──
       - key: ORANGE_MONEY_CLIENT_ID
         sync: false
       - key: ORANGE_MONEY_CLIENT_SECRET
         sync: false
       - key: ORANGE_MONEY_MERCHANT_NUMBER
         sync: false
-      # ── MTN MoMo (Guinea) ──
       - key: MTN_MOMO_SUBSCRIPTION_KEY
         sync: false
       - key: MTN_MOMO_USER_ID
         sync: false
       - key: MTN_MOMO_API_KEY
         sync: false
-      # ── Wave (Guinea) ──
       - key: WAVE_API_KEY
         sync: false
       - key: WAVE_BUSINESS_ID
