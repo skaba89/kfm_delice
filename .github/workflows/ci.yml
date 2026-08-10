@@ -69,7 +69,7 @@ jobs:
         run: npm run test
 
   # ─────────────────────────────────────────────────────────────
-  # Job 2: PostgreSQL — migrate + build + test (BLOCKING)
+  # Job 2: PostgreSQL — migration replay + build + blocking E2E
   # ─────────────────────────────────────────────────────────────
   postgres-check:
     runs-on: ubuntu-latest
@@ -129,41 +129,28 @@ jobs:
           NODE_ENV: test
         run: npm run test
 
-      # ── Mission 11.14: E2E QR scenario ──
-      # Starts the Next.js server, waits for /api/status to respond,
-      # then runs the full QR table scenario end-to-end. The report
-      # JSON is uploaded as a build artifact for debugging.
       - name: Start Next.js server
         run: |
           npm run start &
           SERVER_PID=$!
           echo "SERVER_PID=$SERVER_PID" >> $GITHUB_ENV
-          # Wait up to 60s for /api/status to return 200
+          # /api/ready validates DB connectivity AND critical schema columns.
           for i in $(seq 1 30); do
-            if curl -sf http://localhost:3000/api/status > /dev/null 2>&1; then
-              echo "Server is up after ${i}x2s"
+            if curl -sf http://localhost:3000/api/ready > /dev/null 2>&1; then
+              echo "Server is ready after ${i}x2s"
               break
             fi
             sleep 2
           done
-          curl -sf http://localhost:3000/api/status > /dev/null || (echo "Server did not start in time" && exit 1)
+          curl -sf http://localhost:3000/api/ready > /dev/null || (echo "Server/schema did not become ready" && exit 1)
 
-      - name: Run E2E QR tests
+      - name: Run blocking production contract E2E
         env:
           BASE_URL: "http://localhost:3000"
           E2E_ADMIN_EMAIL: "admin@kfm-delice.com"
           E2E_ADMIN_PASSWORD: "AdminKFM2026!"
           E2E_SLUG: "kfm-delice"
-          E2E_SAFE_MODE: "true"
-        run: python3 scripts/e2e-qr-tables.py
-
-      - name: Upload QR E2E report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-qr-tables-report
-          path: artifacts/e2e-qr-tables-report.json
-          if-no-files-found: warn
+        run: python3 scripts/e2e-production-contract.py
 
       - name: Stop Next.js server
         if: always()
