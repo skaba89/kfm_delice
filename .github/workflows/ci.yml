@@ -25,9 +25,6 @@ env:
   AUTH_RATE_LIMIT: "1000"
 
 jobs:
-  # ─────────────────────────────────────────────────────────────
-  # Job 1: SQLite — typecheck, lint, build, test (BLOCKING)
-  # ─────────────────────────────────────────────────────────────
   sqlite-check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -68,9 +65,6 @@ jobs:
       - name: Tests
         run: npm run test
 
-  # ─────────────────────────────────────────────────────────────
-  # Job 2: PostgreSQL — migration replay + build + blocking E2E
-  # ─────────────────────────────────────────────────────────────
   postgres-check:
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -84,7 +78,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres -d kfm_test"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -106,7 +100,6 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        # NODE_ENV=production would otherwise omit Vitest and other build/test tools.
         run: npm ci --include=dev
 
       - name: Select PostgreSQL schema
@@ -121,6 +114,9 @@ jobs:
       - name: Prisma migrate deploy (NO fallback — strict)
         run: npx prisma migrate deploy
 
+      - name: Verify migrated schema
+        run: node scripts/verify-schema-read-only.cjs
+
       - name: Build
         run: npm run build
 
@@ -129,20 +125,35 @@ jobs:
           NODE_ENV: test
         run: npm run test
 
-      - name: Start Next.js server
+      - name: Seed and start Next.js server
         run: |
-          npm run start &
+          set -euo pipefail
+          node scripts/ensure-schema.cjs
+          node scripts/auto-seed.cjs
+          node_modules/.bin/next start -p 3000 -H 0.0.0.0 > /tmp/kfm-next.log 2>&1 &
           SERVER_PID=$!
           echo "SERVER_PID=$SERVER_PID" >> $GITHUB_ENV
-          # /api/ready validates DB connectivity AND critical schema columns.
+
+          ready=false
           for i in $(seq 1 30); do
-            if curl -sf http://localhost:3000/api/ready > /dev/null 2>&1; then
+            HTTP_CODE=$(curl -sS -o /tmp/kfm-ready.json -w "%{http_code}" http://localhost:3000/api/ready || true)
+            if [ "$HTTP_CODE" = "200" ]; then
               echo "Server is ready after ${i}x2s"
+              cat /tmp/kfm-ready.json
+              ready=true
               break
             fi
             sleep 2
           done
-          curl -sf http://localhost:3000/api/ready > /dev/null || (echo "Server/schema did not become ready" && exit 1)
+
+          if [ "$ready" != "true" ]; then
+            echo "::error::Server/schema did not become ready"
+            echo "--- /api/ready response ---"
+            cat /tmp/kfm-ready.json 2>/dev/null || true
+            echo "--- Next.js log ---"
+            cat /tmp/kfm-next.log 2>/dev/null || true
+            exit 1
+          fi
 
       - name: Run blocking production contract E2E
         env:
@@ -157,9 +168,6 @@ jobs:
         run: |
           if [ -n "$SERVER_PID" ]; then kill $SERVER_PID 2>/dev/null || true; fi
 
-  # ─────────────────────────────────────────────────────────────
-  # Job 3: Playwright E2E tests (BLOCKING — Mission 10/7)
-  # ─────────────────────────────────────────────────────────────
   playwright-check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
