@@ -33,10 +33,10 @@ describe('atomic terminal order effects', () => {
   it('commits delivery earnings, loyalty and invoice inside one transaction', async () => {
     const existing = {
       id: 'order-delivery-1', status: 'delivering', driverId: 'd1', customerId: 'c1',
-      total: 10000n, deliveryFee: 1000n, tax: 0n, customerName: 'Client', phone: '600',
-      items: [], paymentStatus: 'paid', restaurantId: 'r1',
+      total: 10000 as any, deliveryFee: 1000 as any, tax: 0 as any,
+      customerName: 'Client', phone: '600', items: [], paymentStatus: 'paid', restaurantId: 'r1',
     };
-    const finalOrder = { ...existing, status: 'delivered', driverEarning: 1000n };
+    const finalOrder = { ...existing, status: 'delivered', driverEarning: 1000 as any };
     const tx = {
       order: {
         findFirst: vi.fn().mockResolvedValueOnce(existing).mockResolvedValueOnce(finalOrder),
@@ -73,28 +73,29 @@ describe('atomic terminal order effects', () => {
       where: expect.objectContaining({ status: 'delivering' }),
       data: expect.objectContaining({ status: 'delivered' }),
     }));
-    expect(tx.driver.update).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        status: 'available',
-        totalDeliveries: { increment: 1 },
-        totalEarnings: { increment: 1000n },
-      }),
-    }));
-    expect(tx.customer.update).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ totalOrders: { increment: 1 }, totalSpent: { increment: 10000n } }),
-    }));
+
+    const driverUpdate = tx.driver.update.mock.calls[0][0];
+    expect(driverUpdate.data.status).toBe('available');
+    expect(driverUpdate.data.totalDeliveries).toEqual({ increment: 1 });
+    expect(Number(driverUpdate.data.totalEarnings.increment)).toBe(1000);
+
+    const customerUpdate = tx.customer.update.mock.calls[0][0];
+    expect(customerUpdate.data.totalOrders).toEqual({ increment: 1 });
+    expect(Number(customerUpdate.data.totalSpent.increment)).toBe(10000);
+
     expect(tx.loyaltyPointsHistory.create).toHaveBeenCalled();
-    expect(tx.invoice.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ orderId: existing.id, status: 'paid' }),
-    }));
+    const invoiceCreate = tx.invoice.create.mock.calls[0][0];
+    expect(invoiceCreate.data.orderId).toBe(existing.id);
+    expect(invoiceCreate.data.status).toBe('paid');
+    expect(Number(invoiceCreate.data.total)).toBe(10000);
     expect(db.$transaction).toHaveBeenCalledTimes(1);
   });
 
   it('restores exactly the recorded outbound stock on cancellation', async () => {
     const existing = {
       id: 'order-cancel-1', status: 'confirmed', driverId: null, customerId: null,
-      total: 10000n, deliveryFee: 0n, tax: 0n, customerName: 'Client', phone: '',
-      items: [], paymentStatus: 'pending', restaurantId: 'r1',
+      total: 10000 as any, deliveryFee: 0 as any, tax: 0 as any,
+      customerName: 'Client', phone: '', items: [], paymentStatus: 'pending', restaurantId: 'r1',
     };
     const finalOrder = { ...existing, status: 'cancelled' };
     const tx = {
