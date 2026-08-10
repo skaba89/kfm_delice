@@ -44,13 +44,34 @@ const ROLE_FIELDS: Record<OrderPatchRole, readonly (keyof OrderPatchPayload)[]> 
   delivery_manager: ['id', 'status', 'driverId', 'estimatedDeliveryTime', 'deliveryAddress', 'note'],
 };
 
+const isPostgres = () => {
+  const url = process.env.DATABASE_URL || '';
+  return url.startsWith('postgresql://') || url.startsWith('postgres://');
+};
+
+/**
+ * Monetary Prisma fields are BigInt in PostgreSQL and Int in the SQLite test
+ * schema. Keep one business implementation while writing the provider-native
+ * runtime value. Call sites cast through `any` only at the Prisma boundary.
+ */
+function money(value: number | bigint | null | undefined): number | bigint {
+  const numeric = typeof value === 'bigint' ? value : Math.trunc(Number(value || 0));
+  return isPostgres() ? BigInt(numeric) : Number(numeric);
+}
+
+function moneyNumber(value: number | bigint | null | undefined): number {
+  return Number(value || 0);
+}
+
 export function getDisallowedOrderPatchFields(
   role: string,
   patch: OrderPatchPayload
 ): string[] {
   const allowed = ROLE_FIELDS[role as OrderPatchRole];
   if (!allowed) return Object.keys(patch).filter(key => key !== 'id');
-  return Object.keys(patch).filter(key => patch[key as keyof OrderPatchPayload] !== undefined && !allowed.includes(key as keyof OrderPatchPayload));
+  return Object.keys(patch).filter(
+    key => patch[key as keyof OrderPatchPayload] !== undefined && !allowed.includes(key as keyof OrderPatchPayload)
+  );
 }
 
 export interface ApplyOrderPatchContext {
@@ -71,12 +92,12 @@ export type ApplyOrderPatchResult =
     }
   | { ok: false; status: number; error: string; code: string };
 
-function toBigIntUpdate(data: Record<string, unknown>): Record<string, unknown> {
+function toProviderMoneyUpdate(data: Record<string, unknown>): Record<string, unknown> {
   const monetaryFields = ['total', 'deliveryFee', 'discount', 'tax'] as const;
   const result = { ...data };
   for (const field of monetaryFields) {
     if (result[field] !== undefined && result[field] !== null) {
-      result[field] = BigInt(Math.trunc(Number(result[field])));
+      result[field] = money(Number(result[field]));
     }
   }
   return result;
@@ -165,7 +186,7 @@ export async function applyOrderPatchAtomically(
     }
 
     const { id, driverId, ...rest } = patch;
-    const updateData = toBigIntUpdate(rest as Record<string, unknown>);
+    const updateData = toProviderMoneyUpdate(rest as Record<string, unknown>);
     if (driverId !== undefined) updateData.driverId = driverId;
 
     let replayed = false;
@@ -228,8 +249,8 @@ export async function applyOrderPatchAtomically(
       });
       if (driver) {
         const computedEarning = Math.max(
-          Math.round(Number(existing.total) * (Number(driver.commissionRate) / 100)),
-          Number(existing.deliveryFee)
+          Math.round(moneyNumber(existing.total) * (Number(driver.commissionRate) / 100)),
+          moneyNumber(existing.deliveryFee)
         );
         await tx.driver.update({
           where: { id: effectiveDriverId },
@@ -238,12 +259,15 @@ export async function applyOrderPatchAtomically(
             currentOrderId: '',
             ...(becameDelivered ? {
               totalDeliveries: { increment: 1 },
-              totalEarnings: { increment: BigInt(computedEarning) },
+              totalEarnings: { increment: money(computedEarning) as any },
             } : {}),
-          },
+          } as any,
         });
         if (becameDelivered) {
-          await tx.order.update({ where: { id }, data: { driverEarning: BigInt(computedEarning) } });
+          await tx.order.update({
+            where: { id },
+            data: { driverEarning: money(computedEarning) as any },
+          });
         }
       }
     }
@@ -261,7 +285,7 @@ export async function applyOrderPatchAtomically(
       for (const movement of outgoingMovements) {
         restoreByStock.set(
           movement.stockItemId,
-          (restoreByStock.get(movement.stockItemId) || 0) + movement.quantity
+          (restoreByStock.get(movement.stockItemId) || 0) + Number(movement.quantity)
         );
       }
       for (const [stockItemId, quantity] of restoreByStock) {
@@ -296,14 +320,14 @@ export async function applyOrderPatchAtomically(
           where: { id: context.restaurantId },
           select: { loyaltyPointsRate: true },
         });
-        const pointsEarned = Math.floor(Number(existing.total) / 1000) * (restaurant?.loyaltyPointsRate ?? 1);
+        const pointsEarned = Math.floor(moneyNumber(existing.total) / 1000) * (restaurant?.loyaltyPointsRate ?? 1);
         await tx.customer.update({
           where: { id: effectiveCustomerId },
           data: {
             ...(pointsEarned > 0 ? { loyaltyPoints: { increment: pointsEarned } } : {}),
             totalOrders: { increment: 1 },
-            totalSpent: { increment: existing.total },
-          },
+            totalSpent: { increment: money(existing.total) as any },
+          } as any,
         });
         if (pointsEarned > 0) {
           await tx.loyaltyPointsHistory.create({
@@ -328,23 +352,23 @@ export async function applyOrderPatchAtomically(
         const now = new Date();
         const due = new Date(now);
         due.setDate(due.getDate() + 7);
-        const tax = BigInt(existing.tax || 0);
-        const total = BigInt(existing.total);
+        const taxNumber = moneyNumber(existing.tax);
+        const totalNumber = moneyNumber(existing.total);
         await tx.invoice.create({
           data: {
             number: automaticInvoiceNumber(id, now),
             customerName: existing.customerName || 'Client',
             customerPhone: existing.phone || '',
             items: existing.items as any,
-            subtotal: total - tax,
-            tax,
-            total,
+            subtotal: money(Math.max(0, totalNumber - taxNumber)) as any,
+            tax: money(taxNumber) as any,
+            total: money(totalNumber) as any,
             status: existing.paymentStatus === 'paid' ? 'paid' : 'pending',
             dueDate: due.toISOString().slice(0, 10),
             notes: `Facture générée automatiquement pour la commande ${id}`,
             orderId: id,
             restaurantId: context.restaurantId,
-          },
+          } as any,
         });
       }
     }
@@ -363,7 +387,7 @@ export async function applyOrderPatchAtomically(
     };
   }, {
     timeout: 15000,
-    ...(process.env.DATABASE_URL?.startsWith('postgresql')
+    ...(isPostgres()
       ? { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
       : {}),
   });
