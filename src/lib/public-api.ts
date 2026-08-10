@@ -20,6 +20,90 @@
 
 const RESTAURANT_SLUG_KEY = "restaurantpro_slug";
 
+type UnknownRecord = Record<string, unknown>;
+
+function asRecord(value: unknown): UnknownRecord | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as UnknownRecord
+    : null;
+}
+
+/**
+ * Compatibility adapter for the public order endpoint.
+ *
+ * The backend intentionally treats prices/totals/discounts/status fields as
+ * server-authoritative. Older UI code and historical E2E scripts still send
+ * legacy fields such as `total`, `deliveryFee` and item snapshots
+ * `{ id, name, price, qty }`. Passing those fields directly now produces a
+ * 400 FORBIDDEN_FIELDS response.
+ *
+ * This adapter converts only the client-allowed intent to the strict API
+ * contract. It NEVER forwards client-controlled monetary or status fields.
+ * It can be removed once every public caller has migrated to the strict shape.
+ */
+export function normalizePublicOrderBody(input: unknown): UnknownRecord {
+  const raw = asRecord(input) ?? {};
+
+  let rawItems: unknown = raw.items;
+  if (typeof rawItems === "string") {
+    try {
+      rawItems = JSON.parse(rawItems);
+    } catch {
+      rawItems = [];
+    }
+  }
+
+  const items = Array.isArray(rawItems)
+    ? rawItems.flatMap((item) => {
+        const row = asRecord(item);
+        if (!row) return [];
+        const menuItemId = typeof row.menuItemId === "string"
+          ? row.menuItemId
+          : typeof row.id === "string"
+            ? row.id
+            : "";
+        const quantityRaw = row.quantity ?? row.qty;
+        const quantity = typeof quantityRaw === "number"
+          ? Math.trunc(quantityRaw)
+          : Number.parseInt(String(quantityRaw ?? ""), 10);
+        if (!menuItemId || !Number.isFinite(quantity) || quantity < 1) return [];
+        return [{
+          menuItemId,
+          quantity,
+          ...(typeof row.note === "string" && row.note.length > 0 ? { note: row.note } : {}),
+        }];
+      })
+    : [];
+
+  const tableNumber = typeof raw.tableNumber === "number"
+    ? raw.tableNumber
+    : Number.parseInt(String(raw.tableNumber ?? ""), 10);
+  const originalNote = typeof raw.note === "string" ? raw.note.trim() : "";
+  const note = Number.isFinite(tableNumber) && tableNumber > 0 && !raw.tableQrToken
+    ? `Table ${tableNumber}${originalNote ? ` — ${originalNote}` : ""}`
+    : originalNote;
+
+  return {
+    items,
+    orderType: raw.orderType,
+    customerName: raw.customerName,
+    phone: raw.phone,
+    deliveryAddress: raw.deliveryAddress,
+    paymentMethod: raw.paymentMethod,
+    ...(typeof raw.tableQrToken === "string" && raw.tableQrToken.length > 0
+      ? { tableQrToken: raw.tableQrToken }
+      : {}),
+    ...(typeof raw.promoCode === "string" && raw.promoCode.length > 0
+      ? { promoCode: raw.promoCode }
+      : {}),
+    ...(typeof raw.tip === "number" ? { tip: raw.tip } : {}),
+    ...(note ? { note } : {}),
+    ...(typeof raw.idempotencyKey === "string" && raw.idempotencyKey.length > 0
+      ? { idempotencyKey: raw.idempotencyKey }
+      : {}),
+  };
+}
+
 /**
  * Resolve the current restaurant slug from the browser context.
  * Returns "" if no slug can be determined — the caller should then
@@ -72,14 +156,27 @@ export async function publicApiFetch(
   if (slug && !headers.has("x-restaurant-slug")) {
     headers.set("x-restaurant-slug", slug);
   }
-  if (rest.body && !headers.has("Content-Type")) {
+
+  let body = rest.body;
+  // Backward-compatible normalization at the transport boundary. This keeps
+  // the server strict while preventing older menu clients from reintroducing
+  // client-authoritative prices/totals.
+  if (url === "/api/orders" && (rest.method || "GET").toUpperCase() === "POST" && typeof body === "string") {
+    try {
+      body = JSON.stringify(normalizePublicOrderBody(JSON.parse(body)));
+    } catch {
+      // Let the API return its normal validation error for malformed JSON.
+    }
+  }
+
+  if (body && !headers.has("Content-Type")) {
     // Don't set Content-Type for FormData — browser sets it automatically
-    const isFormData = typeof FormData !== "undefined" && rest.body instanceof FormData;
+    const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
     if (!isFormData) {
       headers.set("Content-Type", "application/json");
     }
   }
-  return fetch(url, { ...rest, headers });
+  return fetch(url, { ...rest, body, headers });
 }
 
 /**
