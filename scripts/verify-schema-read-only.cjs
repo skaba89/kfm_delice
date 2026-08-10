@@ -59,6 +59,11 @@ const REQUIRED_COLUMNS = {
     'assignmentStatus', 'tip', 'platformCommission',
     'tableId', 'tableNumberStr',
   ],
+  PromoCode: [
+    'code', 'description', 'discountType', 'discountValue',
+    'minOrderTotal', 'maxUses', 'usedCount', 'maxUsesPerUser',
+    'active', 'startsAt', 'expiresAt', 'restaurantId',
+  ],
 };
 
 async function postgresTableExists(db, table) {
