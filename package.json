@@ -5,8 +5,8 @@
   "scripts": {
     "dev": "node scripts/ensure-schema.cjs && next dev -p 3000 2>&1 | tee dev.log",
     "build": "prisma generate && next build",
-    "start": "node scripts/ensure-schema.cjs && node scripts/auto-seed.cjs; next start -p ${PORT:-3000} -H 0.0.0.0",
-    "start:prod": "prisma migrate deploy && node scripts/auto-seed.cjs; next start -p ${PORT:-3000} -H 0.0.0.0",
+    "start": "node scripts/ensure-schema.cjs && node scripts/auto-seed.cjs && next start -p ${PORT:-3000} -H 0.0.0.0",
+    "start:prod": "prisma migrate deploy && node scripts/auto-seed.cjs && next start -p ${PORT:-3000} -H 0.0.0.0",
     "lint": "eslint .",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
