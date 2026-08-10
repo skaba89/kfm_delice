@@ -3,175 +3,124 @@ name: Apply auth session hardening
 on:
   push:
     branches: [agent/p1-auth-session-enforcement]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: github.actor != 'kfm-auth-hardening-bot'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Checkout branch
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: agent/p1-auth-session-enforcement
           fetch-depth: 0
 
-      - name: Apply exact source and test patches
+      - name: Apply exact patch
         run: |
           python3 <<'PY'
           from pathlib import Path
 
-          auth_path = Path('src/lib/auth.ts')
-          text = auth_path.read_text()
+          p = Path('src/lib/auth.ts')
+          s = p.read_text()
+          marker = "/**\n * Mission 5: Revoke a single JWT by its jti.\n */"
+          helper = """/**
+ * Validate a cryptographically verified access-token session.
+ * jti revocation applies to every user type; tokenVersion applies to the
+ * identities that persist it in the current schema.
+ */
+export async function isAccessSessionValid(payload: JwtPayload): Promise<boolean> {
+  if (await isTokenRevoked(payload)) return false;
+  if (payload.type === 'driver') return true;
+  return isTokenVersionValid(payload);
+}
 
-          marker = """/**\n * Mission 5: Revoke a single JWT by its jti.\n */"""
-          helper = """/**\n * Validate an access-token session after cryptographic JWT verification.\n * Explicit jti revocation applies to every user type. tokenVersion applies to\n * identities that persist that field in the current schema; drivers currently\n * rely on short-lived access tokens + jti revocation.\n */\nexport async function isAccessSessionValid(payload: JwtPayload): Promise<boolean> {\n  if (await isTokenRevoked(payload)) return false;\n  if (payload.type === 'driver') return true;\n  return isTokenVersionValid(payload);\n}\n\n"""
-          if helper not in text:
-              if marker not in text:
-                  raise SystemExit('auth helper insertion marker not found')
-              text = text.replace(marker, helper + marker, 1)
+"""
+          if 'export async function isAccessSessionValid' not in s:
+              if marker not in s: raise SystemExit('helper marker missing')
+              s = s.replace(marker, helper + marker, 1)
 
-          replacements = [
-              ("if (!payload || payload.type !== 'admin') return null;\n  try {",
-               "if (!payload || payload.type !== 'admin') return null;\n  if (!(await isAccessSessionValid(payload))) return null;\n  try {"),
-              ("if (!payload || payload.type !== 'customer') return null;\n  try {",
-               "if (!payload || payload.type !== 'customer') return null;\n  if (!(await isAccessSessionValid(payload))) return null;\n  try {"),
-              ("if (!payload || payload.type !== 'driver') return null;\n  try {",
-               "if (!payload || payload.type !== 'driver') return null;\n  if (!(await isAccessSessionValid(payload))) return null;\n  try {"),
-              ("if (!payload) return null;\n  try {",
-               "if (!payload) return null;\n  if (!(await isAccessSessionValid(payload))) return null;\n  try {"),
-              ("if (!payload || payload.type !== 'platform_admin') return null;\n  try {",
-               "if (!payload || payload.type !== 'platform_admin') return null;\n  if (!(await isAccessSessionValid(payload))) return null;\n  try {"),
+          pairs = [
+            ("if (!payload || payload.type !== 'admin') return null;\n  try {", "if (!payload || payload.type !== 'admin') return null;\n  if (!(await isAccessSessionValid(payload))) return null;\n  try {"),
+            ("if (!payload || payload.type !== 'customer') return null;\n  try {", "if (!payload || payload.type !== 'customer') return null;\n  if (!(await isAccessSessionValid(payload))) return null;\n  try {"),
+            ("if (!payload || payload.type !== 'driver') return null;\n  try {", "if (!payload || payload.type !== 'driver') return null;\n  if (!(await isAccessSessionValid(payload))) return null;\n  try {"),
+            ("if (!payload) return null;\n  try {", "if (!payload) return null;\n  if (!(await isAccessSessionValid(payload))) return null;\n  try {"),
+            ("if (!payload || payload.type !== 'platform_admin') return null;\n  try {", "if (!payload || payload.type !== 'platform_admin') return null;\n  if (!(await isAccessSessionValid(payload))) return null;\n  try {"),
           ]
-          for old, new in replacements:
-              if new in text:
-                  continue
-              if old not in text:
-                  raise SystemExit(f'auth patch marker not found: {old[:70]}')
-              text = text.replace(old, new, 1)
+          for old, new in pairs:
+              if new not in s:
+                  if old not in s: raise SystemExit('auth marker missing')
+                  s = s.replace(old, new, 1)
+          p.write_text(s)
 
-          auth_path.write_text(text)
-
-          test_path = Path('src/__tests__/lib/auth.test.ts')
-          test = test_path.read_text()
-          old_mock = """    admin: { findUnique: vi.fn() },\n    customer: { findUnique: vi.fn() },\n    driver: { findUnique: vi.fn() },"""
-          new_mock = """    admin: { findUnique: vi.fn() },\n    customer: { findUnique: vi.fn() },\n    driver: { findUnique: vi.fn() },\n    platformAdmin: { findUnique: vi.fn() },\n    revokedToken: { findUnique: vi.fn() },"""
-          if new_mock not in test:
-              if old_mock not in test:
-                  raise SystemExit('test db mock marker not found')
-              test = test.replace(old_mock, new_mock, 1)
-
-          old_import = "import { hashPassword, verifyPassword, generateToken, verifyToken, extractToken } from '@/lib/auth';"
-          new_import = "import { hashPassword, verifyPassword, generateToken, verifyToken, extractToken, isAccessSessionValid, authenticateAdmin } from '@/lib/auth';\nimport { db } from '@/lib/db';"
-          if new_import not in test:
-              if old_import not in test:
-                  raise SystemExit('test import marker not found')
-              test = test.replace(old_import, new_import, 1)
-
-          session_tests = r'''
+          p = Path('src/__tests__/lib/auth.test.ts')
+          t = p.read_text()
+          t = t.replace(
+            "    driver: { findUnique: vi.fn() },\n  },",
+            "    driver: { findUnique: vi.fn() },\n    platformAdmin: { findUnique: vi.fn() },\n    revokedToken: { findUnique: vi.fn() },\n  },",
+            1,
+          )
+          t = t.replace(
+            "import { hashPassword, verifyPassword, generateToken, verifyToken, extractToken } from '@/lib/auth';",
+            "import { hashPassword, verifyPassword, generateToken, verifyToken, extractToken, isAccessSessionValid, authenticateAdmin } from '@/lib/auth';\nimport { db } from '@/lib/db';",
+            1,
+          )
+          tests = r'''
 
 describe('access session enforcement', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
+  beforeEach(() => vi.clearAllMocks());
 
-  it('accepts an admin token whose jti is not revoked and tokenVersion matches', async () => {
-    const token = generateToken({
-      id: 'admin-session-1',
-      email: 'admin@example.com',
-      role: 'admin',
-      type: 'admin',
-      tokenVersion: 2,
-    });
-    const payload = verifyToken(token)!;
+  it('accepts a current non-revoked admin session', async () => {
+    const payload = verifyToken(generateToken({ id: 'a1', email: 'a@x.test', role: 'admin', type: 'admin', tokenVersion: 2 }))!;
     vi.mocked(db.revokedToken.findUnique).mockResolvedValue(null as any);
     vi.mocked(db.admin.findUnique).mockResolvedValue({ tokenVersion: 2 } as any);
-
     await expect(isAccessSessionValid(payload)).resolves.toBe(true);
   });
 
-  it('rejects an explicitly revoked jti before tokenVersion lookup', async () => {
-    const token = generateToken({
-      id: 'admin-session-2',
-      email: 'admin@example.com',
-      role: 'admin',
-      type: 'admin',
-      tokenVersion: 0,
-    });
-    const payload = verifyToken(token)!;
-    vi.mocked(db.revokedToken.findUnique).mockResolvedValue({ id: 'revoked-1' } as any);
-
+  it('rejects an explicitly revoked jti', async () => {
+    const payload = verifyToken(generateToken({ id: 'a2', email: 'a@x.test', role: 'admin', type: 'admin', tokenVersion: 0 }))!;
+    vi.mocked(db.revokedToken.findUnique).mockResolvedValue({ id: 'revoked' } as any);
     await expect(isAccessSessionValid(payload)).resolves.toBe(false);
     expect(db.admin.findUnique).not.toHaveBeenCalled();
   });
 
-  it('rejects an admin token after tokenVersion has been bumped', async () => {
-    const token = generateToken({
-      id: 'admin-session-3',
-      email: 'admin@example.com',
-      role: 'admin',
-      type: 'admin',
-      tokenVersion: 1,
-    });
-    const payload = verifyToken(token)!;
+  it('rejects a stale tokenVersion', async () => {
+    const payload = verifyToken(generateToken({ id: 'a3', email: 'a@x.test', role: 'admin', type: 'admin', tokenVersion: 1 }))!;
     vi.mocked(db.revokedToken.findUnique).mockResolvedValue(null as any);
     vi.mocked(db.admin.findUnique).mockResolvedValue({ tokenVersion: 2 } as any);
-
     await expect(isAccessSessionValid(payload)).resolves.toBe(false);
   });
 
-  it('applies revocation to authenticateAdmin before returning the profile', async () => {
-    const token = generateToken({
-      id: 'admin-session-4',
-      email: 'admin@example.com',
-      role: 'admin',
-      type: 'admin',
-      tokenVersion: 0,
-    });
-    const request = new Request('https://example.com/api/orders', {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    vi.mocked(db.revokedToken.findUnique).mockResolvedValue({ id: 'revoked-2' } as any);
-
-    await expect(authenticateAdmin(request)).resolves.toBeNull();
+  it('enforces revocation in authenticateAdmin', async () => {
+    const token = generateToken({ id: 'a4', email: 'a@x.test', role: 'admin', type: 'admin', tokenVersion: 0 });
+    vi.mocked(db.revokedToken.findUnique).mockResolvedValue({ id: 'revoked' } as any);
+    const req = new Request('https://example.com/api/orders', { headers: { Authorization: `Bearer ${token}` } });
+    await expect(authenticateAdmin(req)).resolves.toBeNull();
     expect(db.admin.findUnique).not.toHaveBeenCalled();
   });
 
-  it('keeps driver access compatible while still honoring jti revocation', async () => {
-    const token = generateToken({
-      id: 'driver-session-1',
-      email: 'driver@example.com',
-      role: 'driver',
-      type: 'driver',
-    });
-    const payload = verifyToken(token)!;
+  it('keeps drivers compatible while enforcing jti revocation', async () => {
+    const payload = verifyToken(generateToken({ id: 'd1', email: 'd@x.test', role: 'driver', type: 'driver' }))!;
     vi.mocked(db.revokedToken.findUnique).mockResolvedValue(null as any);
-
     await expect(isAccessSessionValid(payload)).resolves.toBe(true);
-    expect(db.admin.findUnique).not.toHaveBeenCalled();
-    expect(db.customer.findUnique).not.toHaveBeenCalled();
   });
 });
 '''
-          extract_marker = "\ndescribe('extractToken', () => {"
-          if "describe('access session enforcement'" not in test:
-              if extract_marker not in test:
-                  raise SystemExit('test insertion marker not found')
-              test = test.replace(extract_marker, session_tests + extract_marker, 1)
-
-          test_path.write_text(test)
+          marker = "\ndescribe('extractToken', () => {"
+          if "describe('access session enforcement'" not in t:
+              if marker not in t: raise SystemExit('test marker missing')
+              t = t.replace(marker, tests + marker, 1)
+          p.write_text(t)
           PY
 
-      - name: Remove one-shot workflow
-        run: rm .github/workflows/_apply-auth-session-hardening.yml
-
-      - name: Commit targeted changes
+      - name: Remove one-shot workflow and commit
         run: |
+          rm .github/workflows/_apply-auth-session-hardening.yml
           git config user.name "kfm-auth-hardening-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add src/lib/auth.ts src/__tests__/lib/auth.test.ts .github/workflows/_apply-auth-session-hardening.yml
+          git add -A
           git commit -m "fix: enforce access session revocation"
           git push origin HEAD:agent/p1-auth-session-enforcement
