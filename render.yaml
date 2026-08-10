@@ -30,9 +30,13 @@ services:
     branch: main
     buildCommand: bash render-build.sh
     startCommand: bash render-start.sh
-    healthCheckPath: /api/status
+    # Readiness must validate the DB/schema. /api/status remains a liveness
+    # endpoint and intentionally returns 200 even when DB access is degraded.
+    healthCheckPath: /api/ready
     healthCheckInitialTimeoutSec: 300
-    autoDeploy: true
+    # Production deploys are triggered explicitly by the gated GitHub workflow.
+    # This prevents Render from racing ahead of CI on every main push.
+    autoDeploy: false
     envVars:
       # Render reads NODE_VERSION (the former top-level nodeVersion key is ignored).
       - key: NODE_VERSION
