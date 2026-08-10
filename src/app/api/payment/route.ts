@@ -1,44 +1,28 @@
 import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, authenticateAny, hasRole } from "@/lib/auth";
-import { paymentSchema, paymentStatusSchema, webhookSignatureSchema } from "@/lib/validations";
+import { paymentSchema, paymentStatusSchema } from "@/lib/validations";
 import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, parseStatusFilter } from "@/lib/pagination";
-import { createHmac, timingSafeEqual, createHash } from "crypto";
 import { initiatePayment, type PaymentMethod } from "@/lib/payments";
+import {
+  computePaymentRequestHash,
+  isValidPaymentTransition,
+  resolvePaymentIdempotencyKey,
+  signInternalPaymentUpdate,
+  verifyInternalPaymentUpdate,
+} from "@/lib/payment-security";
 import { Prisma } from "@prisma/client";
 
-// Simulated processing delay (ms) — set to 0 in production
-const SIMULATED_DELAY = process.env.NODE_ENV === "production" ? 0 : 2000;
+const IS_PRODUCTION = process.env.APP_MODE === "production" || process.env.NODE_ENV === "production";
+const SIMULATED_DELAY = IS_PRODUCTION ? 0 : 2000;
+const PAYMENT_IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+const INTERNAL_SIMULATION_SECRET = process.env.WEBHOOK_SECRET || (IS_PRODUCTION ? "" : "kfm-dev-payment-simulation-secret");
 
-// Webhook secret for HMAC signature verification
-const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "";
-
-const PAYMENT_IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
-
-function generateWebhookSignature(paymentId: string): string {
-  if (!WEBHOOK_SECRET) return "";
-  return createHmac("sha256", WEBHOOK_SECRET).update(paymentId).digest("hex");
-}
-
-function verifyWebhookSignature(paymentId: string, signature: string): boolean {
-  if (!WEBHOOK_SECRET) return false;
-  const expected = generateWebhookSignature(paymentId);
-  if (!expected || expected.length !== signature.length) return false;
-  try {
-    return timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
-  } catch {
-    return false;
-  }
-}
-
-// GET: List payments (admin/manager)
 export async function GET(request: Request) {
   try {
     await dbReady;
     const admin = await authenticateAdmin(request);
-    if (!admin) {
-      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
-    }
+    if (!admin) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     if (!hasRole(admin.role, ["admin", "manager", "cashier", "accountant"])) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
@@ -50,19 +34,16 @@ export async function GET(request: Request) {
     const statusFilter = parseStatusFilter(sp, ["pending", "processing", "paid", "failed", "refunded"]);
     const methodFilter = parseStatusFilter(sp, ["cash", "orange_money", "mtn_money", "wave", "card"], "method");
     const orderId = sp.get("orderId");
-
     const where = {
       restaurantId: admin.restaurantId,
       ...(statusFilter && { status: statusFilter }),
       ...(methodFilter && { method: methodFilter }),
       ...(orderId && { orderId }),
-      ...(search && {
-        OR: [
-          { customerName: { contains: search } },
-          { phone: { contains: search } },
-          { transactionRef: { contains: search } },
-        ],
-      }),
+      ...(search && { OR: [
+        { customerName: { contains: search } },
+        { phone: { contains: search } },
+        { transactionRef: { contains: search } },
+      ] }),
     };
 
     const [payments, total] = await Promise.all([
@@ -75,288 +56,146 @@ export async function GET(request: Request) {
       }),
       db.payment.count({ where }),
     ]);
-
     const totalPages = Math.ceil(total / limit);
     return NextResponse.json({
       data: bigIntToNumber(payments),
       pagination: { page, limit, total, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
     });
   } catch (error) {
-    console.error(error);
+    console.error("[payment:GET]", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
 
-// POST: Initiate a payment for an order
-// Mission 1 (Phase 3):
-//   - Idempotency via PaymentIdempotencyKey (x-idempotency-key header)
-//   - Payment + Order update in a single transaction
-//   - cash → pending, card → processing, mobile money → processing
-//   - No simulation in production
 export async function POST(request: Request) {
   try {
     await dbReady;
     const auth = await authenticateAny(request);
-    if (!auth) {
-      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    if (!auth) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    if (auth.type === "driver" || auth.type === "platform_admin") {
+      return NextResponse.json({ error: "Ce type de compte ne peut pas initier de paiement" }, { status: 403 });
     }
 
     const body = await request.json();
     const validation = paymentSchema.safeParse(body);
     if (!validation.success) {
-      const firstError = validation.error.issues[0]?.message || "Données invalides";
-      return NextResponse.json({ error: firstError }, { status: 400 });
+      return NextResponse.json({ error: validation.error.issues[0]?.message || "Données invalides" }, { status: 400 });
     }
-
     const { orderId, method, phone, customerName } = validation.data;
 
-    // ── Multi-tenant isolation ──
-    if (auth.type === "driver") {
-      return NextResponse.json({ error: "Les livreurs ne peuvent pas initier de paiement" }, { status: 403 });
-    }
-
     const orderWhere: Record<string, unknown> = { id: orderId };
-    if (auth.type === "customer") {
-      orderWhere.customerId = auth.id;
-    } else if (auth.type === "admin" && auth.restaurantId) {
-      orderWhere.restaurantId = auth.restaurantId;
-    }
-
+    if (auth.type === "customer") orderWhere.customerId = auth.id;
+    if (auth.type === "admin") orderWhere.restaurantId = auth.restaurantId;
     const order = await db.order.findFirst({ where: orderWhere });
-    if (!order) {
-      return NextResponse.json({ error: "Commande non trouvée" }, { status: 404 });
+    if (!order) return NextResponse.json({ error: "Commande non trouvée" }, { status: 404 });
+
+    if (["orange_money", "mtn_money", "wave"].includes(method) && !phone) {
+      return NextResponse.json({ error: "Numéro de téléphone requis pour le paiement mobile" }, { status: 400 });
     }
 
-    // Verify order isn't already paid
-    if (order.paymentStatus === "paid") {
-      return NextResponse.json({ error: "Cette commande est déjà payée" }, { status: 400 });
+    const suppliedKey = request.headers.get("x-idempotency-key") || (body as { idempotencyKey?: unknown }).idempotencyKey;
+    const idempotencyKey = resolvePaymentIdempotencyKey(suppliedKey, orderId, method);
+    const requestHash = computePaymentRequestHash({
+      orderId,
+      method,
+      phone,
+      customerName,
+      amount: Number(order.total),
+      restaurantId: order.restaurantId,
+      customerId: auth.type === "customer" ? auth.id : undefined,
+    });
+
+    // Idempotent replay is checked BEFORE global order payment state so the
+    // exact same retry still returns the original payment after it became
+    // processing or paid.
+    const existing = await db.paymentIdempotencyKey.findUnique({
+      where: { restaurantId_key: { restaurantId: order.restaurantId, key: idempotencyKey } },
+      include: { payment: true },
+    });
+    if (existing) {
+      const isExpired = existing.expiresAt < new Date();
+      if (existing.paymentId && existing.payment) {
+        if (existing.requestHash && existing.requestHash !== requestHash) {
+          return NextResponse.json(
+            { error: "Clé d'idempotence utilisée avec un payload différent", code: "IDEMPOTENCY_HASH_MISMATCH" },
+            { status: 409 }
+          );
+        }
+        return NextResponse.json({
+          payment: bigIntToNumber(existing.payment),
+          created: false,
+          message: "Paiement déjà initié (replay idempotent)",
+        });
+      }
+      if (!isExpired && existing.status === "pending") {
+        return NextResponse.json(
+          { error: "Un paiement avec cette clé est en cours de traitement", code: "IDEMPOTENCY_IN_FLIGHT" },
+          { status: 409 }
+        );
+      }
+      await db.paymentIdempotencyKey.delete({ where: { id: existing.id } }).catch(() => {});
     }
 
-    // For mobile money, phone is required
-    if ((method === "orange_money" || method === "mtn_money" || method === "wave") && !phone) {
+    if (order.paymentStatus === "paid" || order.paymentStatus === "refunded") {
       return NextResponse.json(
-        { error: "Numéro de téléphone requis pour le paiement mobile" },
-        { status: 400 }
+        { error: "Cette commande ne peut plus recevoir un nouveau paiement", code: "PAYMENT_ALREADY_FINAL" },
+        { status: 409 }
+      );
+    }
+    if (order.paymentStatus === "processing") {
+      return NextResponse.json(
+        { error: "Un autre paiement est déjà en cours pour cette commande", code: "PAYMENT_IN_PROGRESS" },
+        { status: 409 }
       );
     }
 
-    // ── Mission 1: Payment idempotency ──
-    const idempotencyKey =
-      request.headers.get("x-idempotency-key") ||
-      (body as { idempotencyKey?: string }).idempotencyKey;
-
-    if (idempotencyKey && typeof idempotencyKey === "string") {
-      const requestHash = createHash("sha256")
-        .update(JSON.stringify({ orderId, method, phone: phone || "", amount: Number(order.total) }))
-        .digest("hex");
-
-      // Check for an existing payment with this key
-      const existing = await db.paymentIdempotencyKey.findUnique({
-        where: {
-          restaurantId_key: { restaurantId: order.restaurantId, key: idempotencyKey },
+    let idempotencyRecordId: string;
+    try {
+      const created = await db.paymentIdempotencyKey.create({
+        data: {
+          key: idempotencyKey,
+          restaurantId: order.restaurantId,
+          orderId,
+          requestHash,
+          status: "pending",
+          expiresAt: new Date(Date.now() + PAYMENT_IDEMPOTENCY_TTL_MS),
         },
-        include: { payment: true },
       });
-
-      if (existing) {
-        const isExpired = existing.expiresAt < new Date();
-        if (existing.paymentId && existing.payment) {
-          // Idempotent replay — return the existing payment
-          if (existing.requestHash && existing.requestHash !== requestHash) {
-            // Hash mismatch — reject (different payload, same key)
+      idempotencyRecordId = created.id;
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        const raced = await db.paymentIdempotencyKey.findUnique({
+          where: { restaurantId_key: { restaurantId: order.restaurantId, key: idempotencyKey } },
+          include: { payment: true },
+        });
+        if (raced?.payment) {
+          if (raced.requestHash && raced.requestHash !== requestHash) {
             return NextResponse.json(
               { error: "Clé d'idempotence utilisée avec un payload différent", code: "IDEMPOTENCY_HASH_MISMATCH" },
               { status: 409 }
             );
           }
-          return NextResponse.json({
-            payment: bigIntToNumber(existing.payment),
-            created: false,
-            message: "Paiement déjà initié (replay idempotent)",
-          }, { status: 200 });
+          return NextResponse.json({ payment: bigIntToNumber(raced.payment), created: false });
         }
-        if (!isExpired && existing.status === "pending") {
-          // Concurrent request in flight
-          return NextResponse.json(
-            { error: "Un paiement avec cette clé est en cours de traitement", code: "IDEMPOTENCY_IN_FLIGHT" },
-            { status: 409 }
-          );
-        }
-        // Expired or failed — delete and allow re-creation
-        await db.paymentIdempotencyKey.delete({ where: { id: existing.id } }).catch(() => {});
+        return NextResponse.json({ error: "Conflit d'idempotence", code: "IDEMPOTENCY_CONFLICT" }, { status: 409 });
       }
-
-      // Create the idempotency key record (atomic dedup)
-      let idempotencyRecordId: string | null = null;
-      try {
-        const created = await db.paymentIdempotencyKey.create({
-          data: {
-            key: idempotencyKey,
-            restaurantId: order.restaurantId,
-            orderId,
-            requestHash,
-            status: "pending",
-            expiresAt: new Date(Date.now() + PAYMENT_IDEMPOTENCY_TTL_MS),
-          },
-        });
-        idempotencyRecordId = created.id;
-      } catch (createErr) {
-        // P2002 = unique constraint violation = concurrent request won the race
-        if (createErr instanceof Prisma.PrismaClientKnownRequestError && createErr.code === "P2002") {
-          const existing2 = await db.paymentIdempotencyKey.findUnique({
-            where: {
-              restaurantId_key: { restaurantId: order.restaurantId, key: idempotencyKey },
-            },
-            include: { payment: true },
-          });
-          if (existing2?.payment) {
-            return NextResponse.json({
-              payment: bigIntToNumber(existing2.payment),
-              created: false,
-            }, { status: 200 });
-          }
-          return NextResponse.json(
-            { error: "Conflit d'idempotence", code: "IDEMPOTENCY_CONFLICT" },
-            { status: 409 }
-          );
-        }
-        throw createErr;
-      }
-
-      // ── Initiate the payment via the provider ──
-      const result = await initiatePayment({
-        method: method as PaymentMethod,
-        phone: phone || "",
-        amount: Number(order.total),
-        orderId,
-        restaurantId: order.restaurantId,
-        idempotencyKey,
-      });
-
-      if (!result.success) {
-        // Mark idempotency key as failed
-        if (idempotencyRecordId) {
-          await db.paymentIdempotencyKey.update({
-            where: { id: idempotencyRecordId },
-            data: { status: "failed" },
-          }).catch(() => {});
-        }
-        // Create failed payment record
-        await db.payment.create({
-          data: {
-            orderId,
-            amount: Number(order.total),
-            method,
-            status: "failed",
-            phone: phone || "",
-            customerName: customerName || order.customerName,
-            failedReason: result.error || "Échec du paiement",
-            restaurantId: order.restaurantId,
-          },
-        });
-        return NextResponse.json({ error: result.error || "Échec du paiement" }, { status: 400 });
-      }
-
-      // ── Mission 1: Create payment + update order in a TRANSACTION ──
-      const payment = await db.$transaction(async (tx) => {
-        const created = await tx.payment.create({
-          data: {
-            orderId,
-            amount: Number(order.total),
-            method,
-            status: result.status || "processing",
-            transactionRef: result.transactionRef || "",
-            phone: phone || "",
-            customerName: customerName || order.customerName,
-            metadata: JSON.stringify({ otpRequired: result.otpRequired, message: result.message }),
-            ...(result.status === "paid" && { paidAt: new Date().toISOString() }),
-            restaurantId: order.restaurantId,
-          },
-        });
-
-        // Update order payment status
-        await tx.order.update({
-          where: { id: orderId },
-          data: {
-            paymentMethod: method,
-            paymentStatus: result.status,
-            // Only advance order status to 'confirmed' when paid (cash confirmed by cashier)
-            ...(result.status === "paid" && { status: order.status === "pending" ? "confirmed" : order.status }),
-          },
-        });
-
-        // Link idempotency key to the payment
-        if (idempotencyRecordId) {
-          await tx.paymentIdempotencyKey.update({
-            where: { id: idempotencyRecordId },
-            data: { paymentId: created.id, status: "completed" },
-          });
-        }
-
-        return created;
-      }, {
-        timeout: 10000,
-        ...(process.env.DATABASE_URL?.startsWith("postgresql") ? { isolationLevel: Prisma.TransactionIsolationLevel.Serializable } : {}),
-      });
-
-      // ── Side effects (non-transactional, non-blocking) ──
-      // Simulate async confirmation for mobile money (dev only)
-      if (result.status === "processing" && SIMULATED_DELAY > 0) {
-        const webhookSignature = generateWebhookSignature(payment.id);
-        setTimeout(async () => {
-          try {
-            const confirmed = Math.random() > 0.1;
-            const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
-            await fetch(`${baseUrl}/api/payment`, {
-              method: "PATCH",
-              headers: {
-                "Content-Type": "application/json",
-                "x-webhook-signature": webhookSignature,
-              },
-              body: JSON.stringify({
-                id: payment.id,
-                status: confirmed ? "paid" : "failed",
-                failedReason: confirmed ? undefined : "Paiement non confirmé par le client.",
-                webhook: true,
-              }),
-            });
-          } catch (e) {
-            console.error("[Payment] Async confirmation error:", e);
-          }
-        }, SIMULATED_DELAY);
-      }
-
-      // WebSocket notification
-      try {
-        const { broadcastToType } = await import("@/lib/websocket-server");
-        const { WSEvents } = await import("@/lib/ws-events");
-        broadcastToType("admin", WSEvents.ADMIN_NOTIFICATION, {
-          type: "payment_initiated",
-          orderId,
-          amount: Number(order.total),
-          method,
-          status: result.status,
-        });
-      } catch {}
-
-      return NextResponse.json({
-        payment: bigIntToNumber(payment),
-        created: true,
-        message: result.message,
-        otpRequired: result.otpRequired,
-      }, { status: 201 });
+      throw error;
     }
 
-    // ── No idempotency key — process normally (legacy path) ──
-    const result = await initiatePayment({
+    const providerResult = await initiatePayment({
       method: method as PaymentMethod,
       phone: phone || "",
       amount: Number(order.total),
       orderId,
       restaurantId: order.restaurantId,
+      idempotencyKey,
     });
 
-    if (!result.success) {
+    if (!providerResult.success) {
+      await db.paymentIdempotencyKey.update({
+        where: { id: idempotencyRecordId },
+        data: { status: "failed" },
+      }).catch(() => {});
       await db.payment.create({
         data: {
           orderId,
@@ -365,26 +204,25 @@ export async function POST(request: Request) {
           status: "failed",
           phone: phone || "",
           customerName: customerName || order.customerName,
-          failedReason: result.error || "Échec du paiement",
+          failedReason: providerResult.error || "Échec du paiement",
           restaurantId: order.restaurantId,
         },
       });
-      return NextResponse.json({ error: result.error || "Échec du paiement" }, { status: 400 });
+      return NextResponse.json({ error: providerResult.error || "Échec du paiement" }, { status: 400 });
     }
 
-    // Create payment + update order in a transaction
     const payment = await db.$transaction(async (tx) => {
       const created = await tx.payment.create({
         data: {
           orderId,
           amount: Number(order.total),
           method,
-          status: result.status || "processing",
-          transactionRef: result.transactionRef || "",
+          status: providerResult.status || "processing",
+          transactionRef: providerResult.transactionRef || "",
           phone: phone || "",
           customerName: customerName || order.customerName,
-          metadata: JSON.stringify({ otpRequired: result.otpRequired, message: result.message }),
-          ...(result.status === "paid" && { paidAt: new Date().toISOString() }),
+          metadata: JSON.stringify({ otpRequired: providerResult.otpRequired, message: providerResult.message }),
+          ...(providerResult.status === "paid" && { paidAt: new Date().toISOString() }),
           restaurantId: order.restaurantId,
         },
       });
@@ -392,74 +230,127 @@ export async function POST(request: Request) {
         where: { id: orderId },
         data: {
           paymentMethod: method,
-          paymentStatus: result.status,
-          ...(result.status === "paid" && { status: order.status === "pending" ? "confirmed" : order.status }),
+          paymentStatus: providerResult.status || "processing",
+          ...(providerResult.status === "paid" && order.status === "pending" ? { status: "confirmed" } : {}),
         },
+      });
+      await tx.paymentIdempotencyKey.update({
+        where: { id: idempotencyRecordId },
+        data: { paymentId: created.id, status: "completed" },
       });
       return created;
     }, {
       timeout: 10000,
-      ...(process.env.DATABASE_URL?.startsWith("postgresql") ? { isolationLevel: Prisma.TransactionIsolationLevel.Serializable } : {}),
+      ...(process.env.DATABASE_URL?.startsWith("postgresql")
+        ? { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+        : {}),
     });
+
+    if (providerResult.status === "processing" && SIMULATED_DELAY > 0) {
+      const updateBody = { id: payment.id, status: Math.random() > 0.1 ? "paid" : "failed" };
+      const timestamp = Date.now();
+      const signature = signInternalPaymentUpdate(updateBody, timestamp, INTERNAL_SIMULATION_SECRET);
+      setTimeout(async () => {
+        try {
+          const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
+          const res = await fetch(`${baseUrl}/api/payment`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              "x-internal-payment-timestamp": String(timestamp),
+              "x-internal-payment-signature": signature,
+            },
+            body: JSON.stringify({ ...updateBody, webhook: true }),
+          });
+          if (!res.ok) console.error("[payment] Dev simulation callback rejected:", res.status);
+        } catch (error) {
+          console.error("[payment] Dev simulation callback failed:", error);
+        }
+      }, SIMULATED_DELAY);
+    }
+
+    try {
+      const { broadcastToType } = await import("@/lib/websocket-server");
+      const { WSEvents } = await import("@/lib/ws-events");
+      broadcastToType("admin", WSEvents.ADMIN_NOTIFICATION, {
+        type: "payment_initiated",
+        orderId,
+        amount: Number(order.total),
+        method,
+        status: providerResult.status,
+      });
+    } catch {}
 
     return NextResponse.json({
       payment: bigIntToNumber(payment),
       created: true,
-      message: result.message,
-      otpRequired: result.otpRequired,
+      message: providerResult.message,
+      otpRequired: providerResult.otpRequired,
     }, { status: 201 });
   } catch (error) {
-    console.error(error);
+    console.error("[payment:POST]", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
 
-// PATCH: Update payment status (admin confirms/cancels, or webhook callback)
 export async function PATCH(request: Request) {
   try {
     await dbReady;
     const body = await request.json();
+    const validation = paymentStatusSchema.safeParse(body);
+    if (!validation.success) {
+      return NextResponse.json({ error: validation.error.issues[0]?.message || "Données invalides" }, { status: 400 });
+    }
 
-    const isWebhook = body.webhook === true;
+    const { id, status, transactionRef, failedReason } = validation.data;
+    const internalSimulation = (body as { webhook?: boolean }).webhook === true;
     let adminRestaurantId: string | undefined;
 
-    if (isWebhook) {
-      const signature = request.headers.get("x-webhook-signature");
-      const sigValidation = webhookSignatureSchema.safeParse(signature);
-      if (!sigValidation.success || !signature || !verifyWebhookSignature(String(body.id), signature)) {
-        return NextResponse.json({ error: "Signature webhook invalide" }, { status: 401 });
+    if (internalSimulation) {
+      if (IS_PRODUCTION) {
+        return NextResponse.json(
+          { error: "Les callbacks internes sont désactivés en production", code: "INTERNAL_CALLBACK_DISABLED" },
+          { status: 403 }
+        );
       }
+      const valid = verifyInternalPaymentUpdate(
+        { id, status, transactionRef, failedReason },
+        request.headers.get("x-internal-payment-timestamp"),
+        request.headers.get("x-internal-payment-signature"),
+        INTERNAL_SIMULATION_SECRET
+      );
+      if (!valid) return NextResponse.json({ error: "Signature interne invalide" }, { status: 401 });
     } else {
       const admin = await authenticateAdmin(request);
-      if (!admin) {
-        return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
-      }
+      if (!admin) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
       if (!hasRole(admin.role, ["admin", "manager", "cashier", "accountant"])) {
         return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
       }
       adminRestaurantId = admin.restaurantId;
     }
 
-    const validation = paymentStatusSchema.safeParse(body);
-    if (!validation.success) {
-      const firstError = validation.error.issues[0]?.message || "Données invalides";
-      return NextResponse.json({ error: firstError }, { status: 400 });
-    }
-
-    const { id, status, transactionRef, failedReason } = validation.data;
-
     const payment = adminRestaurantId
       ? await db.payment.findFirst({ where: { id, restaurantId: adminRestaurantId } })
       : await db.payment.findUnique({ where: { id } });
+    if (!payment) return NextResponse.json({ error: "Paiement non trouvé" }, { status: 404 });
 
-    if (!payment) {
-      return NextResponse.json({ error: "Paiement non trouvé" }, { status: 404 });
+    if (payment.status === status) return NextResponse.json(bigIntToNumber(payment));
+    if (!isValidPaymentTransition(payment.status, status)) {
+      return NextResponse.json(
+        { error: `Transition de paiement invalide: ${payment.status} → ${status}`, code: "PAYMENT_INVALID_TRANSITION" },
+        { status: 409 }
+      );
+    }
+    if (status === "refunded" && payment.method !== "cash") {
+      return NextResponse.json(
+        { error: "Le remboursement fournisseur doit être confirmé par son flux dédié", code: "PROVIDER_REFUND_REQUIRED" },
+        { status: 409 }
+      );
     }
 
-    // ── Mission 1: Update payment + order in a transaction ──
-    const updatedPayment = await db.$transaction(async (tx) => {
-      const updated = await tx.payment.update({
-        where: { id },
+    const txResult = await db.$transaction(async (tx) => {
+      const changed = await tx.payment.updateMany({
+        where: { id, status: payment.status, ...(adminRestaurantId && { restaurantId: adminRestaurantId }) },
         data: {
           status,
           ...(transactionRef && { transactionRef }),
@@ -467,30 +358,31 @@ export async function PATCH(request: Request) {
           ...(status === "paid" && { paidAt: new Date().toISOString() }),
         },
       });
+      if (changed.count !== 1) return { conflict: true as const };
 
+      const order = await tx.order.findUnique({ where: { id: payment.orderId }, select: { status: true } });
       await tx.order.update({
         where: { id: payment.orderId },
-        data: { paymentStatus: status },
+        data: {
+          paymentStatus: status,
+          ...(status === "paid" && order?.status === "pending" ? { status: "confirmed" } : {}),
+        },
       });
-
-      // If payment confirmed, advance order status
-      if (status === "paid") {
-        const order = await tx.order.findUnique({ where: { id: payment.orderId } });
-        if (order && order.status === "pending") {
-          await tx.order.update({
-            where: { id: payment.orderId },
-            data: { status: "confirmed" },
-          });
-        }
-      }
-
-      return updated;
+      const updated = await tx.payment.findUnique({ where: { id } });
+      return { conflict: false as const, updated };
     }, {
       timeout: 10000,
-      ...(process.env.DATABASE_URL?.startsWith("postgresql") ? { isolationLevel: Prisma.TransactionIsolationLevel.Serializable } : {}),
+      ...(process.env.DATABASE_URL?.startsWith("postgresql")
+        ? { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+        : {}),
     });
 
-    // WebSocket notification
+    if (txResult.conflict) {
+      const current = await db.payment.findUnique({ where: { id } });
+      if (current?.status === status) return NextResponse.json(bigIntToNumber(current));
+      return NextResponse.json({ error: "Paiement modifié en parallèle", code: "PAYMENT_CONCURRENT_UPDATE" }, { status: 409 });
+    }
+
     try {
       const { broadcastToType } = await import("@/lib/websocket-server");
       const { WSEvents } = await import("@/lib/ws-events");
@@ -502,9 +394,9 @@ export async function PATCH(request: Request) {
       });
     } catch {}
 
-    return NextResponse.json(bigIntToNumber(updatedPayment));
+    return NextResponse.json(bigIntToNumber(txResult.updated));
   } catch (error) {
-    console.error(error);
+    console.error("[payment:PATCH]", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
