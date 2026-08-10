@@ -42,15 +42,22 @@ ALTER TABLE "Admin" ADD COLUMN IF NOT EXISTS "restaurantId" TEXT;
 ALTER TABLE "Admin" ADD COLUMN IF NOT EXISTS "mustChangePassword" BOOLEAN NOT NULL DEFAULT false;
 
 -- Best-effort deterministic backfill:
--- 1) principal restaurant belonging to the same Account;
--- 2) the only restaurant when this is a legacy single-tenant database.
+-- 1) use the principal restaurant only when an Account has EXACTLY ONE;
+-- 2) otherwise, use the only restaurant when this is a legacy single-tenant DB.
+-- Ambiguous multi-tenant rows deliberately remain NULL and are caught by the
+-- blocking readiness check instead of being assigned to a random tenant.
+WITH unique_principal AS (
+  SELECT "accountId", MIN("id") AS "restaurantId"
+  FROM "Restaurant"
+  WHERE "accountId" IS NOT NULL AND "type" = 'principal'
+  GROUP BY "accountId"
+  HAVING COUNT(*) = 1
+)
 UPDATE "Admin" a
-SET "restaurantId" = r."id"
-FROM "Restaurant" r
+SET "restaurantId" = up."restaurantId"
+FROM unique_principal up
 WHERE a."restaurantId" IS NULL
-  AND a."accountId" IS NOT NULL
-  AND r."accountId" = a."accountId"
-  AND r."type" = 'principal';
+  AND a."accountId" = up."accountId";
 
 DO $$
 DECLARE
