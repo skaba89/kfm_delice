@@ -1,6 +1,13 @@
-# KFM Delice - Render Deploy Trigger (auto on main push + manual dispatch)
+# KFM Delice - Render Deploy Trigger
+# Production auto-deploy runs only after the CI workflow completed successfully
+# on main. Manual dispatch remains available for controlled redeploys.
 name: Deploy to Render
+
 on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       environment:
@@ -14,54 +21,51 @@ on:
         required: false
         type: boolean
         default: false
-  push:
-    branches: [main]
-    paths:
-      - "src/**"
-      - "prisma/**"
-      - "public/**"
-      - "package.json"
-      - "package-lock.json"
-      - "next.config.ts"
-      - "tsconfig.json"
-      - "render.yaml"
-      - "render-build.sh"
-      - "render-start.sh"
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
     timeout-minutes: 10
-    # Mission 7: require CI to pass before deploy
-    needs: [sqlite-check, postgres-check]
-    # Mission 7: use environment protection (uncomment when environment is created in repo settings)
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'workflow_run' &&
+         github.event.workflow_run.conclusion == 'success' &&
+         github.event.workflow_run.head_branch == 'main')
+      }}
+    # Optional: enable a protected GitHub environment once configured.
     # environment: production
     steps:
-      - name: Check secret
-        id: check
+      - name: Check Render deploy hook secret
         env:
           HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
         run: |
           if [ -z "$HOOK_URL" ]; then
             echo "::error::RENDER_DEPLOY_HOOK_URL not set - refusing to deploy"
             exit 1
-          else
-            echo "skip=false" >> $GITHUB_OUTPUT
           fi
+
       - name: Trigger Render deploy hook
-        if: steps.check.outputs.skip != 'true'
         env:
           HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
           CLEAR_CACHE: ${{ github.event.inputs.clear_cache || 'false' }}
         run: |
-          echo "Triggering Render deploy..."
+          echo "Triggering gated Render deploy..."
           if [ "$CLEAR_CACHE" = "true" ]; then
-            curl -sSL -X POST -H "Content-Type: application/json" -d '{"clearCache": true}' -w "\nHTTP %{http_code}\n" "$HOOK_URL"
+            curl --fail-with-body -sSL -X POST \
+              -H "Content-Type: application/json" \
+              -d '{"clearCache": true}' \
+              "$HOOK_URL"
           else
-            curl -sSL -X POST -w "\nHTTP %{http_code}\n" "$HOOK_URL"
+            curl --fail-with-body -sSL -X POST "$HOOK_URL"
           fi
+
       - name: Summary
-        if: steps.check.outputs.skip != 'true'
+        env:
+          CI_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          echo "Deploy triggered. Commit: ${{ github.sha }} Branch: ${{ github.ref_name }}"
-          echo "Monitor: https://dashboard.render.com"
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "Render deploy triggered after successful CI. Commit: $CI_SHA"
+          else
+            echo "Manual Render deploy triggered. Commit context: ${{ github.sha }}"
+          fi
