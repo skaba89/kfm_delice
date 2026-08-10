@@ -4,13 +4,12 @@ import { NextResponse } from "next/server";
 import { authenticateAdmin, authenticateAny, hasRole } from "@/lib/auth";
 import { orderSchema, orderPatchSchema, isValidOrderTransition, ORDER_TRANSITIONS, publicOrderSchema, detectForbiddenOrderFields } from "@/lib/validations";
 import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, parseStatusFilter } from "@/lib/pagination";
-import { isRestaurantOpen } from "@/lib/constants";
-import { getRestaurantId, extractSlug, resolveTenant } from "@/lib/tenant";
+import { getRestaurantOrderingAvailability } from "@/lib/restaurant-availability";
+import { getRestaurantId, extractSlug, resolveTenant, resolveTenantFromRequest } from "@/lib/tenant";
 import { resolveTableQrToken, verifyTableBelongsToRestaurant } from "@/lib/table-qr";
 import { logAudit } from "@/lib/audit";
 import { rateLimit } from "@/lib/rate-limit";
 import { createOrderAtomically } from "@/lib/order-service";
-import { createHash } from "crypto";
 
 // GET: Role-based order listing (Mission 4 — Phase 3)
 //   - customer: only their own orders (by customerId, NEVER by customerName)
@@ -201,15 +200,6 @@ export async function POST(request: Request) {
     }
     const body = validation.data;
 
-    const authResult = await authenticateAdmin(request).catch(() => null);
-    const isAdminOverride = (rawBody as { adminOverride?: boolean }).adminOverride === true && authResult;
-    if ((body.orderType === "dine_in" || body.orderType === "takeaway") && !isRestaurantOpen() && !isAdminOverride) {
-      return NextResponse.json(
-        { error: "Le restaurant est actuellement ferme.", code: "RESTAURANT_CLOSED" },
-        { status: 400 }
-      );
-    }
-
     let restaurantId: string | null = null;
     let tableId: string | null = null;
     let tableNumberStr = "";
@@ -235,15 +225,38 @@ export async function POST(request: Request) {
           { status: 400 }
         );
       }
-      restaurantId = resolved.restaurantId;
+      // QR resolution must not bypass SaaS lifecycle enforcement. Resolve the
+      // QR's restaurant slug through the central active/trial tenant gate.
+      const tenant = await resolveTenant(resolved.restaurantSlug);
+      if (!tenant || tenant.restaurantId !== resolved.restaurantId) {
+        return NextResponse.json(
+          { error: "Restaurant indisponible", code: "TENANT_UNAVAILABLE" },
+          { status: 404 }
+        );
+      }
+      restaurantId = tenant.restaurantId;
       tableId = resolved.tableId;
       tableNumberStr = resolved.tableNumber;
     } else {
-      restaurantId = await getRestaurantId(request);
+      const tenant = await resolveTenantFromRequest(request);
+      restaurantId = tenant?.restaurantId || null;
     }
 
     if (!restaurantId) {
       return NextResponse.json({ error: "Restaurant non trouve", code: "RESTAURANT_NOT_FOUND" }, { status: 404 });
+    }
+
+    // Preserve the existing business rule (opening-hours gate for dine-in and
+    // takeaway) but use the tenant's actual RestaurantConfig instead of the
+    // global KFM 11h-23h fallback.
+    if (body.orderType === "dine_in" || body.orderType === "takeaway") {
+      const availability = await getRestaurantOrderingAvailability(restaurantId);
+      if (!availability.open) {
+        return NextResponse.json(
+          { error: "Le restaurant est actuellement ferme.", code: "RESTAURANT_CLOSED" },
+          { status: 400 }
+        );
+      }
     }
 
     if (tableId && !(await verifyTableBelongsToRestaurant(tableId, restaurantId))) {
@@ -260,10 +273,6 @@ export async function POST(request: Request) {
         customerId = auth.id;
       }
     } catch { /* walk-in order */ }
-
-    const rawBodyHash = createHash("sha256")
-      .update(JSON.stringify({ items: body.items, orderType: body.orderType, promoCode: body.promoCode }))
-      .digest("hex");
 
     const result = await createOrderAtomically(
       {
@@ -285,7 +294,6 @@ export async function POST(request: Request) {
         ...(tableNumberStr && { tableNumberStr }),
         ...(customerId && { customerId }),
         clientIp,
-        rawBodyHash,
       }
     );
 
