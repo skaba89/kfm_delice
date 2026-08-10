@@ -2,7 +2,7 @@ import { logger } from "@/lib/logger";
 import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, authenticateAny, hasRole } from "@/lib/auth";
-import { orderSchema, orderPatchSchema, isValidOrderTransition, ORDER_TRANSITIONS, publicOrderSchema, detectForbiddenOrderFields } from "@/lib/validations";
+import { orderSchema, orderPatchSchema, publicOrderSchema, detectForbiddenOrderFields } from "@/lib/validations";
 import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, parseStatusFilter } from "@/lib/pagination";
 import { getRestaurantOrderingAvailability } from "@/lib/restaurant-availability";
 import { getRestaurantId, extractSlug, resolveTenant, resolveTenantFromRequest } from "@/lib/tenant";
@@ -10,6 +10,7 @@ import { resolveTableQrToken, verifyTableBelongsToRestaurant } from "@/lib/table
 import { logAudit } from "@/lib/audit";
 import { rateLimit } from "@/lib/rate-limit";
 import { createOrderAtomically } from "@/lib/order-service";
+import { applyOrderPatchAtomically } from "@/lib/order-transition-service";
 
 // GET: Role-based order listing (Mission 4 — Phase 3)
 //   - customer: only their own orders (by customerId, NEVER by customerName)
@@ -389,252 +390,43 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: firstError }, { status: 400 });
     }
 
-    const { id, driverId, ...data } = validation.data;
-    if (!id) {
-      return NextResponse.json({ error: "ID requis" }, { status: 400 });
-    }
-
-    // ── Multi-tenant isolation ──────────────────────────────────
-    // Verify the order belongs to the admin's restaurant BEFORE updating.
-    const existingOrder = await db.order.findFirst({
-      where: { id, restaurantId: admin.restaurantId },
-      select: { id: true, driverId: true, total: true, deliveryFee: true, status: true },
+    const transition = await applyOrderPatchAtomically(validation.data, {
+      restaurantId: admin.restaurantId,
+      actorId: admin.id,
+      actorRole: admin.role,
     });
-    if (!existingOrder) {
-      return NextResponse.json({ error: "Commande introuvable" }, { status: 404 });
+
+    if (!transition.ok) {
+      return NextResponse.json(
+        { error: transition.error, code: transition.code },
+        { status: transition.status }
+      );
     }
 
-    const requestedStatus = data.status;
-    const statusChanged = Boolean(requestedStatus && requestedStatus !== existingOrder.status);
+    const order = transition.order;
+    const isTerminalTransition = transition.becameDelivered || transition.becameCancelled;
+    const driverId = transition.assignedDriverId;
 
-    // ── State machine: validate status transition ──────────────
-    if (statusChanged && requestedStatus) {
-      if (!isValidOrderTransition(existingOrder.status, requestedStatus)) {
-        return NextResponse.json(
-          {
-            error: `Transition invalide: ${existingOrder.status} → ${requestedStatus}. Transitions autorisées depuis "${existingOrder.status}": ${ORDER_TRANSITIONS[existingOrder.status]?.join(', ') || 'aucune (statut terminal)'}`,
-          },
-          { status: 400 }
-        );
-      }
-    }
-
-    // Validate cross-tenant references BEFORE writing them to the order.
-    let validatedDriver: { id: string; commissionRate: number } | null = null;
-    if (driverId) {
-      validatedDriver = await db.driver.findFirst({
-        where: { id: driverId, restaurantId: admin.restaurantId },
-        select: { id: true, commissionRate: true },
-      });
-      if (!validatedDriver) {
-        return NextResponse.json(
-          { error: "Livreur introuvable pour ce restaurant", code: "DRIVER_TENANT_MISMATCH" },
-          { status: 400 }
-        );
-      }
-    }
-
-    if (data.customerId) {
-      const customer = await db.customer.findFirst({
-        where: { id: data.customerId, restaurantId: admin.restaurantId },
-        select: { id: true },
-      });
-      if (!customer) {
-        return NextResponse.json(
-          { error: "Client introuvable pour ce restaurant", code: "CUSTOMER_TENANT_MISMATCH" },
-          { status: 400 }
-        );
-      }
-    }
-
-    const updateData: Record<string, unknown> = { ...data };
-    if (driverId !== undefined) updateData.driverId = driverId || null;
-
-    let order;
-
-    if (statusChanged && requestedStatus) {
-      // Atomic compare-and-set: only one concurrent request can win a given
-      // transition. This prevents duplicate financial/stock/loyalty effects
-      // when two workers process `delivering -> delivered` at the same time.
-      const transition = await db.order.updateMany({
-        where: {
-          id,
-          restaurantId: admin.restaurantId,
-          status: existingOrder.status,
-        },
-        data: updateData,
-      });
-
-      if (transition.count === 0) {
-        const current = await db.order.findFirst({
-          where: { id, restaurantId: admin.restaurantId },
-        });
-        if (!current) {
-          return NextResponse.json({ error: "Commande introuvable" }, { status: 404 });
-        }
-        // Idempotent replay: another request already completed exactly the
-        // requested transition. Return current state WITHOUT side effects.
-        if (current.status === requestedStatus) {
-          return NextResponse.json(bigIntToNumber(current));
-        }
-        return NextResponse.json(
-          { error: "La commande a été modifiée simultanément. Rechargez puis réessayez.", code: "ORDER_CONCURRENT_UPDATE" },
-          { status: 409 }
-        );
-      }
-
-      order = await db.order.findFirst({ where: { id, restaurantId: admin.restaurantId } });
-      if (!order) {
-        return NextResponse.json({ error: "Commande introuvable après mise à jour" }, { status: 404 });
-      }
-    } else {
-      order = await db.order.update({ where: { id }, data: updateData });
-    }
-
-    const becameDelivered = statusChanged && requestedStatus === "delivered";
-    const becameCancelled = statusChanged && requestedStatus === "cancelled";
-    const isTerminalTransition = becameDelivered || becameCancelled;
-    const effectiveDriverId = driverId !== undefined ? (driverId || null) : existingOrder.driverId;
-
-    // If the assignment changed, release the previous driver first.
-    if (driverId !== undefined && existingOrder.driverId && existingOrder.driverId !== driverId) {
-      await db.driver.updateMany({
-        where: { id: existingOrder.driverId, restaurantId: admin.restaurantId },
-        data: { status: "available" },
-      });
-    }
-
-    // Mark a newly assigned driver busy only for a non-terminal order.
-    if (driverId && validatedDriver && !isTerminalTransition) {
-      await db.driver.update({ where: { id: driverId }, data: { status: "busy" } });
-    }
-
-    // Terminal driver effects happen ONCE because the status CAS above has a
-    // single winner. Cancellation does not count as a completed delivery.
-    if (isTerminalTransition && effectiveDriverId) {
-      const driver = await db.driver.findFirst({
-        where: { id: effectiveDriverId, restaurantId: admin.restaurantId },
-        select: { id: true, commissionRate: true },
-      });
-      if (driver) {
-        const orderTotal = Number(existingOrder.total);
-        const orderDeliveryFee = Number(existingOrder.deliveryFee);
-        const commissionRate = Number(driver.commissionRate);
-        const computedEarning = Math.max(
-          Math.round(orderTotal * (commissionRate / 100)),
-          orderDeliveryFee
-        );
-
-        await db.driver.update({
-          where: { id: effectiveDriverId },
-          data: {
-            status: "available",
-            ...(becameDelivered ? {
-              totalDeliveries: { increment: 1 },
-              totalEarnings: { increment: computedEarning },
-            } : {}),
-          },
-        });
-
-        if (becameDelivered) {
-          await db.order.update({ where: { id }, data: { driverEarning: computedEarning } });
-        }
-      }
-    }
-
-    // ── Restore stock on cancellation — transition-only, never on replay ──
-    if (becameCancelled) {
+    // Tier is a derived projection of totalSpent. Critical loyalty counters
+    // and history were committed atomically with the order status; this
+    // projection can be reconciled safely even on a delivered replay.
+    if (order.status === "delivered" && transition.customerId) {
       try {
-        const { restoreStockForOrder } = await import('@/lib/stock-manager');
-        const fullOrderForStock = await db.order.findUnique({
-          where: { id },
-          select: { items: true },
-        });
-        if (fullOrderForStock) {
-          const orderedItems = JSON.parse(
-            typeof fullOrderForStock.items === 'string'
-              ? fullOrderForStock.items
-              : JSON.stringify(fullOrderForStock.items)
-          ) as { name: string; qty: number }[];
-          await restoreStockForOrder(id, admin.restaurantId, orderedItems);
-        }
-      } catch { /* stock restore failed — non-blocking */ }
-    }
-
-    // ── Award loyalty points + update customer stats on delivery ONCE ──
-    if (becameDelivered) {
-      try {
-        const fullOrder = await db.order.findUnique({
-          where: { id },
-          select: { id: true, customerId: true, total: true, restaurantId: true },
-        });
-
-        if (fullOrder?.customerId) {
-          const restaurant = await db.restaurant.findUnique({
-            where: { id: fullOrder.restaurantId },
-            select: { loyaltyPointsRate: true },
-          });
-          const rate = restaurant?.loyaltyPointsRate ?? 1;
-          const orderTotal = Number(fullOrder.total);
-          const pointsEarned = Math.floor(orderTotal / 1000) * rate;
-
-          if (pointsEarned > 0) {
-            await db.customer.update({
-              where: { id: fullOrder.customerId },
-              data: {
-                loyaltyPoints: { increment: pointsEarned },
-                totalOrders: { increment: 1 },
-                totalSpent: { increment: fullOrder.total },
-              },
-            });
-
-            await db.loyaltyPointsHistory.create({
-              data: {
-                customerId: fullOrder.customerId,
-                referenceId: fullOrder.id,
-                points: pointsEarned,
-                type: "earned",
-                description: `Commande #${fullOrder.id.slice(-8).toUpperCase()}`,
-              },
-            }).catch(() => {});
-          } else {
-            await db.customer.update({
-              where: { id: fullOrder.customerId },
-              data: {
-                totalOrders: { increment: 1 },
-                totalSpent: { increment: fullOrder.total },
-              },
-            });
-          }
-
+        const { updateCustomerTier } = await import("@/lib/loyalty-tiers");
+        const newTier = await updateCustomerTier(transition.customerId, admin.restaurantId);
+        if (newTier) {
+          logger.debug(`[orders] Customer ${transition.customerId} tier reconciled: ${newTier}`);
           try {
-            const { updateCustomerTier } = await import("@/lib/loyalty-tiers");
-            const newTier = await updateCustomerTier(fullOrder.customerId, fullOrder.restaurantId);
-            if (newTier) {
-              logger.debug(`[orders] Customer ${fullOrder.customerId} promoted to tier: ${newTier}`);
-              try {
-                const { broadcastToType } = await import("@/lib/websocket-server");
-                broadcastToType("customer", "tier:upgraded", {
-                  customerId: fullOrder.customerId,
-                  newTier,
-                });
-              } catch { /* WS not available */ }
-            }
-          } catch (e) {
-            console.warn("[orders] Tier update failed (non-blocking):", e instanceof Error ? e.message : String(e));
-          }
+            const { broadcastToType } = await import("@/lib/websocket-server");
+            broadcastToType("customer", "tier:upgraded", {
+              customerId: transition.customerId,
+              newTier,
+            });
+          } catch { /* WS not available */ }
         }
       } catch (e) {
-        console.warn("[orders] Loyalty award failed (non-blocking):", e instanceof Error ? e.message : String(e));
+        console.warn("[orders] Tier projection update failed:", e instanceof Error ? e.message : String(e));
       }
-    }
-
-    // ── Auto-generate invoice on delivery ONCE ──
-    if (becameDelivered) {
-      try {
-        const { autoGenerateInvoice } = await import('@/lib/invoice-utils');
-        await autoGenerateInvoice(id, admin.restaurantId, admin.id, request);
-      } catch { /* invoice generation failed — non-blocking */ }
     }
 
     // WebSocket: broadcast the resulting order state.
