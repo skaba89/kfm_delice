@@ -121,6 +121,36 @@ jobs:
       - name: Prisma migrate deploy (NO fallback — strict)
         run: npx prisma migrate deploy
 
+      - name: Regression — recover historical PromoCode P3009
+        run: |
+          node <<'NODE'
+          const { PrismaClient } = require('@prisma/client');
+          const db = new PrismaClient();
+          (async () => {
+            try {
+              const changed = await db.$executeRawUnsafe(`
+                UPDATE _prisma_migrations
+                SET finished_at = NULL,
+                    rolled_back_at = NULL,
+                    applied_steps_count = 0,
+                    logs = 'CI simulated P3009 for PromoCode recovery test'
+                WHERE migration_name = '20260713040000_add_promo_codes'
+              `);
+              if (Number(changed) < 1) {
+                throw new Error('PromoCode migration row not found for P3009 regression test');
+              }
+              console.log('Historical PromoCode migration marked failed in ephemeral CI DB.');
+            } finally {
+              await db.$disconnect();
+            }
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+          node scripts/repair-promo-migration.cjs
+          npx prisma migrate deploy
+
       - name: Runtime schema readiness (BLOCKING)
         run: node scripts/verify-schema-read-only.cjs
 
