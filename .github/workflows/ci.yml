@@ -69,7 +69,7 @@ jobs:
         run: npm run test
 
   # ─────────────────────────────────────────────────────────────
-  # Job 2: PostgreSQL — migrate + build + test (BLOCKING)
+  # Job 2: PostgreSQL — migrate + schema readiness + strict E2E
   # ─────────────────────────────────────────────────────────────
   postgres-check:
     runs-on: ubuntu-latest
@@ -84,7 +84,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres -d kfm_test"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -121,6 +121,9 @@ jobs:
       - name: Prisma migrate deploy (NO fallback — strict)
         run: npx prisma migrate deploy
 
+      - name: Runtime schema readiness (BLOCKING)
+        run: node scripts/verify-schema-read-only.cjs
+
       - name: Build
         run: npm run build
 
@@ -129,16 +132,46 @@ jobs:
           NODE_ENV: test
         run: npm run test
 
-      # ── Mission 11.14: E2E QR scenario ──
-      # Starts the Next.js server, waits for /api/status to respond,
-      # then runs the full QR table scenario end-to-end. The report
-      # JSON is uploaded as a build artifact for debugging.
+      # Seed is explicit and verified. We intentionally do NOT use `npm run start`
+      # here because its historical semicolon allowed Next.js to start after a
+      # failed seed and produced false-green E2E runs.
+      - name: Seed CI database
+        run: node scripts/auto-seed.cjs
+
+      - name: Verify CI seed (BLOCKING)
+        run: |
+          node <<'NODE'
+          const { PrismaClient } = require('@prisma/client');
+          const db = new PrismaClient();
+          (async () => {
+            try {
+              const [restaurant, admin, menuCount] = await Promise.all([
+                db.restaurant.findUnique({ where: { slug: 'kfm-delice' }, select: { id: true } }),
+                db.admin.findUnique({ where: { email: 'admin@kfm-delice.com' }, select: { id: true, restaurantId: true } }),
+                db.menuItem.count({ where: { available: true } }),
+              ]);
+              if (!restaurant || !admin || !admin.restaurantId || menuCount < 1) {
+                console.error('CI seed verification failed', { restaurant: !!restaurant, admin: !!admin, menuCount });
+                process.exit(1);
+              }
+              console.log('CI seed verified', { restaurantId: restaurant.id, adminId: admin.id, menuCount });
+            } finally {
+              await db.$disconnect();
+            }
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+
+      - name: Schema readiness after seed (BLOCKING)
+        run: node scripts/verify-schema-read-only.cjs
+
       - name: Start Next.js server
         run: |
-          npm run start &
+          npx next start -p 3000 -H 0.0.0.0 &
           SERVER_PID=$!
           echo "SERVER_PID=$SERVER_PID" >> $GITHUB_ENV
-          # Wait up to 60s for /api/status to return 200
           for i in $(seq 1 30); do
             if curl -sf http://localhost:3000/api/status > /dev/null 2>&1; then
               echo "Server is up after ${i}x2s"
@@ -148,27 +181,26 @@ jobs:
           done
           curl -sf http://localhost:3000/api/status > /dev/null || (echo "Server did not start in time" && exit 1)
 
-      - name: Run E2E QR tests
+      - name: Run strict production contract E2E
         env:
           BASE_URL: "http://localhost:3000"
           E2E_ADMIN_EMAIL: "admin@kfm-delice.com"
-          E2E_ADMIN_PASSWORD: "AdminKFM2026!"
+          E2E_ADMIN_PASSWORD: "kfm2024"
           E2E_SLUG: "kfm-delice"
-          E2E_SAFE_MODE: "true"
-        run: python3 scripts/e2e-qr-tables.py
+        run: python3 scripts/e2e-production-contract.py
 
-      - name: Upload QR E2E report
+      - name: Upload production contract E2E report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-qr-tables-report
-          path: artifacts/e2e-qr-tables-report.json
-          if-no-files-found: warn
+          name: e2e-production-contract-report
+          path: artifacts/e2e-production-contract-report.json
+          if-no-files-found: error
 
       - name: Stop Next.js server
         if: always()
         run: |
-          if [ -n "$SERVER_PID" ]; then kill $SERVER_PID 2>/dev/null || true; fi
+          if [ -n "${SERVER_PID:-}" ]; then kill "$SERVER_PID" 2>/dev/null || true; fi
 
   # ─────────────────────────────────────────────────────────────
   # Job 3: Playwright E2E tests (BLOCKING — Mission 10/7)

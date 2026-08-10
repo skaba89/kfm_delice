@@ -395,8 +395,6 @@ export async function PATCH(request: Request) {
 
     // ── Multi-tenant isolation ──────────────────────────────────
     // Verify the order belongs to the admin's restaurant BEFORE updating.
-    // Prevents cross-tenant modifications (admin of restaurant A must not
-    // be able to mutate orders of restaurant B by guessing an order UUID).
     const existingOrder = await db.order.findFirst({
       where: { id, restaurantId: admin.restaurantId },
       select: { id: true, driverId: true, total: true, deliveryFee: true, status: true },
@@ -405,13 +403,44 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "Commande introuvable" }, { status: 404 });
     }
 
+    const requestedStatus = data.status;
+    const statusChanged = Boolean(requestedStatus && requestedStatus !== existingOrder.status);
+
     // ── State machine: validate status transition ──────────────
-    if (data.status && data.status !== existingOrder.status) {
-      if (!isValidOrderTransition(existingOrder.status, data.status)) {
+    if (statusChanged && requestedStatus) {
+      if (!isValidOrderTransition(existingOrder.status, requestedStatus)) {
         return NextResponse.json(
           {
-            error: `Transition invalide: ${existingOrder.status} → ${data.status}. Transitions autorisées depuis "${existingOrder.status}": ${ORDER_TRANSITIONS[existingOrder.status]?.join(', ') || 'aucune (statut terminal)'}`,
+            error: `Transition invalide: ${existingOrder.status} → ${requestedStatus}. Transitions autorisées depuis "${existingOrder.status}": ${ORDER_TRANSITIONS[existingOrder.status]?.join(', ') || 'aucune (statut terminal)'}`,
           },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Validate cross-tenant references BEFORE writing them to the order.
+    let validatedDriver: { id: string; commissionRate: number } | null = null;
+    if (driverId) {
+      validatedDriver = await db.driver.findFirst({
+        where: { id: driverId, restaurantId: admin.restaurantId },
+        select: { id: true, commissionRate: true },
+      });
+      if (!validatedDriver) {
+        return NextResponse.json(
+          { error: "Livreur introuvable pour ce restaurant", code: "DRIVER_TENANT_MISMATCH" },
+          { status: 400 }
+        );
+      }
+    }
+
+    if (data.customerId) {
+      const customer = await db.customer.findFirst({
+        where: { id: data.customerId, restaurantId: admin.restaurantId },
+        select: { id: true },
+      });
+      if (!customer) {
+        return NextResponse.json(
+          { error: "Client introuvable pour ce restaurant", code: "CUSTOMER_TENANT_MISMATCH" },
           { status: 400 }
         );
       }
@@ -419,57 +448,101 @@ export async function PATCH(request: Request) {
 
     const updateData: Record<string, unknown> = { ...data };
     if (driverId !== undefined) updateData.driverId = driverId || null;
-    const order = await db.order.update({ where: { id }, data: updateData });
-    // Update driver status if assigned
-    if (driverId) {
-      // Also verify the driver belongs to the same restaurant (defense in depth).
+
+    let order;
+
+    if (statusChanged && requestedStatus) {
+      // Atomic compare-and-set: only one concurrent request can win a given
+      // transition. This prevents duplicate financial/stock/loyalty effects
+      // when two workers process `delivering -> delivered` at the same time.
+      const transition = await db.order.updateMany({
+        where: {
+          id,
+          restaurantId: admin.restaurantId,
+          status: existingOrder.status,
+        },
+        data: updateData,
+      });
+
+      if (transition.count === 0) {
+        const current = await db.order.findFirst({
+          where: { id, restaurantId: admin.restaurantId },
+        });
+        if (!current) {
+          return NextResponse.json({ error: "Commande introuvable" }, { status: 404 });
+        }
+        // Idempotent replay: another request already completed exactly the
+        // requested transition. Return current state WITHOUT side effects.
+        if (current.status === requestedStatus) {
+          return NextResponse.json(bigIntToNumber(current));
+        }
+        return NextResponse.json(
+          { error: "La commande a été modifiée simultanément. Rechargez puis réessayez.", code: "ORDER_CONCURRENT_UPDATE" },
+          { status: 409 }
+        );
+      }
+
+      order = await db.order.findFirst({ where: { id, restaurantId: admin.restaurantId } });
+      if (!order) {
+        return NextResponse.json({ error: "Commande introuvable après mise à jour" }, { status: 404 });
+      }
+    } else {
+      order = await db.order.update({ where: { id }, data: updateData });
+    }
+
+    const becameDelivered = statusChanged && requestedStatus === "delivered";
+    const becameCancelled = statusChanged && requestedStatus === "cancelled";
+    const isTerminalTransition = becameDelivered || becameCancelled;
+    const effectiveDriverId = driverId !== undefined ? (driverId || null) : existingOrder.driverId;
+
+    // If the assignment changed, release the previous driver first.
+    if (driverId !== undefined && existingOrder.driverId && existingOrder.driverId !== driverId) {
+      await db.driver.updateMany({
+        where: { id: existingOrder.driverId, restaurantId: admin.restaurantId },
+        data: { status: "available" },
+      });
+    }
+
+    // Mark a newly assigned driver busy only for a non-terminal order.
+    if (driverId && validatedDriver && !isTerminalTransition) {
+      await db.driver.update({ where: { id: driverId }, data: { status: "busy" } });
+    }
+
+    // Terminal driver effects happen ONCE because the status CAS above has a
+    // single winner. Cancellation does not count as a completed delivery.
+    if (isTerminalTransition && effectiveDriverId) {
       const driver = await db.driver.findFirst({
-        where: { id: driverId, restaurantId: admin.restaurantId },
+        where: { id: effectiveDriverId, restaurantId: admin.restaurantId },
         select: { id: true, commissionRate: true },
       });
       if (driver) {
-        await db.driver.update({ where: { id: driverId }, data: { status: "busy" } });
-      }
-    }
-    // If order delivered or cancelled, free up driver + credit driver earnings on delivery
-    if (data.status === "delivered" || data.status === "cancelled") {
-      if (existingOrder.driverId) {
-        const driver = await db.driver.findFirst({
-          where: { id: existingOrder.driverId, restaurantId: admin.restaurantId },
-          select: { id: true, commissionRate: true },
-        });
-        if (driver) {
-          // Convert BigInt fields to Number before arithmetic — PostgreSQL
-          // returns BigInt for monetary fields; SQLite returns number.
-          // Number() is a no-op on number and wraps BigInt safely.
-          const orderTotal = Number(existingOrder.total);
-          const orderDeliveryFee = Number(existingOrder.deliveryFee);
-          const commissionRate = Number(driver.commissionRate);
-          const computedEarning = Math.max(
-            Math.round(orderTotal * (commissionRate / 100)),
-            orderDeliveryFee
-          );
-          await db.driver.update({
-            where: { id: existingOrder.driverId },
-            data: {
-              status: "available",
+        const orderTotal = Number(existingOrder.total);
+        const orderDeliveryFee = Number(existingOrder.deliveryFee);
+        const commissionRate = Number(driver.commissionRate);
+        const computedEarning = Math.max(
+          Math.round(orderTotal * (commissionRate / 100)),
+          orderDeliveryFee
+        );
+
+        await db.driver.update({
+          where: { id: effectiveDriverId },
+          data: {
+            status: "available",
+            ...(becameDelivered ? {
               totalDeliveries: { increment: 1 },
-              // Credit earnings on delivery: commission % of order total (or delivery fee, whichever is higher)
-              ...(data.status === "delivered" ? {
-                totalEarnings: { increment: computedEarning },
-              } : {}),
-            },
-          });
-          // Persist the earning on the order for history
-          if (data.status === "delivered") {
-            await db.order.update({ where: { id }, data: { driverEarning: computedEarning } });
-          }
+              totalEarnings: { increment: computedEarning },
+            } : {}),
+          },
+        });
+
+        if (becameDelivered) {
+          await db.order.update({ where: { id }, data: { driverEarning: computedEarning } });
         }
       }
     }
 
-    // ── Restore stock on cancellation ──
-    if (data.status === "cancelled") {
+    // ── Restore stock on cancellation — transition-only, never on replay ──
+    if (becameCancelled) {
       try {
         const { restoreStockForOrder } = await import('@/lib/stock-manager');
         const fullOrderForStock = await db.order.findUnique({
@@ -482,22 +555,20 @@ export async function PATCH(request: Request) {
               ? fullOrderForStock.items
               : JSON.stringify(fullOrderForStock.items)
           ) as { name: string; qty: number }[];
-          restoreStockForOrder(id, admin.restaurantId, orderedItems);
+          await restoreStockForOrder(id, admin.restaurantId, orderedItems);
         }
       } catch { /* stock restore failed — non-blocking */ }
     }
 
-    // ── Award loyalty points + update customer stats on delivery ──
-    if (data.status === "delivered") {
+    // ── Award loyalty points + update customer stats on delivery ONCE ──
+    if (becameDelivered) {
       try {
-        // Fetch the full order to get customerId + total
         const fullOrder = await db.order.findUnique({
           where: { id },
           select: { id: true, customerId: true, total: true, restaurantId: true },
         });
 
         if (fullOrder?.customerId) {
-          // Get restaurant's loyalty rate (default 1 point per 1000 GNF)
           const restaurant = await db.restaurant.findUnique({
             where: { id: fullOrder.restaurantId },
             select: { loyaltyPointsRate: true },
@@ -507,7 +578,6 @@ export async function PATCH(request: Request) {
           const pointsEarned = Math.floor(orderTotal / 1000) * rate;
 
           if (pointsEarned > 0) {
-            // Increment customer loyalty points + totalOrders + totalSpent
             await db.customer.update({
               where: { id: fullOrder.customerId },
               data: {
@@ -517,7 +587,6 @@ export async function PATCH(request: Request) {
               },
             });
 
-            // Create loyalty history entry
             await db.loyaltyPointsHistory.create({
               data: {
                 customerId: fullOrder.customerId,
@@ -526,9 +595,8 @@ export async function PATCH(request: Request) {
                 type: "earned",
                 description: `Commande #${fullOrder.id.slice(-8).toUpperCase()}`,
               },
-            }).catch(() => {}); // non-blocking — table may not exist on some setups
+            }).catch(() => {});
           } else {
-            // Even if no points (order < 1000 GNF), still update totalOrders + totalSpent
             await db.customer.update({
               where: { id: fullOrder.customerId },
               data: {
@@ -538,16 +606,11 @@ export async function PATCH(request: Request) {
             });
           }
 
-          // ── Mission P3.8: Update customer's loyalty tier ──
-          // After totalSpent increases, check if the customer qualifies
-          // for a higher tier. Non-blocking — failures are logged but
-          // don't fail the order.
           try {
             const { updateCustomerTier } = await import("@/lib/loyalty-tiers");
             const newTier = await updateCustomerTier(fullOrder.customerId, fullOrder.restaurantId);
             if (newTier) {
               logger.debug(`[orders] Customer ${fullOrder.customerId} promoted to tier: ${newTier}`);
-              // Broadcast tier upgrade via WebSocket (non-blocking)
               try {
                 const { broadcastToType } = await import("@/lib/websocket-server");
                 broadcastToType("customer", "tier:upgraded", {
@@ -565,15 +628,15 @@ export async function PATCH(request: Request) {
       }
     }
 
-    // ── Auto-generate invoice on delivery ──
-    if (data.status === "delivered") {
+    // ── Auto-generate invoice on delivery ONCE ──
+    if (becameDelivered) {
       try {
         const { autoGenerateInvoice } = await import('@/lib/invoice-utils');
-        autoGenerateInvoice(id, admin.restaurantId, admin.id, request);
+        await autoGenerateInvoice(id, admin.restaurantId, admin.id, request);
       } catch { /* invoice generation failed — non-blocking */ }
     }
 
-    // WebSocket: broadcast order status change
+    // WebSocket: broadcast the resulting order state.
     try {
       const { broadcastToType, sendToUser } = await import('@/lib/websocket-server');
       const { WSEvents } = await import('@/lib/ws-events');
@@ -582,7 +645,7 @@ export async function PATCH(request: Request) {
       if (order.driverId) {
         sendToUser(order.driverId, 'driver', WSEvents.ORDER_STATUS_CHANGED, { orderId: order.id, status: order.status });
       }
-      if (driverId && data.status !== 'delivered' && data.status !== 'cancelled') {
+      if (driverId && !isTerminalTransition) {
         sendToUser(driverId, 'driver', WSEvents.ORDER_ASSIGNED, { orderId: order.id, customerName: order.customerName });
       }
     } catch (e) { /* WS not available, fall back to polling */ }
