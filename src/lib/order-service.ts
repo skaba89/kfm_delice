@@ -128,7 +128,7 @@ export async function createOrderAtomically(
   const menuItemIds = input.items.map(i => i.menuItemId);
   const menuItems = await db.menuItem.findMany({
     where: { id: { in: menuItemIds }, restaurantId },
-    select: { id: true, name: true, price: true, available: true },
+    select: { id: true, name: true, price: true, available: true, stockItemId: true },
   });
 
   const itemsByMenuId = new Map(menuItems.map(m => [m.id, m]));
@@ -153,6 +153,7 @@ export async function createOrderAtomically(
       quantity,
       note: item.note || '',
       lineTotal: unitPrice * quantity,
+      stockItemId: dbItem.stockItemId || null,
     };
   });
   const subtotal = orderItemData.reduce((sum, oi) => sum + oi.lineTotal, 0);
@@ -302,6 +303,44 @@ export async function createOrderAtomically(
           lineTotal: oi.lineTotal as any,
           restaurantId,
         })) as any,
+      });
+    }
+
+    // Stock consumption is part of the SAME transaction as the order.
+    // PostgreSQL runs this transaction at Serializable isolation, so concurrent
+    // orders cannot silently overwrite each other's stock updates. We preserve
+    // the historical clamp-to-zero behavior instead of introducing a new
+    // out-of-stock rejection rule in this hardening change.
+    const stockConsumption = new Map<string, number>();
+    for (const item of orderItemData) {
+      if (!item.stockItemId) continue;
+      stockConsumption.set(
+        item.stockItemId,
+        (stockConsumption.get(item.stockItemId) || 0) + item.quantity
+      );
+    }
+    for (const [stockItemId, requestedQty] of stockConsumption) {
+      const stock = await tx.stockItem.findFirst({
+        where: { id: stockItemId, restaurantId },
+        select: { id: true, quantity: true },
+      });
+      if (!stock) continue;
+      const newQuantity = Math.max(0, stock.quantity - requestedQty);
+      const consumed = stock.quantity - newQuantity;
+      if (consumed <= 0) continue;
+      await tx.stockItem.update({
+        where: { id: stockItemId },
+        data: { quantity: newQuantity },
+      });
+      await tx.stockMovement.create({
+        data: {
+          stockItemId,
+          type: 'out',
+          quantity: consumed,
+          reason: `Commande ${order.id}`,
+          actor: 'system',
+          restaurantId,
+        },
       });
     }
 
