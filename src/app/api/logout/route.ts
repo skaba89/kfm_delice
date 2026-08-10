@@ -1,38 +1,49 @@
 import { dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
-import { authenticateAny } from "@/lib/auth";
+import { authenticateAny, extractToken, verifyToken, revokeToken } from "@/lib/auth";
 import { revokeAllUserTokens, clearRefreshTokenCookie } from "@/lib/refresh-token";
 import { logAudit } from "@/lib/audit";
 
 /**
  * POST /api/logout
- * Mission 7: Revoke all refresh tokens for the user and clear the cookie.
- *
- * The access JWT is short-lived (15min) and will expire naturally.
- * Refresh tokens are revoked immediately so they cannot be used to
- * obtain new access JWTs.
+ * Revokes both the current access JWT (jti) and all refresh tokens for the
+ * authenticated identity, then clears the refresh-token cookie.
  */
 export async function POST(request: Request) {
   try {
     await dbReady;
 
+    const rawAccessToken = extractToken(request);
+    const accessPayload = rawAccessToken ? verifyToken(rawAccessToken) : null;
     const auth = await authenticateAny(request);
+
     if (!auth) {
-      // Even if not authenticated, clear the cookie
       const response = NextResponse.json({ ok: true });
       clearRefreshTokenCookie(response);
       return response;
     }
 
-    // Revoke all refresh tokens for this user
-    const revokedCount = await revokeAllUserTokens(auth.id, auth.type);
+    const revokedRefreshTokens = await revokeAllUserTokens(auth.id, auth.type);
 
-    // Audit log (non-blocking)
+    if (accessPayload?.jti) {
+      const expiresAt = accessPayload.exp
+        ? new Date(accessPayload.exp * 1000)
+        : new Date(Date.now() + 20 * 60 * 1000);
+      await revokeToken(accessPayload.jti, auth.id, auth.type, expiresAt, "logout");
+    }
+
     await logAudit({
       actorId: auth.id,
       actorType: auth.type,
       action: "logout",
-      entityType: auth.type === "admin" ? "Admin" : auth.type === "customer" ? "Customer" : auth.type === "driver" ? "Driver" : "PlatformAdmin",
+      entityType:
+        auth.type === "admin"
+          ? "Admin"
+          : auth.type === "customer"
+            ? "Customer"
+            : auth.type === "driver"
+              ? "Driver"
+              : "PlatformAdmin",
       entityId: auth.id,
       ...(auth.restaurantId && { restaurantId: auth.restaurantId }),
       request,
@@ -40,12 +51,15 @@ export async function POST(request: Request) {
 
     const response = NextResponse.json({
       ok: true,
-      revokedTokens: revokedCount,
+      revokedTokens: revokedRefreshTokens,
+      accessTokenRevoked: Boolean(accessPayload?.jti),
     });
     clearRefreshTokenCookie(response);
     return response;
   } catch (error) {
     console.error("[logout] Error:", error);
-    return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
+    const response = NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
+    clearRefreshTokenCookie(response);
+    return response;
   }
 }

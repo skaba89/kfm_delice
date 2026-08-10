@@ -1,96 +1,66 @@
 import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
-import { verifyPassword, generateToken } from "@/lib/auth";
+import { verifyPassword } from "@/lib/auth";
 import { rateLimit } from "@/lib/rate-limit";
 import { driverLoginSchema } from "@/lib/validations";
 import { getRestaurantId } from "@/lib/tenant";
+import { issueTokenPair, setRefreshTokenCookie } from "@/lib/refresh-token";
 
 export async function POST(request: Request) {
-  // Rate limiting — check before any other logic
   const clientIp = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "unknown";
   const { allowed, remaining } = await rateLimit(clientIp, 5, 60000);
   if (!allowed) {
     return NextResponse.json(
       { error: "Trop de tentatives. Réessayez dans une minute." },
-      {
-        status: 429,
-        headers: { "Retry-After": "60", "X-RateLimit-Remaining": String(remaining) },
-      }
+      { status: 429, headers: { "Retry-After": "60", "X-RateLimit-Remaining": String(remaining) } }
     );
   }
 
-  const steps: string[] = [];
-
   try {
-    steps.push("dbReady");
     await dbReady;
-
-    steps.push("parse-body");
     const body = await request.json();
-    steps.push("validate");
     const validation = driverLoginSchema.safeParse(body);
     if (!validation.success) {
-      const firstError = validation.error.issues[0]?.message || "Données invalides";
-      return NextResponse.json({ error: firstError }, { status: 400 });
-    }
-
-    const { email, password } = validation.data;
-
-    steps.push("get-restaurant-id");
-    const restaurantId = await getRestaurantId(request);
-    if (!restaurantId) {
       return NextResponse.json(
-        { error: "Restaurant non trouvé", debug: `steps=${steps.join(",")}; slug-header=${request.headers.get("x-restaurant-slug") || "(none)"}` },
-        { status: 404 }
+        { error: validation.error.issues[0]?.message || "Données invalides" },
+        { status: 400 }
       );
     }
 
-    steps.push("find-driver");
-    // Try WITHOUT include first — if the relation is broken, this will still work
-    let driver;
-    try {
-      driver = await db.driver.findFirst({
-        where: { email, restaurantId },
-        include: { restaurant: { select: { slug: true } } },
-      });
-    } catch (includeErr) {
-      console.error("[driver-login] findFirst with include failed, trying without:", includeErr);
-      const basicDriver = await db.driver.findFirst({
-        where: { email, restaurantId },
-      });
-      if (basicDriver) {
-        const restaurant = await db.restaurant.findUnique({
-          where: { id: basicDriver.restaurantId },
-          select: { slug: true },
-        });
-        driver = { ...basicDriver, restaurant };
-      }
+    const { email, password } = validation.data;
+    const restaurantId = await getRestaurantId(request);
+    if (!restaurantId) {
+      return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
     }
+
+    const driver = await db.driver.findFirst({
+      where: { email, restaurantId },
+      include: { restaurant: { select: { slug: true } } },
+    });
 
     if (!driver || !driver.password) {
       return NextResponse.json({ error: "Identifiants incorrects" }, { status: 401 });
     }
 
-    steps.push("verify-password");
-    const isValid = await verifyPassword(password, driver.password);
-    if (!isValid) {
+    if (!(await verifyPassword(password, driver.password))) {
       return NextResponse.json({ error: "Identifiants incorrects" }, { status: 401 });
     }
 
-    steps.push("generate-token");
+    if (driver.status === "inactive") {
+      return NextResponse.json({ error: "Compte livreur désactivé" }, { status: 403 });
+    }
+
     const restaurantSlug = driver.restaurant?.slug || "";
-    const token = generateToken({
-      id: driver.id,
+    const tokenPair = await issueTokenPair({
+      userId: driver.id,
+      userType: "driver",
       email: driver.email,
       role: "driver",
-      type: "driver",
       restaurantId: driver.restaurantId,
       restaurantSlug,
     });
 
-    steps.push("done");
-
-    return NextResponse.json({
+    const response = NextResponse.json({
       id: driver.id,
       email: driver.email,
       name: driver.name,
@@ -106,15 +76,17 @@ export async function POST(request: Request) {
       lng: driver.lng,
       restaurantId: driver.restaurantId,
       restaurantSlug,
-      token,
+      token: tokenPair.accessToken,
+      refreshTokenExpiresAt: tokenPair.expiresAt.toISOString(),
     });
+    setRefreshTokenCookie(response, tokenPair.refreshToken, tokenPair.expiresAt);
+    return response;
   } catch (error) {
     console.error("[driver-login] Error:", error);
-    const errMsg = error instanceof Error ? error.message : "Erreur inconnue";
     return NextResponse.json(
       {
         error: "Erreur de connexion",
-        ...(process.env.NODE_ENV !== "production" ? { debug: errMsg } : {}),
+        ...(process.env.NODE_ENV !== "production" && error instanceof Error ? { debug: error.message } : {}),
       },
       { status: 500 }
     );
