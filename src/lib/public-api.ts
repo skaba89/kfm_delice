@@ -58,6 +58,96 @@ export interface PublicApiFetchOptions extends RequestInit {
   slug?: string;
 }
 
+type JsonRecord = Record<string, unknown>;
+
+/**
+ * Temporary compatibility boundary for the public menu UI.
+ *
+ * The order API is intentionally server-authoritative: prices, totals,
+ * discounts, taxes, delivery fees and statuses must never be trusted from
+ * the browser. Older menu components still include some of those fields and
+ * use the legacy item shape { id, qty, name, price }.
+ *
+ * This function converts only the safe identifiers/quantities to the strict
+ * POST /api/orders contract and DROPS every client-computed monetary field.
+ * It does not weaken the server validation and can be removed once every
+ * public ordering surface emits the strict contract directly.
+ */
+export function normalizePublicOrderPayload(input: unknown): JsonRecord {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return {};
+  }
+
+  const raw = input as JsonRecord;
+  const rawItems = Array.isArray(raw.items) ? raw.items : [];
+  const items = rawItems
+    .map((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+      const item = entry as JsonRecord;
+      const menuItemId =
+        typeof item.menuItemId === "string" && item.menuItemId.length > 0
+          ? item.menuItemId
+          : typeof item.id === "string" && item.id.length > 0
+            ? item.id
+            : "";
+      const quantityRaw = item.quantity ?? item.qty;
+      const quantity = typeof quantityRaw === "number" ? quantityRaw : Number(quantityRaw);
+      if (!menuItemId || !Number.isInteger(quantity) || quantity < 1) return null;
+
+      return {
+        menuItemId,
+        quantity,
+        ...(typeof item.note === "string" && item.note.length > 0 ? { note: item.note } : {}),
+      };
+    })
+    .filter((item): item is { menuItemId: string; quantity: number; note?: string } => item !== null);
+
+  const manualTable = Number(raw.tableNumber);
+  const existingNote = typeof raw.note === "string" ? raw.note.trim() : "";
+  const manualTableNote =
+    !raw.tableQrToken && Number.isInteger(manualTable) && manualTable > 0
+      ? `[Table ${manualTable}]${existingNote ? ` ${existingNote}` : ""}`
+      : existingNote;
+
+  const normalized: JsonRecord = {
+    items,
+    ...(typeof raw.orderType === "string" ? { orderType: raw.orderType } : {}),
+    ...(typeof raw.customerName === "string" ? { customerName: raw.customerName } : {}),
+    ...(typeof raw.phone === "string" ? { phone: raw.phone } : {}),
+    ...(typeof raw.deliveryAddress === "string" ? { deliveryAddress: raw.deliveryAddress } : {}),
+    ...(typeof raw.paymentMethod === "string" ? { paymentMethod: raw.paymentMethod } : {}),
+    ...(typeof raw.tableQrToken === "string" && raw.tableQrToken.length > 0
+      ? { tableQrToken: raw.tableQrToken }
+      : {}),
+    ...(typeof raw.promoCode === "string" && raw.promoCode.length > 0 ? { promoCode: raw.promoCode } : {}),
+    ...(typeof raw.tip === "number" ? { tip: raw.tip } : {}),
+    ...(manualTableNote ? { note: manualTableNote } : {}),
+    ...(typeof raw.idempotencyKey === "string" && raw.idempotencyKey.length > 0
+      ? { idempotencyKey: raw.idempotencyKey }
+      : {}),
+  };
+
+  return normalized;
+}
+
+function normalizeRequestBody(url: string, method: string | undefined, body: BodyInit | null | undefined): BodyInit | null | undefined {
+  if (!body || typeof body !== "string") return body;
+  if ((method || "GET").toUpperCase() !== "POST") return body;
+
+  let pathname = url;
+  try {
+    pathname = new URL(url, "http://localhost").pathname;
+  } catch { /* keep raw URL */ }
+  if (pathname !== "/api/orders") return body;
+
+  try {
+    return JSON.stringify(normalizePublicOrderPayload(JSON.parse(body)));
+  } catch {
+    // Keep malformed JSON unchanged so the API returns its normal validation error.
+    return body;
+  }
+}
+
 export async function publicApiFetch(
   url: string,
   options: PublicApiFetchOptions = {}
@@ -72,14 +162,16 @@ export async function publicApiFetch(
   if (slug && !headers.has("x-restaurant-slug")) {
     headers.set("x-restaurant-slug", slug);
   }
-  if (rest.body && !headers.has("Content-Type")) {
+
+  const body = normalizeRequestBody(url, rest.method, rest.body);
+  if (body && !headers.has("Content-Type")) {
     // Don't set Content-Type for FormData — browser sets it automatically
-    const isFormData = typeof FormData !== "undefined" && rest.body instanceof FormData;
+    const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
     if (!isFormData) {
       headers.set("Content-Type", "application/json");
     }
   }
-  return fetch(url, { ...rest, headers });
+  return fetch(url, { ...rest, body, headers });
 }
 
 /**
