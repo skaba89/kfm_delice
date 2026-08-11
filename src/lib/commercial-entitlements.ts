@@ -2,8 +2,8 @@ import { db } from './db';
 import {
   type CommercialFeature,
   type CommercialPlan,
-  normalizeCommercialPlanValue,
   planIncludesFeature,
+  resolveEffectiveCommercialPlan,
 } from './commercial-plan-catalog';
 
 export type {
@@ -14,7 +14,9 @@ export type {
 export {
   getPlanFeatures,
   getPlanQuotaDefaults,
+  getPlanMonthlyPriceGnf,
   planIncludesFeature,
+  resolveEffectiveCommercialPlan,
 } from './commercial-plan-catalog';
 
 export interface FeatureEntitlementResult {
@@ -28,9 +30,7 @@ export function normalizeCommercialPlan(
   accountPlan: string | null | undefined,
   restaurantPlan: string | null | undefined
 ): CommercialPlan {
-  return normalizeCommercialPlanValue(accountPlan)
-    ?? normalizeCommercialPlanValue(restaurantPlan)
-    ?? 'free';
+  return resolveEffectiveCommercialPlan(accountPlan, restaurantPlan);
 }
 
 export async function getRestaurantFeatureEntitlement(
