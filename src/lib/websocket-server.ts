@@ -1,17 +1,21 @@
 import { logger } from "@/lib/logger";
+import { isLocalRealtimeEnabled, resolveRealtimeMode } from "@/lib/realtime-policy";
 import { WebSocketServer, WebSocket } from 'ws';
 
-// Configuration
+// The built-in WebSocket server is deliberately dev/local only. In production
+// we keep the public API as a no-op so existing callers continue to function
+// while HTTP/polling remains the reliable fallback.
+const LOCAL_REALTIME_ENABLED = isLocalRealtimeEnabled();
+
 const WS_CONFIG = {
   port: 3001,
-  heartbeatInterval: 30000,    // 30s — send ping to clients
-  heartbeatTimeout: 10000,     // 10s — if no pong received, terminate
-  maxConnections: 200,         // Maximum simultaneous connections
-  maxConnectionsPerUser: 3,    // Max connections per userId:userType
-  clientMaxAge: 24 * 60 * 60 * 1000, // 24h — force reconnect after this time
+  heartbeatInterval: 30000,
+  heartbeatTimeout: 10000,
+  maxConnections: 200,
+  maxConnectionsPerUser: 3,
+  clientMaxAge: 24 * 60 * 60 * 1000,
 } as const;
 
-// Client metadata with heartbeat tracking
 interface WSClient {
   ws: WebSocket;
   userId: string;
@@ -22,79 +26,69 @@ interface WSClient {
   isAlive: boolean;
 }
 
-// Singleton WebSocket server
 let wss: WebSocketServer | null = null;
 const clients = new Map<string, WSClient>();
-
-// Heartbeat timer
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+let disabledModeLogged = false;
 
-/**
- * Start the heartbeat checker that pings all clients periodically
- * and terminates unresponsive connections.
- */
+function logDisabledModeOnce() {
+  if (disabledModeLogged) return;
+  disabledModeLogged = true;
+  logger.warn('[WS] Local realtime disabled; using HTTP/polling fallback.');
+}
+
 function startHeartbeat() {
-  if (heartbeatTimer) return; // Already running
+  if (!LOCAL_REALTIME_ENABLED || heartbeatTimer) return;
 
   heartbeatTimer = setInterval(() => {
     const now = Date.now();
     const expiredClients: string[] = [];
 
     clients.forEach((client, clientId) => {
-      // Check if client is still alive
       if (!client.isAlive) {
         expiredClients.push(clientId);
         return;
       }
-
-      // Check if client has been connected too long (force refresh)
       if (now - client.connectedAt > WS_CONFIG.clientMaxAge) {
         client.ws.close(4003, 'Session expired, please reconnect');
         expiredClients.push(clientId);
         return;
       }
-
-      // Check if previous pong was too long ago
       if (client.lastPing > client.lastPong && (now - client.lastPing) > WS_CONFIG.heartbeatTimeout) {
         client.ws.terminate();
         expiredClients.push(clientId);
         return;
       }
 
-      // Send ping
       client.isAlive = false;
       client.lastPing = now;
-      if (client.ws.readyState === WebSocket.OPEN) {
-        client.ws.ping();
-      }
+      if (client.ws.readyState === WebSocket.OPEN) client.ws.ping();
     });
 
-    // Clean up expired clients
-    expiredClients.forEach((clientId) => {
-      clients.delete(clientId);
-    });
-
+    expiredClients.forEach((clientId) => clients.delete(clientId));
     if (expiredClients.length > 0) {
       logger.debug(`[WS] Cleaned up ${expiredClients.length} expired client(s) (total: ${clients.size})`);
     }
   }, WS_CONFIG.heartbeatInterval);
 }
 
-/**
- * Stop the heartbeat checker
- */
 function stopHeartbeat() {
-  if (heartbeatTimer) {
-    clearInterval(heartbeatTimer);
-    heartbeatTimer = null;
-  }
+  if (!heartbeatTimer) return;
+  clearInterval(heartbeatTimer);
+  heartbeatTimer = null;
 }
 
 export function getWebSocketServer(): WebSocketServer {
+  if (!LOCAL_REALTIME_ENABLED) {
+    logDisabledModeOnce();
+    if (!wss) wss = new WebSocketServer({ noServer: true });
+    return wss;
+  }
+
   if (!wss) {
     try {
-      wss = new WebSocketServer({ port: WS_CONFIG.port, maxPayload: 1024 * 1024 }); // 1MB max payload
-      logger.debug(`[WS] WebSocket server started on port ${WS_CONFIG.port}`);
+      wss = new WebSocketServer({ port: WS_CONFIG.port, maxPayload: 1024 * 1024 });
+      logger.debug(`[WS] Local development WebSocket server started on port ${WS_CONFIG.port}`);
 
       wss.on('connection', (ws, req) => {
         const url = new URL(req.url || '', `http://${req.headers.host}`);
@@ -106,19 +100,16 @@ export function getWebSocketServer(): WebSocketServer {
           return;
         }
 
-        // Check max connections
         if (clients.size >= WS_CONFIG.maxConnections) {
           ws.close(4004, 'Server at maximum capacity');
           return;
         }
 
-        // Check connections per user
         let userConnectionCount = 0;
         clients.forEach((c) => {
           if (c.userId === userId && c.userType === userType) userConnectionCount++;
         });
         if (userConnectionCount >= WS_CONFIG.maxConnectionsPerUser) {
-          // Close the oldest connection for this user
           let oldestClientId: string | null = null;
           let oldestTime = Infinity;
           clients.forEach((c, cid) => {
@@ -130,20 +121,17 @@ export function getWebSocketServer(): WebSocketServer {
           if (oldestClientId) {
             const oldest = clients.get(oldestClientId);
             if (oldest) oldest.ws.close(4002, 'Replaced by newer connection');
-            clients.delete(oldestClientId!);
+            clients.delete(oldestClientId);
           }
         }
 
         const clientId = `${userType}:${userId}`;
         const now = Date.now();
-
-        // If same client reconnects, close old connection
         const existing = clients.get(clientId);
         if (existing && existing.ws.readyState === WebSocket.OPEN) {
           existing.ws.close(4002, 'Replaced by new connection');
         }
 
-        // Register client with heartbeat metadata
         const client: WSClient = {
           ws,
           userId,
@@ -156,7 +144,6 @@ export function getWebSocketServer(): WebSocketServer {
         clients.set(clientId, client);
         logger.debug(`[WS] Client connected: ${clientId} (total: ${clients.size})`);
 
-        // Pong handler — mark client as alive
         ws.on('pong', () => {
           const current = clients.get(clientId);
           if (current) {
@@ -165,38 +152,29 @@ export function getWebSocketServer(): WebSocketServer {
           }
         });
 
-        // Handle incoming messages (for future bidirectional communication)
         ws.on('message', (data) => {
           try {
             const message = JSON.parse(data.toString());
-            // Handle client->server messages if needed
             if (message.event === 'ping') {
-              // Client-initiated ping, respond with pong
               ws.send(JSON.stringify({ event: 'pong', timestamp: Date.now() }));
             }
           } catch {
-            // Ignore malformed messages
+            // Ignore malformed development messages.
           }
         });
 
         ws.on('close', () => {
-          // Only delete if this is the current socket for this client
           const current = clients.get(clientId);
-          if (current && current.ws === ws) {
-            clients.delete(clientId);
-          }
+          if (current && current.ws === ws) clients.delete(clientId);
           logger.debug(`[WS] Client disconnected: ${clientId} (total: ${clients.size})`);
         });
 
         ws.on('error', (err) => {
-          console.error(`[WS] Error for ${clientId}:`, err.message);
+          logger.error(`[WS] Error for ${clientId}:`, err.message);
           const current = clients.get(clientId);
-          if (current && current.ws === ws) {
-            clients.delete(clientId);
-          }
+          if (current && current.ws === ws) clients.delete(clientId);
         });
 
-        // Send welcome message
         ws.send(JSON.stringify({
           event: 'ws:connected',
           data: { userId, userType, clientId, heartbeatInterval: WS_CONFIG.heartbeatInterval },
@@ -205,33 +183,26 @@ export function getWebSocketServer(): WebSocketServer {
       });
 
       wss.on('error', (err) => {
-        console.error('[WS] Server error:', err.message);
-        if ('code' in err && (err as NodeJS.ErrnoException).code === 'EADDRINUSE') {
-          console.error('[WS] Port 3001 already in use. Is another WS server running?');
-        }
+        logger.error('[WS] Server error:', err.message);
         stopHeartbeat();
         wss = null;
       });
-
-      wss.on('close', () => {
-        stopHeartbeat();
-      });
-
-      // Start heartbeat monitoring
+      wss.on('close', stopHeartbeat);
       startHeartbeat();
-
     } catch (err) {
-      console.error('[WS] Failed to start WebSocket server:', err);
+      logger.error('[WS] Failed to start local WebSocket server:', err);
       wss = new WebSocketServer({ noServer: true });
     }
   }
   return wss;
 }
 
-// Broadcast to all connected clients of a specific type
 export function broadcastToType(userType: string, event: string, data: unknown) {
+  if (!LOCAL_REALTIME_ENABLED) {
+    logDisabledModeOnce();
+    return 0;
+  }
   getWebSocketServer();
-
   const message = JSON.stringify({ event, data, timestamp: Date.now() });
   let sent = 0;
   clients.forEach((client) => {
@@ -243,12 +214,13 @@ export function broadcastToType(userType: string, event: string, data: unknown) 
   return sent;
 }
 
-// Send to a specific user
 export function sendToUser(userId: string, userType: string, event: string, data: unknown) {
+  if (!LOCAL_REALTIME_ENABLED) {
+    logDisabledModeOnce();
+    return false;
+  }
   getWebSocketServer();
-
-  const clientId = `${userType}:${userId}`;
-  const client = clients.get(clientId);
+  const client = clients.get(`${userType}:${userId}`);
   if (client && client.ws.readyState === WebSocket.OPEN) {
     client.ws.send(JSON.stringify({ event, data, timestamp: Date.now() }));
     return true;
@@ -256,10 +228,12 @@ export function sendToUser(userId: string, userType: string, event: string, data
   return false;
 }
 
-// Broadcast to all connected clients
 export function broadcastAll(event: string, data: unknown) {
+  if (!LOCAL_REALTIME_ENABLED) {
+    logDisabledModeOnce();
+    return 0;
+  }
   getWebSocketServer();
-
   const message = JSON.stringify({ event, data, timestamp: Date.now() });
   let sent = 0;
   clients.forEach((client) => {
@@ -271,13 +245,12 @@ export function broadcastAll(event: string, data: unknown) {
   return sent;
 }
 
-// Get connected clients count
 export function getConnectedCount() {
-  return clients.size;
+  return LOCAL_REALTIME_ENABLED ? clients.size : 0;
 }
 
-// Get connected clients by type
 export function getConnectedByType(userType: string) {
+  if (!LOCAL_REALTIME_ENABLED) return 0;
   let count = 0;
   clients.forEach((client) => {
     if (client.userType === userType) count++;
@@ -285,25 +258,22 @@ export function getConnectedByType(userType: string) {
   return count;
 }
 
-// ─── Polling fallback support ────────────────────────────────────
-// Event log for polling clients that can't use WebSocket
+// Polling fallback support. These helpers are kept for compatibility with
+// existing clients; production correctness must come from persisted API state,
+// not this process-local event log.
 const eventLog: Array<{ timestamp: number; event: string; data: unknown; userType?: string; userId?: string }> = [];
 const MAX_EVENTS = 500;
 
 function logEvent(event: string, data: unknown, userType?: string, userId?: string) {
   eventLog.push({ timestamp: Date.now(), event, data, userType, userId });
-  // Trim old events
   while (eventLog.length > MAX_EVENTS) eventLog.shift();
 }
 
-// Register a polling client (stores metadata for event filtering)
 export function registerClient(clientId: string, userId: string, userType: string) {
-  // For polling, we just log the registration — no WebSocket needed
-  logEvent('poll:registered', { clientId, userId, userType });
+  logEvent('poll:registered', { clientId, userId, userType }, userType, userId);
   logger.debug(`[WS-Poll] Client registered: ${clientId}`);
 }
 
-// Get events since a given timestamp for a specific user
 export function getEventsSince(since: number, userType: string, userId: string) {
   return eventLog.filter(e =>
     e.timestamp > since &&
@@ -312,23 +282,21 @@ export function getEventsSince(since: number, userType: string, userId: string) 
   );
 }
 
-// Patch broadcastToType to also log events for polling clients
 const _origBroadcastToType = broadcastToType;
 export { _origBroadcastToType as _broadcastToTypeOrig };
 
-// Override: we wrap the original to also log
-const origSendToUser = sendToUser;
-
-// Get server stats
 export function getWSStats() {
   const byType: Record<string, number> = {};
-  clients.forEach((client) => {
-    byType[client.userType] = (byType[client.userType] || 0) + 1;
-  });
+  if (LOCAL_REALTIME_ENABLED) {
+    clients.forEach((client) => {
+      byType[client.userType] = (byType[client.userType] || 0) + 1;
+    });
+  }
   return {
-    total: clients.size,
+    mode: resolveRealtimeMode(),
+    total: LOCAL_REALTIME_ENABLED ? clients.size : 0,
     byType,
-    maxConnections: WS_CONFIG.maxConnections,
-    heartbeatInterval: WS_CONFIG.heartbeatInterval,
+    maxConnections: LOCAL_REALTIME_ENABLED ? WS_CONFIG.maxConnections : 0,
+    heartbeatInterval: LOCAL_REALTIME_ENABLED ? WS_CONFIG.heartbeatInterval : 0,
   };
 }

@@ -1,10 +1,24 @@
 import { NextResponse } from 'next/server';
 import { getEventsSince, registerClient } from '@/lib/websocket-server';
 import { authenticateAny } from '@/lib/auth';
+import { isLocalRealtimeEnabled } from '@/lib/realtime-policy';
 
-// GET: Poll for new events since a timestamp (requires authentication)
+function localRealtimeUnavailable() {
+  return NextResponse.json(
+    {
+      events: [],
+      error: 'Le journal temps réel local est désactivé en production',
+      code: 'LOCAL_REALTIME_DISABLED',
+    },
+    { status: 410 }
+  );
+}
+
+// GET: local development polling fallback only.
 export async function GET(request: Request) {
   try {
+    if (!isLocalRealtimeEnabled()) return localRealtimeUnavailable();
+
     const auth = await authenticateAny(request);
     if (!auth) {
       return NextResponse.json({ error: 'Authentification requise' }, { status: 401 });
@@ -12,10 +26,9 @@ export async function GET(request: Request) {
 
     const url = new URL(request.url);
     const since = parseInt(url.searchParams.get('since') || '0', 10);
-    const userType = url.searchParams.get('userType') || auth.type;
-    const userId = url.searchParams.get('userId') || auth.id;
 
-    // Force the authenticated user's type and ID — prevents impersonation
+    // Always use the authenticated identity. Query-string userId/userType are
+    // deliberately ignored so a caller cannot poll another user's local feed.
     const events = getEventsSince(since, auth.type, auth.id);
 
     return NextResponse.json({
@@ -28,9 +41,11 @@ export async function GET(request: Request) {
   }
 }
 
-// POST: Register a polling client (requires authentication)
+// POST: register a local development polling client only.
 export async function POST(request: Request) {
   try {
+    if (!isLocalRealtimeEnabled()) return localRealtimeUnavailable();
+
     const auth = await authenticateAny(request);
     if (!auth) {
       return NextResponse.json({ error: 'Authentification requise' }, { status: 401 });
@@ -38,8 +53,6 @@ export async function POST(request: Request) {
 
     const body = await request.json();
     const { action } = body;
-
-    // Use authenticated user's info — prevents impersonation
     const clientId = `${auth.type}:${auth.id}`;
 
     if (action === 'register') {

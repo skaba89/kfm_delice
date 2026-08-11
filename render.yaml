@@ -4,6 +4,12 @@
 # Production deployments are triggered by the CI-gated GitHub workflow
 # (.github/workflows/deploy.yml). Render autoDeploy is disabled so a push to
 # main cannot bypass the blocking CI pipeline.
+#
+# SCALE_MODE defaults to single-instance so the current pilot can run without
+# pretending distributed guarantees exist. Before horizontal scaling, configure
+# UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN and set SCALE_MODE=national
+# (or multi-instance). The production safety check will then make the
+# distributed limiter mandatory.
 # ───────────────────────────────────────────────────────────────────
 databases:
   - name: kfm-delice-db
@@ -33,6 +39,10 @@ services:
         value: production
       - key: APP_MODE
         value: production
+      - key: SCALE_MODE
+        value: single-instance
+      - key: REALTIME_MODE
+        value: disabled
       - key: NEXT_TELEMETRY_DISABLED
         value: "1"
       - key: PORT
