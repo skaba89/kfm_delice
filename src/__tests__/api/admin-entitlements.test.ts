@@ -130,8 +130,6 @@ describe('admin commercial entitlements', () => {
       restaurantsCreatedCount: 0,
       createdAt: new Date('2026-08-11T00:00:00Z'),
       updatedAt: new Date('2026-08-11T00:00:00Z'),
-      // A real Prisma `select` cannot return this; keeping the mock focused on
-      // the selected projection proves the HTTP response contract below.
     }));
 
     const response = await POST(postRequest({
@@ -170,7 +168,11 @@ describe('admin commercial entitlements', () => {
     const response = await PATCH(new Request('https://example.test/api/admins', {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id: 'target', password: 'NewPassword123' }),
+      body: JSON.stringify({
+        id: 'target',
+        password: 'NewPassword123',
+        currentPassword: 'CurrentPassword123',
+      }),
     }));
     const json = await response.json();
 
