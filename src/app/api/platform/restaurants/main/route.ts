@@ -4,6 +4,11 @@ import { authenticatePlatformAdmin, hashPassword } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
 import { generateSlug, ensureUniqueSlug } from "@/lib/tenant";
 import { validatePassword } from "@/lib/password-policy";
+import {
+  getPlanQuotaDefaults,
+  normalizeCommercialPlanValue,
+  type CommercialPlan,
+} from "@/lib/commercial-plan-catalog";
 import { z } from "zod";
 
 const createMainRestaurantSchema = z.object({
@@ -14,11 +19,11 @@ const createMainRestaurantSchema = z.object({
   email: z.string().default(""),
   address: z.string().default(""),
   currency: z.string().default("GNF"),
-  plan: z.enum(["free", "starter", "pro", "enterprise"]).default("free"),
+  plan: z.enum(["free", "starter", "pro", "enterprise", "custom"]).optional(),
   adminName: z.string().min(2, "Nom de l'admin requis"),
   adminEmail: z.string().email("Email admin invalide"),
   adminPassword: z.string().min(6, "Mot de passe requis (min 6)"),
-});
+}).strict();
 
 // POST — Create a main restaurant + account + admin (platform admin only)
 export async function POST(request: Request) {
@@ -27,46 +32,47 @@ export async function POST(request: Request) {
     const platformAdmin = await authenticatePlatformAdmin(request);
     if (!platformAdmin) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
-    const body = await request.json();
-    const validation = createMainRestaurantSchema.safeParse(body);
+    const validation = createMainRestaurantSchema.safeParse(await request.json());
     if (!validation.success) {
       return NextResponse.json({ error: validation.error.issues[0]?.message || "Données invalides" }, { status: 400 });
     }
 
     const data = validation.data;
-
-    // Validate password policy
     const pwCheck = validatePassword(data.adminPassword);
     if (!pwCheck.valid) {
       return NextResponse.json({ error: pwCheck.errors[0] }, { status: 400 });
     }
 
-    let accountId = data.accountId;
-    let accountMaxSecondary = 0;
+    const existingAccount = data.accountId
+      ? await db.account.findUnique({
+          where: { id: data.accountId },
+          select: {
+            id: true,
+            plan: true,
+            maxSecondaryRestaurants: true,
+          },
+        })
+      : null;
 
-    // Create Account if not provided, otherwise load existing
-    if (!accountId) {
-      const account = await db.account.create({
-        data: {
-          name: data.restaurantName,
-          ownerName: data.adminName,
-          ownerEmail: data.adminEmail,
-          plan: data.plan,
+    if (data.accountId && !existingAccount) {
+      return NextResponse.json({ error: "Compte non trouvé" }, { status: 404 });
+    }
+
+    if (existingAccount && data.plan && data.plan !== existingAccount.plan) {
+      return NextResponse.json(
+        {
+          error: "Le plan du restaurant doit suivre le plan du compte SaaS existant.",
+          code: "ACCOUNT_PLAN_AUTHORITATIVE",
+          accountId: existingAccount.id,
+          effectivePlan: existingAccount.plan,
         },
-      });
-      accountId = account.id;
-      accountMaxSecondary = account.maxSecondaryRestaurants;
-    } else {
-      // ── Mission 2: Prevent multiple principal restaurants per account ──
-      const existingAccount = await db.account.findUnique({ where: { id: accountId } });
-      if (!existingAccount) {
-        return NextResponse.json({ error: "Compte non trouvé" }, { status: 404 });
-      }
-      accountMaxSecondary = existingAccount.maxSecondaryRestaurants;
+        { status: 409 }
+      );
+    }
 
-      // Check if account already has a principal restaurant
+    if (existingAccount) {
       const existingPrincipal = await db.restaurant.findFirst({
-        where: { accountId, type: "principal" },
+        where: { accountId: existingAccount.id, type: "principal" },
         select: { id: true },
       });
       if (existingPrincipal) {
@@ -77,12 +83,39 @@ export async function POST(request: Request) {
       }
     }
 
-    // Generate slug
     const baseSlug = data.slug || generateSlug(data.restaurantName);
     const slug = await ensureUniqueSlug(baseSlug);
+    const hashedPassword = await hashPassword(data.adminPassword);
 
-    // Create restaurant + config + admin in a transaction
+    const requestedPlan: CommercialPlan = existingAccount
+      ? normalizeCommercialPlanValue(existingAccount.plan) ?? "free"
+      : data.plan ?? "free";
+    const defaults = getPlanQuotaDefaults(requestedPlan);
+
+    // Account creation and its first principal restaurant are one unit. If any
+    // config/admin write fails, the new SaaS account is rolled back too.
     const result = await db.$transaction(async (tx) => {
+      const account = existingAccount
+        ? existingAccount
+        : await tx.account.create({
+            data: {
+              name: data.restaurantName,
+              ownerName: data.adminName,
+              ownerEmail: data.adminEmail,
+              plan: requestedPlan,
+              maxRestaurants: defaults.maxRestaurants,
+              maxSecondaryRestaurants: defaults.maxSecondaryRestaurants,
+              maxAdmins: defaults.maxAdmins,
+              maxUsers: defaults.maxUsers,
+            },
+            select: {
+              id: true,
+              plan: true,
+              maxSecondaryRestaurants: true,
+            },
+          });
+
+      const effectivePlan = normalizeCommercialPlanValue(account.plan) ?? "free";
       const restaurant = await tx.restaurant.create({
         data: {
           name: data.restaurantName,
@@ -91,8 +124,10 @@ export async function POST(request: Request) {
           email: data.email,
           address: data.address,
           currency: data.currency,
-          plan: data.plan,
-          accountId,
+          // Account.plan is authoritative. Restaurant.plan remains a denormalized
+          // compatibility shadow for older code paths and legacy exports.
+          plan: effectivePlan,
+          accountId: account.id,
           type: "principal",
           createdByAdminId: platformAdmin.id,
         },
@@ -100,8 +135,6 @@ export async function POST(request: Request) {
 
       await tx.restaurantConfig.create({ data: { restaurantId: restaurant.id } });
 
-      // ── Mission 1: Set restaurantCreationLimit from account quotas ──
-      const hashedPassword = await hashPassword(data.adminPassword);
       const admin = await tx.admin.create({
         data: {
           email: data.adminEmail,
@@ -109,15 +142,15 @@ export async function POST(request: Request) {
           name: data.adminName,
           role: "admin",
           restaurantId: restaurant.id,
-          accountId,
+          accountId: account.id,
           canCreateRestaurant: true,
-          restaurantCreationLimit: accountMaxSecondary,
+          restaurantCreationLimit: account.maxSecondaryRestaurants,
           restaurantsCreatedCount: 0,
           mustChangePassword: true,
         },
       });
 
-      return { restaurant, admin };
+      return { restaurant, admin, account };
     });
 
     await logAudit({
@@ -126,15 +159,22 @@ export async function POST(request: Request) {
       action: "restaurant_main_create",
       entityType: "Restaurant",
       entityId: result.restaurant.id,
-      accountId,
-      after: { restaurantName: data.restaurantName, slug, adminEmail: data.adminEmail, restaurantCreationLimit: accountMaxSecondary },
+      accountId: result.account.id,
+      after: {
+        restaurantName: data.restaurantName,
+        slug,
+        plan: result.account.plan,
+        adminEmail: data.adminEmail,
+        restaurantCreationLimit: result.account.maxSecondaryRestaurants,
+      },
       request,
     });
 
     return NextResponse.json(bigIntToNumber({
       restaurant: result.restaurant,
       admin: { id: result.admin.id, email: result.admin.email, name: result.admin.name },
-      accountId,
+      accountId: result.account.id,
+      effectivePlan: result.account.plan,
     }), { status: 201 });
   } catch (error) {
     console.error("[platform/restaurants/main POST]", error);

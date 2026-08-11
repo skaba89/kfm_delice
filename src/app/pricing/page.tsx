@@ -5,18 +5,23 @@ import { Check, Star, Zap, Crown, Building2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { getPlanQuotaDefaults } from "@/lib/commercial-plan-catalog";
+import { getPlanMonthlyPriceGnf, getPlanQuotaDefaults, type CommercialPlan } from "@/lib/commercial-plan-catalog";
 
 const freeQuotas = getPlanQuotaDefaults("free");
 const starterQuotas = getPlanQuotaDefaults("starter");
 const proQuotas = getPlanQuotaDefaults("pro");
 const enterpriseQuotas = getPlanQuotaDefaults("enterprise");
 
+function publicMonthlyPrice(plan: Exclude<CommercialPlan, "custom">): string {
+  const price = getPlanMonthlyPriceGnf(plan);
+  return (price ?? 0).toLocaleString("fr-FR");
+}
+
 const plans = [
   {
     name: "Free",
     icon: Star,
-    price: "0",
+    price: publicMonthlyPrice("free"),
     period: "gratuit",
     description: "Pour découvrir la plateforme",
     color: "border-gray-300 dark:border-white/10",
@@ -36,7 +41,7 @@ const plans = [
   {
     name: "Starter",
     icon: Zap,
-    price: "50 000",
+    price: publicMonthlyPrice("starter"),
     period: "GNF/mois",
     description: "Pour les petits restaurants",
     color: "border-blue-300 dark:border-blue-500/30",
@@ -57,7 +62,7 @@ const plans = [
   {
     name: "Pro",
     icon: Crown,
-    price: "150 000",
+    price: publicMonthlyPrice("pro"),
     period: "GNF/mois",
     description: "Pour les restaurants établis",
     color: "border-orange-500 dark:border-orange-500/50",
@@ -79,7 +84,7 @@ const plans = [
   {
     name: "Enterprise",
     icon: Building2,
-    price: "500 000",
+    price: publicMonthlyPrice("enterprise"),
     period: "GNF/mois",
     description: "Pour les chaînes de restaurants",
     color: "border-purple-300 dark:border-purple-500/30",

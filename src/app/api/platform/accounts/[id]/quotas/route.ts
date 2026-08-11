@@ -15,7 +15,7 @@ const quotaSchema = z.object({
   maxOrdersPerMonth: z.number().int().min(1, "Le quota mensuel de commandes doit être au moins 1").optional(),
   plan: z.enum(["free", "starter", "pro", "enterprise", "custom"]).optional(),
   status: z.enum(["active", "trial", "suspended", "cancelled", "over_quota"]).optional(),
-});
+}).strict();
 
 // PATCH — Update account quotas (platform admin only)
 export async function PATCH(
@@ -28,8 +28,7 @@ export async function PATCH(
     if (!admin) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
     const { id } = await params;
-    const body = await request.json();
-    const validation = quotaSchema.safeParse(body);
+    const validation = quotaSchema.safeParse(await request.json());
     if (!validation.success) {
       return NextResponse.json({ error: validation.error.issues[0]?.message || "Données invalides" }, { status: 400 });
     }
@@ -96,14 +95,24 @@ export async function PATCH(
       ...(finalStatus && { status: finalStatus }),
     };
 
-    const updated = await db.account.update({
-      where: { id },
-      data: updateData,
+    const updated = await db.$transaction(async (tx) => {
+      const updatedAccount = await tx.account.update({
+        where: { id },
+        data: updateData,
+      });
+
+      if (planChanged && input.plan) {
+        // Account.plan remains authoritative. Keep Restaurant.plan synchronized
+        // only as a denormalized compatibility shadow for legacy readers.
+        await tx.restaurant.updateMany({
+          where: { accountId: id },
+          data: { plan: input.plan },
+        });
+      }
+
+      return updatedAccount;
     });
 
-    // Account status/plan changes affect both authorization and the resolved
-    // feature/config payload shown by restaurant clients. Clear both caches so
-    // upgrades/downgrades/suspensions take effect on the next request.
     invalidateTenantCache();
     invalidateConfigCache();
 
@@ -115,7 +124,10 @@ export async function PATCH(
       entityId: id,
       accountId: id,
       before,
-      after: updateData,
+      after: {
+        ...updateData,
+        ...(planChanged && input.plan ? { restaurantPlanShadowSynced: input.plan } : {}),
+      },
       request,
     });
 
