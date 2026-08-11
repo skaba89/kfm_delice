@@ -31,6 +31,8 @@ export function evaluateSubscriptionAccess(
  * Authoritative access check for an authenticated restaurant-scoped session.
  * No cache is used deliberately: platform suspension/cancellation must take
  * effect on the next protected request, even if the JWT has not expired.
+ * CI exercises this on the synthetic merge ref so scale-policy changes on main
+ * are validated together with the commercial subscription gate.
  */
 export async function canAccessRestaurantSubscription(restaurantId: string): Promise<boolean> {
   try {
