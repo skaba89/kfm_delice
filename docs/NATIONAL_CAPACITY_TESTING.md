@@ -1,6 +1,6 @@
 # KFM Delice — Baseline de capacité nationale
 
-Ce document décrit un test de capacité **read-only** à exécuter sur un environnement de staging/préproduction dimensionné comme la cible. Il ne remplace pas une campagne de performance complète et ne doit pas être pointé vers un service tiers ou une production sans fenêtre opératoire approuvée.
+Ce document décrit un test de capacité **read-only** à exécuter sur un environnement de staging/préproduction dimensionné comme la cible. Il ne remplace pas une campagne de performance complète et ne doit pas être pointé vers un service tiers ou une production sans fenêtre opératoire approuvée. La CI de cette branche est rejouée sur le `main` commercial courant afin de valider les garde-fous de capacité avec les règles SaaS actives.
 
 ## Objectifs
 
