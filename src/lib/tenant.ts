@@ -7,6 +7,12 @@
 
 import { db } from './db';
 import { evaluateSubscriptionAccess } from './subscription-access';
+import {
+  getPlanFeatures,
+  normalizeCommercialPlanValue,
+  type CommercialFeature,
+  type CommercialPlan,
+} from './commercial-plan-catalog';
 
 export interface TenantContext {
   restaurantId: string;
@@ -14,7 +20,7 @@ export interface TenantContext {
   name: string;
   currency: string;
   locale: string;
-  plan: string;
+  plan: CommercialPlan;
   status: string;
   accountStatus?: string | null;
   accountTrialEndsAt?: string | null;
@@ -77,18 +83,23 @@ function toContext(restaurant: {
   plan: string;
   status: string;
   account?: {
+    plan?: string | null;
     status: string;
     trialEndsAt: string | null;
     contractEndDate: string | null;
   } | null;
 }): TenantContext {
+  const plan = normalizeCommercialPlanValue(restaurant.account?.plan)
+    ?? normalizeCommercialPlanValue(restaurant.plan)
+    ?? 'free';
+
   return {
     restaurantId: restaurant.id,
     slug: restaurant.slug,
     name: restaurant.name,
     currency: restaurant.currency,
     locale: restaurant.locale,
-    plan: restaurant.plan,
+    plan,
     status: restaurant.status,
     accountStatus: restaurant.account?.status ?? null,
     accountTrialEndsAt: restaurant.account?.trialEndsAt ?? null,
@@ -114,6 +125,7 @@ export async function resolveTenant(slug: string): Promise<TenantContext | null>
       status: true,
       account: {
         select: {
+          plan: true,
           status: true,
           trialEndsAt: true,
           contractEndDate: true,
@@ -152,6 +164,7 @@ export async function resolveDefaultTenant(): Promise<TenantContext | null> {
       status: true,
       account: {
         select: {
+          plan: true,
           status: true,
           trialEndsAt: true,
           contractEndDate: true,
@@ -182,15 +195,13 @@ export async function getRestaurantId(request: Request): Promise<string | null> 
   return tenant?.restaurantId || null;
 }
 
+/**
+ * Legacy helper retained for callers that only have TenantContext. It delegates
+ * to the same pure commercial catalog used by API feature gates.
+ */
 export function isFeatureEnabled(tenant: TenantContext, feature: string): boolean {
   if (!isTenantActive(tenant)) return false;
-  const planFeatures: Record<string, string[]> = {
-    free: ['delivery', 'reservations', 'reviews', 'pos'],
-    starter: ['delivery', 'reservations', 'reviews', 'pos', 'loyalty', 'invoices'],
-    pro: ['delivery', 'reservations', 'reviews', 'pos', 'loyalty', 'invoices', 'quotes', 'expenses', 'staff', 'drivers'],
-    enterprise: ['delivery', 'reservations', 'reviews', 'pos', 'loyalty', 'invoices', 'quotes', 'expenses', 'staff', 'drivers', 'custom_domain', 'api_access', 'white_label'],
-  };
-  return (planFeatures[tenant.plan] || planFeatures.free).includes(feature);
+  return getPlanFeatures(tenant.plan).includes(feature as CommercialFeature);
 }
 
 export function invalidateTenantCache(slug?: string): void {
