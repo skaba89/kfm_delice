@@ -16,10 +16,6 @@ function catalogPlanPrice(planValue: string | null | undefined): number | null {
   return getPlanMonthlyPriceGnf(plan);
 }
 
-// ────────────────────────────────────────────────────────────────
-// GET /api/platform/restaurants — List all restaurants (platform admin)
-// ────────────────────────────────────────────────────────────────
-
 export async function GET(request: Request) {
   try {
     await dbReady;
@@ -51,27 +47,28 @@ export async function GET(request: Request) {
           },
         },
       }),
-      // Subscription value is account-based, not restaurant-based. Query all
-      // accounts so a multi-restaurant account is counted exactly once.
       db.account.findMany({
         select: { id: true, plan: true, status: true },
       }),
     ]);
 
-    const data = restaurants.map((restaurant) => ({
-      ...restaurant,
-      effectivePlan: resolveEffectiveCommercialPlan(restaurant.account?.plan, restaurant.plan),
-      planSource: restaurant.account ? "account" : "restaurant",
-    }));
+    const data = restaurants.map((restaurant) => {
+      const effectivePlan = resolveEffectiveCommercialPlan(restaurant.account?.plan, restaurant.plan);
+      return {
+        ...restaurant,
+        storedPlan: restaurant.plan,
+        // Existing platform clients already read `plan`; return the authoritative
+        // effective plan there while retaining `storedPlan` for diagnostics.
+        plan: effectivePlan,
+        effectivePlan,
+        planSource: restaurant.account ? "account" : "restaurant",
+      };
+    });
 
     const totalRestaurants = restaurants.length;
     const activeRestaurants = restaurants.filter((r) => r.status === "active").length;
     const trialRestaurants = restaurants.filter((r) => r.status === "trial").length;
 
-    // Catalog value is deliberately not called invoiced revenue: no recurring
-    // billing ledger exists yet. Active/over-quota SaaS accounts are counted
-    // once; trial/suspended/cancelled accounts are excluded. Standalone legacy
-    // restaurants are added separately for backward compatibility.
     let estimatedMonthlyCatalogValue = 0;
     let unpricedCustomSubscriptions = 0;
 
@@ -96,8 +93,6 @@ export async function GET(request: Request) {
         totalRestaurants,
         activeRestaurants,
         trialRestaurants,
-        // Backward-compatible alias for existing clients. The clearer field
-        // below should be preferred by new UI code.
         totalRevenue: estimatedMonthlyCatalogValue,
         estimatedMonthlyCatalogValue,
         unpricedCustomSubscriptions,
@@ -109,10 +104,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
-
-// ────────────────────────────────────────────────────────────────
-// PATCH /api/platform/restaurants — Update restaurant status or legacy plan
-// ────────────────────────────────────────────────────────────────
 
 const platformPatchSchema = z.object({
   id: z.string().min(1, "ID requis"),
@@ -158,8 +149,6 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
     }
 
-    // Once attached to a SaaS Account, Account.plan is the commercial source
-    // of truth. Updating Restaurant.plan would only create a misleading shadow.
     if (plan && existing.accountId) {
       return NextResponse.json(
         {
@@ -198,9 +187,12 @@ export async function PATCH(request: Request) {
       request,
     });
 
+    const effectivePlan = resolveEffectiveCommercialPlan(existing.account?.plan, restaurant.plan);
     return NextResponse.json(bigIntToNumber({
       ...restaurant,
-      effectivePlan: resolveEffectiveCommercialPlan(existing.account?.plan, restaurant.plan),
+      storedPlan: restaurant.plan,
+      plan: effectivePlan,
+      effectivePlan,
       planSource: existing.accountId ? "account" : "restaurant",
     }));
   } catch (error) {
