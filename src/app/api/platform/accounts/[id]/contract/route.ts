@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { db, dbReady, bigIntToNumber } from '@/lib/db';
 import { authenticatePlatformAdmin } from '@/lib/auth';
 import { invalidateTenantCache } from '@/lib/tenant';
+import { invalidateConfigCache } from '@/lib/constants';
 import { logAudit } from '@/lib/audit';
 
 function validIsoDate(value: string): boolean {
@@ -81,7 +82,10 @@ export async function PATCH(
       data: validation.data,
     });
 
+    // Contract/trial lifecycle changes can alter both availability and the
+    // feature/config payload shown to restaurant clients.
     invalidateTenantCache();
+    invalidateConfigCache();
 
     await logAudit({
       actorId: platformAdmin.id,
