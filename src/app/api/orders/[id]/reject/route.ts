@@ -5,15 +5,8 @@ import { logAudit } from "@/lib/audit";
 
 /**
  * POST /api/orders/[id]/reject
- * Driver rejects a delivery that was proposed to them.
- *
- * Resets the order's assignment so it can be proposed to another driver.
- * Sets:
- * - order.assignmentStatus = "rejected"
- * - order.proposedToDriverId = null
- * - order.proposedAt = null
- *
- * The admin can then re-assign to another driver.
+ * Conditionally rejects only a still-active proposal belonging to this driver
+ * and restaurant. A late/replayed rejection cannot clear a newer assignment.
  */
 export async function POST(
   request: Request,
@@ -22,32 +15,18 @@ export async function POST(
   try {
     await dbReady;
     const driverAuth = await authenticateDriver(request);
-    if (!driverAuth) {
-      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
-    }
+    if (!driverAuth) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
     const { id: orderId } = await params;
-
-    // Verify the order was proposed to THIS driver
-    const order = await db.order.findFirst({
-      where: { id: orderId, proposedToDriverId: driverAuth.id },
-    });
-
-    if (!order) {
-      return NextResponse.json({
-        error: "Cette livraison ne vous a pas été proposée",
-      }, { status: 403 });
-    }
-
-    if (order.assignmentStatus !== "proposed") {
-      return NextResponse.json({
-        error: "Cette livraison n'est plus en attente de réponse",
-      }, { status: 400 });
-    }
-
-    // Reject the delivery
-    await db.order.update({
-      where: { id: orderId },
+    const rejected = await db.order.updateMany({
+      where: {
+        id: orderId,
+        restaurantId: driverAuth.restaurantId,
+        proposedToDriverId: driverAuth.id,
+        assignmentStatus: "proposed",
+        driverId: null,
+        status: "ready",
+      },
       data: {
         assignmentStatus: "rejected",
         proposedToDriverId: null,
@@ -55,13 +34,20 @@ export async function POST(
       },
     });
 
+    if (rejected.count !== 1) {
+      return NextResponse.json(
+        { error: "Cette proposition n'est plus disponible", code: "PROPOSAL_CHANGED" },
+        { status: 409 }
+      );
+    }
+
     await logAudit({
       actorId: driverAuth.id,
       actorType: "driver",
       action: "delivery_rejected",
       entityType: "Order",
       entityId: orderId,
-      restaurantId: order.restaurantId,
+      restaurantId: driverAuth.restaurantId,
       request,
     }).catch(() => {});
 
