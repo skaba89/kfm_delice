@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   restaurantCount: vi.fn(),
   logAudit: vi.fn(),
   invalidateTenantCache: vi.fn(),
+  invalidateConfigCache: vi.fn(),
 }));
 
 vi.mock('@/lib/auth', () => ({
@@ -20,6 +21,10 @@ vi.mock('@/lib/audit', () => ({
 
 vi.mock('@/lib/tenant', () => ({
   invalidateTenantCache: mocks.invalidateTenantCache,
+}));
+
+vi.mock('@/lib/constants', () => ({
+  invalidateConfigCache: mocks.invalidateConfigCache,
 }));
 
 vi.mock('@/lib/db', () => ({
@@ -126,7 +131,7 @@ describe('platform commercial quota defaults', () => {
     expect(mocks.accountCreate).not.toHaveBeenCalled();
   });
 
-  it('adopts Pro defaults when an existing Starter account is upgraded', async () => {
+  it('adopts Pro defaults when an existing Starter account is upgraded and clears both caches', async () => {
     mocks.accountFindUnique.mockResolvedValue(existingAccount());
     mocks.restaurantCount.mockResolvedValue(2);
 
@@ -147,6 +152,8 @@ describe('platform commercial quota defaults', () => {
         maxUsers: 50,
       }),
     });
+    expect(mocks.invalidateTenantCache).toHaveBeenCalledOnce();
+    expect(mocks.invalidateConfigCache).toHaveBeenCalledOnce();
   });
 
   it('marks an account over quota when a downgrade falls below current restaurant usage', async () => {
@@ -171,6 +178,8 @@ describe('platform commercial quota defaults', () => {
         status: 'over_quota',
       }),
     });
+    expect(mocks.invalidateTenantCache).toHaveBeenCalledOnce();
+    expect(mocks.invalidateConfigCache).toHaveBeenCalledOnce();
   });
 
   it('automatically leaves over_quota after an upgrade restores restaurant capacity', async () => {
@@ -188,5 +197,7 @@ describe('platform commercial quota defaults', () => {
       where: { id: 'account-1' },
       data: expect.objectContaining({ status: 'active' }),
     });
+    expect(mocks.invalidateTenantCache).toHaveBeenCalledOnce();
+    expect(mocks.invalidateConfigCache).toHaveBeenCalledOnce();
   });
 });
