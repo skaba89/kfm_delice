@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { evaluateSubscriptionAccess } from '@/lib/subscription-access';
 
 describe('commercial subscription dates', () => {
-  it('keeps a date-only trial active through the named UTC day', () => {
+  it('keeps a date-only account trial active through the named UTC day', () => {
     expect(evaluateSubscriptionAccess({
       restaurantStatus: 'active',
       accountStatus: 'trial',
@@ -11,7 +11,7 @@ describe('commercial subscription dates', () => {
     }).allowed).toBe(true);
   });
 
-  it('expires a date-only trial at the next UTC midnight', () => {
+  it('expires a date-only account trial at the next UTC midnight', () => {
     expect(evaluateSubscriptionAccess({
       restaurantStatus: 'active',
       accountStatus: 'trial',
@@ -21,6 +21,37 @@ describe('commercial subscription dates', () => {
       allowed: false,
       code: 'ACCOUNT_TRIAL_EXPIRED',
     });
+  });
+
+  it('keeps a standalone Restaurant trial active through its named UTC day', () => {
+    expect(evaluateSubscriptionAccess({
+      restaurantStatus: 'trial',
+      accountStatus: null,
+      trialEndsAt: '2026-08-11',
+      now: new Date('2026-08-11T23:59:59.999Z'),
+    }).allowed).toBe(true);
+  });
+
+  it('expires a standalone Restaurant trial when no Account hierarchy exists', () => {
+    expect(evaluateSubscriptionAccess({
+      restaurantStatus: 'trial',
+      accountStatus: null,
+      trialEndsAt: '2026-08-11',
+      now: new Date('2026-08-12T00:00:00.000Z'),
+    })).toMatchObject({
+      allowed: false,
+      code: 'RESTAURANT_TRIAL_EXPIRED',
+    });
+  });
+
+  it('does not let a legacy restaurant trial date override an active Account lifecycle', () => {
+    expect(evaluateSubscriptionAccess({
+      restaurantStatus: 'trial',
+      accountStatus: 'active',
+      trialEndsAt: null,
+      contractEndDate: '2026-12-31',
+      now: new Date('2026-08-12T00:00:00.000Z'),
+    }).allowed).toBe(true);
   });
 
   it('expires an active contract after the contract end day', () => {
