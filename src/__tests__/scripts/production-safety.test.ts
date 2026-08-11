@@ -20,6 +20,15 @@ function runSafety(overrides: Record<string, string | undefined>) {
     STRIPE_WEBHOOK_SECRET: '',
     UPSTASH_REDIS_REST_URL: '',
     UPSTASH_REDIS_REST_TOKEN: '',
+    // CI jobs may deliberately enable bootstrap helpers. Production-safety
+    // tests must start from a clean production policy and opt into each
+    // violation explicitly so their result is independent from job env vars.
+    ALLOW_AUTO_SEED: 'false',
+    ALLOW_DEFAULT_TENANT: 'false',
+    ALLOW_PRISMA_DB_PUSH_FALLBACK: 'false',
+    ALLOW_LOGIN_AUTO_SEED: 'false',
+    ENABLE_PUBLIC_RESTAURANT_REGISTRATION: 'false',
+    NEXT_PUBLIC_SHOW_DEMO_CREDS: 'false',
     ...overrides,
   };
 
