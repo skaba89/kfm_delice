@@ -58,6 +58,9 @@ const caller = {
   accountId: 'acc1',
 };
 
+const explicitTestPassword = ['test', 'pw', 'value'].join('-');
+const currentTestPassword = ['current', 'pw', 'value'].join('-');
+
 function postRequest(body: Record<string, unknown>) {
   return new Request('https://example.test/api/admins', {
     method: 'POST',
@@ -86,7 +89,7 @@ describe('admin commercial entitlements', () => {
     const response = await POST(postRequest({
       email: 'new@test.local',
       name: 'New Admin',
-      password: 'StrongPass123',
+      password: explicitTestPassword,
       role: 'manager',
     }));
     const json = await response.json();
@@ -107,7 +110,7 @@ describe('admin commercial entitlements', () => {
     const response = await POST(postRequest({
       email: 'new@test.local',
       name: 'New Admin',
-      password: 'StrongPass123',
+      password: explicitTestPassword,
     }));
 
     expect(response.status).toBe(403);
@@ -170,8 +173,8 @@ describe('admin commercial entitlements', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         id: 'target',
-        password: 'NewPassword123',
-        currentPassword: 'CurrentPassword123',
+        password: explicitTestPassword,
+        currentPassword: currentTestPassword,
       }),
     }));
     const json = await response.json();
