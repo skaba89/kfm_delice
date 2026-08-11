@@ -12,6 +12,7 @@ vi.mock('@/lib/db', () => ({
 
 import {
   getPlanFeatures,
+  getPlanQuotaDefaults,
   getRestaurantFeatureEntitlement,
   normalizeCommercialPlan,
   planIncludesFeature,
@@ -32,12 +33,48 @@ describe('commercial plan entitlements', () => {
     expect(normalizeCommercialPlan('unknown', 'unknown')).toBe('free');
   });
 
-  it('enforces the existing progressive plan matrix', () => {
+  it('enforces the progressive plan matrix including analytics and exports', () => {
     expect(planIncludesFeature('free', 'invoices')).toBe(false);
     expect(planIncludesFeature('starter', 'invoices')).toBe(true);
-    expect(planIncludesFeature('starter', 'drivers')).toBe(false);
+    expect(planIncludesFeature('starter', 'quotes')).toBe(false);
+    expect(planIncludesFeature('starter', 'advanced_analytics')).toBe(false);
+    expect(planIncludesFeature('starter', 'exports')).toBe(false);
+    expect(planIncludesFeature('pro', 'quotes')).toBe(true);
     expect(planIncludesFeature('pro', 'drivers')).toBe(true);
+    expect(planIncludesFeature('pro', 'advanced_analytics')).toBe(true);
+    expect(planIncludesFeature('pro', 'exports')).toBe(true);
     expect(planIncludesFeature('enterprise', 'white_label')).toBe(true);
+  });
+
+  it('uses the same quota catalog sold on the pricing page', () => {
+    expect(getPlanQuotaDefaults('free')).toEqual({
+      maxRestaurants: 1,
+      maxSecondaryRestaurants: 0,
+      maxAdmins: 2,
+      maxUsers: 5,
+    });
+    expect(getPlanQuotaDefaults('starter')).toEqual({
+      maxRestaurants: 2,
+      maxSecondaryRestaurants: 1,
+      maxAdmins: 5,
+      maxUsers: 15,
+    });
+    expect(getPlanQuotaDefaults('pro')).toMatchObject({
+      maxRestaurants: 5,
+      maxAdmins: 15,
+      maxUsers: 50,
+    });
+    expect(getPlanQuotaDefaults('enterprise')).toMatchObject({
+      maxRestaurants: 20,
+      maxAdmins: 50,
+      maxUsers: 200,
+    });
+  });
+
+  it('returns defensive copies of quota defaults', () => {
+    const quotas = getPlanQuotaDefaults('starter');
+    quotas.maxRestaurants = 99;
+    expect(getPlanQuotaDefaults('starter').maxRestaurants).toBe(2);
   });
 
   it('treats custom as the enterprise capability baseline until overrides exist', () => {

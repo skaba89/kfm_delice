@@ -2,18 +2,21 @@ import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticatePlatformAdmin } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
+import { getPlanQuotaDefaults } from "@/lib/commercial-plan-catalog";
 import { z } from "zod";
 
 const createAccountSchema = z.object({
   name: z.string().min(2, "Nom du compte requis"),
   ownerName: z.string().optional().default(""),
-  ownerEmail: z.string().email().optional().default(""),
+  ownerEmail: z.union([z.string().email(), z.literal("")]).optional().default(""),
   ownerPhone: z.string().optional().default(""),
   plan: z.enum(["free", "starter", "pro", "enterprise", "custom"]).default("starter"),
-  maxRestaurants: z.number().int().min(1).default(1),
-  maxSecondaryRestaurants: z.number().int().min(0).default(0),
-  maxAdmins: z.number().int().min(1).default(3),
-  maxUsers: z.number().int().min(1).default(10),
+  // Commercial catalog defaults are applied after validation. Explicit values
+  // remain supported for negotiated/custom contracts.
+  maxRestaurants: z.number().int().min(1).optional(),
+  maxSecondaryRestaurants: z.number().int().min(0).optional(),
+  maxAdmins: z.number().int().min(1).optional(),
+  maxUsers: z.number().int().min(1).optional(),
   maxOrdersPerMonth: z.number().int().min(1, "Le quota mensuel de commandes doit être au moins 1").default(1000),
   contractStartDate: z.string().optional().default(""),
   contractEndDate: z.string().optional().default(""),
@@ -51,7 +54,30 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: validation.error.issues[0]?.message || "Données invalides" }, { status: 400 });
     }
 
-    const account = await db.account.create({ data: validation.data });
+    const input = validation.data;
+    const defaults = getPlanQuotaDefaults(input.plan);
+    const accountData = {
+      ...input,
+      maxRestaurants: input.maxRestaurants ?? defaults.maxRestaurants,
+      maxSecondaryRestaurants: input.maxSecondaryRestaurants ?? defaults.maxSecondaryRestaurants,
+      maxAdmins: input.maxAdmins ?? defaults.maxAdmins,
+      maxUsers: input.maxUsers ?? defaults.maxUsers,
+    };
+
+    if (accountData.maxSecondaryRestaurants > accountData.maxRestaurants - 1) {
+      return NextResponse.json(
+        { error: "Le nombre de restaurants secondaires ne peut pas dépasser maxRestaurants - 1." },
+        { status: 400 }
+      );
+    }
+    if (accountData.maxUsers < accountData.maxAdmins) {
+      return NextResponse.json(
+        { error: "Le nombre maximum d'utilisateurs doit être supérieur ou égal au nombre maximum d'administrateurs." },
+        { status: 400 }
+      );
+    }
+
+    const account = await db.account.create({ data: accountData });
 
     await logAudit({
       actorId: admin.id,
@@ -60,7 +86,7 @@ export async function POST(request: Request) {
       entityType: "Account",
       entityId: account.id,
       accountId: account.id,
-      after: validation.data,
+      after: accountData,
       request,
     });
 

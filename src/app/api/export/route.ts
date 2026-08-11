@@ -1,12 +1,13 @@
 import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
-import { authenticateAdmin, authenticatePlatformAdmin, hasRole } from "@/lib/auth";
+import { authenticateAdmin, authenticatePlatformAdmin } from "@/lib/auth";
+import { commercialFeatureGate } from "@/lib/commercial-feature-gate";
 
 /**
  * GET /api/export?type=orders|customers|invoices|menu|accounts
  *
- * Exports data as CSV. Admins can export their restaurant's data.
- * Platform admins can export accounts (SaaS-level).
+ * Restaurant exports are a Pro+ commercial feature. Platform account exports
+ * remain available to platform operators and are not tied to a restaurant plan.
  *
  * Query params:
  *   type: orders | customers | invoices | menu | accounts | reservations
@@ -23,14 +24,16 @@ export async function GET(request: Request) {
     const from = sp.get("from");
     const to = sp.get("to");
 
-    // Try platform admin first, fall back to restaurant admin
-    let platformAdmin = await authenticatePlatformAdmin(request).catch(() => null);
+    // Try platform admin first, fall back to restaurant admin.
+    const platformAdmin = await authenticatePlatformAdmin(request).catch(() => null);
     let restaurantAdmin = null;
     if (!platformAdmin) {
       restaurantAdmin = await authenticateAdmin(request).catch(() => null);
       if (!restaurantAdmin) {
         return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
       }
+      const featureDenied = await commercialFeatureGate(restaurantAdmin.restaurantId, 'exports');
+      if (featureDenied) return featureDenied;
     }
 
     const restaurantId = restaurantAdmin?.restaurantId;
@@ -89,8 +92,8 @@ export async function GET(request: Request) {
           take: 5000,
         });
         csv = toCSV(invoices.map((i) => bigIntToNumber(i)), [
-          "id", "number", "customerName", "customerEmail",
-          "subtotal", "tax", "total", "status", "issueDate", "dueDate",
+          "id", "number", "customerName", "customerPhone",
+          "subtotal", "tax", "total", "status", "dueDate", "createdAt",
         ]);
         filename = `factures-${new Date().toISOString().slice(0, 10)}.csv`;
         break;
@@ -164,11 +167,9 @@ export async function GET(request: Request) {
   }
 }
 
-// ── CSV helper ─────────────────────────────────────────────────
 function escapeCSV(value: unknown): string {
   if (value === null || value === undefined) return "";
   let str = String(value);
-  // Replace newlines and quotes
   str = str.replace(/\r?\n/g, " ");
   if (str.includes(",") || str.includes('"') || str.includes(";")) {
     str = `"${str.replace(/"/g, '""')}"`;

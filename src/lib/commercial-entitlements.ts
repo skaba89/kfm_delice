@@ -1,42 +1,21 @@
 import { db } from './db';
+import {
+  type CommercialFeature,
+  type CommercialPlan,
+  normalizeCommercialPlanValue,
+  planIncludesFeature,
+} from './commercial-plan-catalog';
 
-export type CommercialPlan = 'free' | 'starter' | 'pro' | 'enterprise' | 'custom';
-export type CommercialFeature =
-  | 'delivery'
-  | 'reservations'
-  | 'reviews'
-  | 'pos'
-  | 'loyalty'
-  | 'invoices'
-  | 'quotes'
-  | 'expenses'
-  | 'staff'
-  | 'drivers'
-  | 'custom_domain'
-  | 'api_access'
-  | 'white_label';
-
-const PLAN_FEATURES: Record<CommercialPlan, readonly CommercialFeature[]> = {
-  free: ['delivery', 'reservations', 'reviews', 'pos'],
-  starter: ['delivery', 'reservations', 'reviews', 'pos', 'loyalty', 'invoices'],
-  pro: [
-    'delivery', 'reservations', 'reviews', 'pos', 'loyalty', 'invoices',
-    'quotes', 'expenses', 'staff', 'drivers',
-  ],
-  enterprise: [
-    'delivery', 'reservations', 'reviews', 'pos', 'loyalty', 'invoices',
-    'quotes', 'expenses', 'staff', 'drivers', 'custom_domain', 'api_access', 'white_label',
-  ],
-  // The data model currently has no per-feature override table for `custom`.
-  // Until one exists, custom must not accidentally fall back to Free: it gets
-  // the Enterprise capability baseline and can be constrained contractually.
-  custom: [
-    'delivery', 'reservations', 'reviews', 'pos', 'loyalty', 'invoices',
-    'quotes', 'expenses', 'staff', 'drivers', 'custom_domain', 'api_access', 'white_label',
-  ],
-};
-
-const VALID_PLANS = new Set<CommercialPlan>(['free', 'starter', 'pro', 'enterprise', 'custom']);
+export type {
+  CommercialFeature,
+  CommercialPlan,
+  CommercialPlanQuotaDefaults,
+} from './commercial-plan-catalog';
+export {
+  getPlanFeatures,
+  getPlanQuotaDefaults,
+  planIncludesFeature,
+} from './commercial-plan-catalog';
 
 export interface FeatureEntitlementResult {
   allowed: boolean;
@@ -49,13 +28,9 @@ export function normalizeCommercialPlan(
   accountPlan: string | null | undefined,
   restaurantPlan: string | null | undefined
 ): CommercialPlan {
-  if (accountPlan && VALID_PLANS.has(accountPlan as CommercialPlan)) return accountPlan as CommercialPlan;
-  if (restaurantPlan && VALID_PLANS.has(restaurantPlan as CommercialPlan)) return restaurantPlan as CommercialPlan;
-  return 'free';
-}
-
-export function planIncludesFeature(plan: CommercialPlan, feature: CommercialFeature): boolean {
-  return PLAN_FEATURES[plan].includes(feature);
+  return normalizeCommercialPlanValue(accountPlan)
+    ?? normalizeCommercialPlanValue(restaurantPlan)
+    ?? 'free';
 }
 
 export async function getRestaurantFeatureEntitlement(
@@ -89,8 +64,4 @@ export async function getRestaurantFeatureEntitlement(
   }
 
   return { allowed: true, plan, feature };
-}
-
-export function getPlanFeatures(plan: CommercialPlan): readonly CommercialFeature[] {
-  return PLAN_FEATURES[plan];
 }

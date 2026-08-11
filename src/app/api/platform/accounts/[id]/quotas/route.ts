@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { authenticatePlatformAdmin } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
 import { invalidateTenantCache } from '@/lib/tenant';
+import { getPlanQuotaDefaults } from '@/lib/commercial-plan-catalog';
 import { z } from "zod";
 
 const quotaSchema = z.object({
@@ -35,10 +36,24 @@ export async function PATCH(
     const account = await db.account.findUnique({ where: { id } });
     if (!account) return NextResponse.json({ error: "Compte non trouvé" }, { status: 404 });
 
-    const newMaxRestaurants = validation.data.maxRestaurants ?? account.maxRestaurants;
-    const newMaxSecondary = validation.data.maxSecondaryRestaurants ?? account.maxSecondaryRestaurants;
-    const newMaxAdmins = validation.data.maxAdmins ?? account.maxAdmins;
-    const newMaxUsers = validation.data.maxUsers ?? account.maxUsers;
+    const input = validation.data;
+    const planChanged = Boolean(input.plan && input.plan !== account.plan);
+    const planDefaults = planChanged && input.plan ? getPlanQuotaDefaults(input.plan) : null;
+
+    // A plan change adopts the catalog defaults for quota fields the operator
+    // did not explicitly override. Pure quota/status edits keep existing values.
+    const newMaxRestaurants = input.maxRestaurants
+      ?? planDefaults?.maxRestaurants
+      ?? account.maxRestaurants;
+    const newMaxSecondary = input.maxSecondaryRestaurants
+      ?? planDefaults?.maxSecondaryRestaurants
+      ?? account.maxSecondaryRestaurants;
+    const newMaxAdmins = input.maxAdmins
+      ?? planDefaults?.maxAdmins
+      ?? account.maxAdmins;
+    const newMaxUsers = input.maxUsers
+      ?? planDefaults?.maxUsers
+      ?? account.maxUsers;
 
     if (newMaxSecondary > newMaxRestaurants - 1) {
       return NextResponse.json(
@@ -64,19 +79,31 @@ export async function PATCH(
     };
 
     const restaurantCount = await db.restaurant.count({ where: { accountId: id } });
-    let finalStatus = validation.data.status;
-    if (newMaxRestaurants < restaurantCount && !finalStatus) {
+    let finalStatus = input.status;
+    if (!finalStatus && newMaxRestaurants < restaurantCount) {
       finalStatus = "over_quota";
+    } else if (!finalStatus && account.status === "over_quota" && newMaxRestaurants >= restaurantCount) {
+      finalStatus = "active";
     }
+
+    const updateData = {
+      ...input,
+      ...(planChanged ? {
+        maxRestaurants: newMaxRestaurants,
+        maxSecondaryRestaurants: newMaxSecondary,
+        maxAdmins: newMaxAdmins,
+        maxUsers: newMaxUsers,
+      } : {}),
+      ...(finalStatus && { status: finalStatus }),
+    };
 
     const updated = await db.account.update({
       where: { id },
-      data: { ...validation.data, ...(finalStatus && { status: finalStatus }) },
+      data: updateData,
     });
 
     // Account status/plan affects public tenant availability and may already be
-    // cached by slug. Clear centrally so suspend/cancel takes effect on the
-    // next anonymous/QR request as well as on authenticated sessions.
+    // cached by slug. Clear centrally so changes take effect on the next request.
     invalidateTenantCache();
 
     await logAudit({
@@ -87,7 +114,7 @@ export async function PATCH(
       entityId: id,
       accountId: id,
       before,
-      after: { ...validation.data, ...(finalStatus && { status: finalStatus }) },
+      after: updateData,
       request,
     });
 

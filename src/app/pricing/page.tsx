@@ -5,6 +5,12 @@ import { Check, Star, Zap, Crown, Building2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { getPlanQuotaDefaults } from "@/lib/commercial-plan-catalog";
+
+const freeQuotas = getPlanQuotaDefaults("free");
+const starterQuotas = getPlanQuotaDefaults("starter");
+const proQuotas = getPlanQuotaDefaults("pro");
+const enterpriseQuotas = getPlanQuotaDefaults("enterprise");
 
 const plans = [
   {
@@ -15,9 +21,9 @@ const plans = [
     description: "Pour découvrir la plateforme",
     color: "border-gray-300 dark:border-white/10",
     features: [
-      "1 restaurant",
-      "2 administrateurs",
-      "5 utilisateurs",
+      `${freeQuotas.maxRestaurants} restaurant`,
+      `${freeQuotas.maxAdmins} administrateurs`,
+      `${freeQuotas.maxUsers} utilisateurs`,
       "Menu QR code",
       "Commandes en ligne",
       "Réservations",
@@ -35,12 +41,12 @@ const plans = [
     description: "Pour les petits restaurants",
     color: "border-blue-300 dark:border-blue-500/30",
     features: [
-      "2 restaurants",
-      "5 administrateurs",
-      "15 utilisateurs",
+      `${starterQuotas.maxRestaurants} restaurants`,
+      `${starterQuotas.maxAdmins} administrateurs`,
+      `${starterQuotas.maxUsers} utilisateurs`,
       "Tout du plan Free",
       "Restaurant secondaire",
-      "Factures & devis",
+      "Factures clients",
       "Programme fidélité",
       "Support WhatsApp",
     ],
@@ -56,14 +62,14 @@ const plans = [
     description: "Pour les restaurants établis",
     color: "border-orange-500 dark:border-orange-500/50",
     features: [
-      "5 restaurants",
-      "15 administrateurs",
-      "50 utilisateurs",
+      `${proQuotas.maxRestaurants} restaurants`,
+      `${proQuotas.maxAdmins} administrateurs`,
+      `${proQuotas.maxUsers} utilisateurs`,
       "Tout du plan Starter",
-      "Gestion livreurs",
+      "Devis & dépenses",
+      "Gestion équipe & livreurs",
       "Analytics avancés",
-      "Notifications email",
-      "Export CSV/PDF",
+      "Exports CSV/PDF",
       "Support prioritaire",
     ],
     cta: "Choisir Pro",
@@ -78,15 +84,14 @@ const plans = [
     description: "Pour les chaînes de restaurants",
     color: "border-purple-300 dark:border-purple-500/30",
     features: [
-      "20 restaurants",
-      "50 administrateurs",
-      "200 utilisateurs",
+      `${enterpriseQuotas.maxRestaurants} restaurants`,
+      `${enterpriseQuotas.maxAdmins} administrateurs`,
+      `${enterpriseQuotas.maxUsers} utilisateurs`,
       "Tout du plan Pro",
-      "Multi-devises",
-      "API access",
-      "White label",
-      "Account manager dédié",
-      "SLA 99.9%",
+      "Gestion multi-restaurants à grande échelle",
+      "Quotas entreprise étendus",
+      "Paramétrage contractuel sur mesure",
+      "Accompagnement au déploiement",
     ],
     cta: "Contacter les ventes",
     href: "/contact",
@@ -98,7 +103,6 @@ export default function PricingPage() {
   return (
     <div className="min-h-screen bg-white dark:bg-gray-950 py-12">
       <div className="max-w-6xl mx-auto px-4 sm:px-6">
-        {/* Header */}
         <div className="text-center mb-12">
           <Badge className="mb-4 bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/30">
             Tarifs transparents
@@ -107,11 +111,10 @@ export default function PricingPage() {
             Choisissez votre plan
           </h1>
           <p className="text-lg text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
-            Des prix adaptés au marché guinéen. Sans frais cachés. Annulation à tout moment.
+            Des prix adaptés au marché guinéen. Des fonctionnalités et quotas clairement définis par offre.
           </p>
         </div>
 
-        {/* Plans Grid */}
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
           {plans.map((plan, i) => (
             <motion.div
@@ -169,19 +172,18 @@ export default function PricingPage() {
           ))}
         </div>
 
-        {/* FAQ */}
         <div className="mt-20 max-w-3xl mx-auto">
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white text-center mb-8">
             Questions fréquentes
           </h2>
           <div className="space-y-4">
             {[
-              { q: "Puis-je changer de plan à tout moment ?", a: "Oui, vous pouvez upgrader ou downgrader à tout moment. Le changement prend effet immédiatement et est proratisé." },
-              { q: "Quels moyens de paiement acceptez-vous ?", a: "Orange Money, MTN MoMo, Wave, carte bancaire (Visa/Mastercard via Stripe) et virement bancaire pour les abonnements annuels." },
-              { q: "Y a-t-il des frais d'installation ?", a: "Non, l'installation est gratuite. Vous pouvez configurer votre restaurant en 5 minutes avec notre guide d'onboarding." },
-              { q: "Puis-je essayer gratuitement ?", a: "Oui, le plan Free est gratuit à vie. Vous pouvez aussi tester le plan Pro pendant 14 jours sans engagement." },
-              { q: "Que se passe-t-il si je dépasse mon quota ?", a: "Vous êtes notifié par email. Le compte passe en statut 'over_quota' et la création de nouveaux restaurants est bloquée jusqu'à upgrade." },
-              { q: "Mes données sont-elles sécurisées ?", a: "Oui : chiffrement bcrypt, 2FA TOTP pour les admins, HTTPS/TLS, audit logs, backups quotidiens, conformité RGPD/PDPO." },
+              { q: "Puis-je changer de plan ?", a: "Oui. Les droits et quotas du nouveau plan prennent effet dès la modification du compte. Les modalités commerciales sont définies dans votre offre ou contrat." },
+              { q: "Comment régler l'abonnement ?", a: "Les modalités de règlement sont précisées lors de la souscription en fonction de l'offre et du contrat retenus." },
+              { q: "Y a-t-il des frais d'installation ?", a: "L'onboarding est guidé. Les éventuels services d'accompagnement spécifiques sont précisés dans l'offre commerciale." },
+              { q: "Puis-je essayer gratuitement ?", a: "Le catalogue propose un plan Free. Les essais des offres payantes sont activés selon les conditions commerciales applicables à votre compte." },
+              { q: "Que se passe-t-il si je dépasse mon quota ?", a: "Le compte passe en statut 'over_quota' lorsque les limites applicables sont dépassées. Les créations concernées restent bloquées jusqu'à régularisation ou upgrade." },
+              { q: "Mes données sont-elles sécurisées ?", a: "La plateforme applique notamment bcrypt, 2FA TOTP pour les admins, HTTPS/TLS, audit logs et des contrôles de sécurité automatisés." },
             ].map((faq, i) => (
               <Card key={i} className="bg-white dark:bg-gray-900 border-gray-200 dark:border-white/10">
                 <CardContent className="p-5">
@@ -193,7 +195,6 @@ export default function PricingPage() {
           </div>
         </div>
 
-        {/* CTA */}
         <div className="mt-20 text-center">
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
             Encore une question ?
