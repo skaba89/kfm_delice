@@ -9,6 +9,7 @@ const quotaSchema = z.object({
   maxSecondaryRestaurants: z.number().int().min(0).optional(),
   maxAdmins: z.number().int().min(1, "Le nombre maximum d'administrateurs doit être au moins 1").optional(),
   maxUsers: z.number().int().min(1).optional(),
+  maxOrdersPerMonth: z.number().int().min(1, "Le quota mensuel de commandes doit être au moins 1").optional(),
   plan: z.enum(["free", "starter", "pro", "enterprise", "custom"]).optional(),
   status: z.enum(["active", "trial", "suspended", "cancelled", "over_quota"]).optional(),
 });
@@ -33,7 +34,6 @@ export async function PATCH(
     const account = await db.account.findUnique({ where: { id } });
     if (!account) return NextResponse.json({ error: "Compte non trouvé" }, { status: 404 });
 
-    // ── Mission 6: Quota coherence validation ──
     const newMaxRestaurants = validation.data.maxRestaurants ?? account.maxRestaurants;
     const newMaxSecondary = validation.data.maxSecondaryRestaurants ?? account.maxSecondaryRestaurants;
     const newMaxAdmins = validation.data.maxAdmins ?? account.maxAdmins;
@@ -55,11 +55,13 @@ export async function PATCH(
     const before = {
       maxRestaurants: account.maxRestaurants,
       maxSecondaryRestaurants: account.maxSecondaryRestaurants,
+      maxAdmins: account.maxAdmins,
+      maxUsers: account.maxUsers,
+      maxOrdersPerMonth: account.maxOrdersPerMonth,
       plan: account.plan,
       status: account.status,
     };
 
-    // Check if new quota is below current usage → over_quota
     const restaurantCount = await db.restaurant.count({ where: { accountId: id } });
     let finalStatus = validation.data.status;
     if (newMaxRestaurants < restaurantCount && !finalStatus) {
@@ -83,7 +85,6 @@ export async function PATCH(
       request,
     });
 
-    // Audit: over_quota transition
     if (finalStatus === "over_quota" && account.status !== "over_quota") {
       await logAudit({
         actorId: admin.id,
