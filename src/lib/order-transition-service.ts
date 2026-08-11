@@ -1,5 +1,6 @@
 import { db } from './db';
 import { isValidOrderTransition, ORDER_TRANSITIONS } from './validations';
+import { normalizeCommercialPlan, planIncludesFeature } from './commercial-entitlements';
 import { Prisma } from '@prisma/client';
 
 export type OrderPatchRole = 'admin' | 'manager' | 'staff' | 'cashier' | 'kitchen' | 'delivery_manager';
@@ -310,17 +311,39 @@ export async function applyOrderPatchAtomically(
       }
     }
 
+    let deliveredFeatureState: {
+      loyaltyEnabled: boolean;
+      invoicesEnabled: boolean;
+      loyaltyPointsRate: number;
+    } | null = null;
+
+    if (becameDelivered) {
+      const restaurant = await tx.restaurant.findUnique({
+        where: { id: context.restaurantId },
+        select: {
+          loyaltyPointsRate: true,
+          plan: true,
+          account: { select: { plan: true, status: true } },
+        },
+      });
+      const plan = normalizeCommercialPlan(restaurant?.account?.plan, restaurant?.plan);
+      const accountAvailable = !restaurant?.account || !['suspended', 'cancelled'].includes(restaurant.account.status);
+      deliveredFeatureState = {
+        loyaltyEnabled: accountAvailable && planIncludesFeature(plan, 'loyalty'),
+        invoicesEnabled: accountAvailable && planIncludesFeature(plan, 'invoices'),
+        loyaltyPointsRate: restaurant?.loyaltyPointsRate ?? 1,
+      };
+    }
+
     if (becameDelivered && effectiveCustomerId) {
       const customer = await tx.customer.findFirst({
         where: { id: effectiveCustomerId, restaurantId: context.restaurantId },
         select: { id: true },
       });
       if (customer) {
-        const restaurant = await tx.restaurant.findUnique({
-          where: { id: context.restaurantId },
-          select: { loyaltyPointsRate: true },
-        });
-        const pointsEarned = Math.floor(moneyNumber(existing.total) / 1000) * (restaurant?.loyaltyPointsRate ?? 1);
+        const pointsEarned = deliveredFeatureState?.loyaltyEnabled
+          ? Math.floor(moneyNumber(existing.total) / 1000) * deliveredFeatureState.loyaltyPointsRate
+          : 0;
         await tx.customer.update({
           where: { id: effectiveCustomerId },
           data: {
@@ -343,7 +366,7 @@ export async function applyOrderPatchAtomically(
       }
     }
 
-    if (becameDelivered) {
+    if (becameDelivered && deliveredFeatureState?.invoicesEnabled) {
       const existingInvoice = await tx.invoice.findFirst({
         where: { orderId: id, restaurantId: context.restaurantId },
         select: { id: true },
