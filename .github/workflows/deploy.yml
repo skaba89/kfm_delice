@@ -1,6 +1,8 @@
 # KFM Delice — Render deployment gate
-# Automatic production deploys are triggered only after the CI workflow
-# completes successfully on main. Manual dispatch remains available.
+# Automatic production deploys are triggered only after CI succeeds on main.
+# The exact CI commit is passed to Render and, when a public base URL secret is
+# configured, the workflow blocks until that exact release is ready and passes
+# read-only smoke tests.
 name: Deploy to Render
 
 on:
@@ -25,7 +27,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     if: >-
       ${{
         github.event_name == 'workflow_dispatch' ||
@@ -35,40 +37,124 @@ jobs:
       }}
 
     steps:
-      - name: Verify Render deploy hook
+      - name: Checkout deployment tooling
+        uses: actions/checkout@v4
+
+      - name: Resolve target revision and environment
         env:
-          HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_SHA: ${{ github.event.workflow_run.head_sha }}
+          MANUAL_ENV: ${{ github.event.inputs.environment }}
         run: |
-          if [ -z "$HOOK_URL" ]; then
-            echo "::error::RENDER_DEPLOY_HOOK_URL is not configured. Refusing to deploy."
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_run" ]; then
+            TARGET_SHA="$WORKFLOW_SHA"
+            TARGET_ENV="production"
+          else
+            TARGET_SHA="${GITHUB_SHA}"
+            TARGET_ENV="${MANUAL_ENV:-production}"
+          fi
+          if [ -z "$TARGET_SHA" ]; then
+            echo "::error::Unable to resolve target Git commit."
             exit 1
           fi
+          echo "TARGET_SHA=$TARGET_SHA" >> "$GITHUB_ENV"
+          echo "TARGET_ENV=$TARGET_ENV" >> "$GITHUB_ENV"
+          echo "Deploy target: $TARGET_ENV @ $TARGET_SHA"
 
-      - name: Trigger Render deploy
+      - name: Resolve Render endpoint
         env:
-          HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          PROD_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          STAGING_HOOK_URL: ${{ secrets.RENDER_STAGING_DEPLOY_HOOK_URL }}
+          PROD_BASE_URL: ${{ secrets.RENDER_PUBLIC_BASE_URL }}
+          STAGING_BASE_URL: ${{ secrets.RENDER_STAGING_BASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ "$TARGET_ENV" = "staging" ]; then
+            HOOK_URL="$STAGING_HOOK_URL"
+            BASE_URL="$STAGING_BASE_URL"
+          else
+            HOOK_URL="$PROD_HOOK_URL"
+            BASE_URL="$PROD_BASE_URL"
+          fi
+          if [ -z "$HOOK_URL" ]; then
+            echo "::error::Render deploy hook is not configured for $TARGET_ENV."
+            exit 1
+          fi
+          echo "HOOK_URL=$HOOK_URL" >> "$GITHUB_ENV"
+          echo "BASE_URL=$BASE_URL" >> "$GITHUB_ENV"
+
+      - name: Trigger exact Render revision
+        env:
           CLEAR_CACHE: ${{ github.event.inputs.clear_cache || 'false' }}
         run: |
           set -euo pipefail
-          echo "Triggering CI-gated Render deployment..."
+          if [[ "$HOOK_URL" == *"?"* ]]; then
+            DEPLOY_URL="${HOOK_URL}&ref=${TARGET_SHA}"
+          else
+            DEPLOY_URL="${HOOK_URL}?ref=${TARGET_SHA}"
+          fi
+          echo "Triggering CI-gated Render deployment for $TARGET_SHA..."
           if [ "$CLEAR_CACHE" = "true" ]; then
             curl --fail-with-body --silent --show-error --location \
               --request POST \
               --header "Content-Type: application/json" \
               --data '{"clearCache": true}' \
-              "$HOOK_URL"
+              "$DEPLOY_URL"
           else
             curl --fail-with-body --silent --show-error --location \
               --request POST \
-              "$HOOK_URL"
+              "$DEPLOY_URL"
           fi
+
+      - name: Wait for exact release and run read-only smoke
+        env:
+          SMOKE_RESTAURANT_SLUG: ${{ secrets.SMOKE_RESTAURANT_SLUG }}
+        run: |
+          set -euo pipefail
+          if [ -z "$BASE_URL" ]; then
+            echo "::warning::Public base URL secret is not configured for $TARGET_ENV; exact-release smoke is skipped. Configure RENDER_PUBLIC_BASE_URL (and staging equivalent) before national rollout."
+            exit 0
+          fi
+
+          echo "Waiting for Render to serve release $TARGET_SHA at $BASE_URL..."
+          matched="false"
+          for attempt in $(seq 1 60); do
+            payload="$(curl --fail --silent --show-error --max-time 10 "$BASE_URL/api/status" 2>/dev/null || true)"
+            release="$(PAYLOAD="$payload" python3 - <<'PY'
+          import json, os
+          try:
+              print(json.loads(os.environ.get('PAYLOAD', '{}')).get('release', ''))
+          except Exception:
+              print('')
+          PY
+            )"
+            if [ "$release" = "$TARGET_SHA" ]; then
+              matched="true"
+              echo "Exact release is live after attempt $attempt."
+              break
+            fi
+            echo "Attempt $attempt/60: deployed release=${release:-unknown}; waiting..."
+            sleep 10
+          done
+
+          if [ "$matched" != "true" ]; then
+            echo "::error::Render did not expose expected release $TARGET_SHA within the deployment window."
+            exit 1
+          fi
+
+          BASE_URL="$BASE_URL" \
+          EXPECTED_COMMIT="$TARGET_SHA" \
+          SMOKE_RESTAURANT_SLUG="$SMOKE_RESTAURANT_SLUG" \
+          python3 scripts/post-deploy-smoke.py
 
       - name: Deployment summary
         run: |
-          if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            echo "Render deployment triggered after successful CI."
-            echo "Commit: ${{ github.event.workflow_run.head_sha }}"
+          echo "Render deployment workflow completed."
+          echo "Environment: $TARGET_ENV"
+          echo "Commit: $TARGET_SHA"
+          if [ -n "$BASE_URL" ]; then
+            echo "Post-deploy smoke: passed for the exact release."
           else
-            echo "Manual Render deployment triggered."
-            echo "Environment: ${{ github.event.inputs.environment }}"
+            echo "Post-deploy smoke: not configured (base URL secret missing)."
           fi
