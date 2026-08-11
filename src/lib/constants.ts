@@ -1,5 +1,9 @@
 import { Leaf, Flame, Fish, CakeSlice, CupSoda } from "lucide-react";
 import { db } from './db';
+import {
+  getPlanFeatures,
+  normalizeCommercialPlanValue,
+} from './commercial-plan-catalog';
 
 // ────────────────────────────────────────────────────────────────
 // Default fallback values (used when no restaurant is resolved)
@@ -137,6 +141,8 @@ export interface Features {
   expenses: boolean;
   staff: boolean;
   drivers: boolean;
+  advanced_analytics?: boolean;
+  exports?: boolean;
   custom_domain?: boolean;
   api_access?: boolean;
   white_label?: boolean;
@@ -180,10 +186,11 @@ const configCache = new Map<string, { data: RestaurantConfigResolved; expiresAt:
 const CONFIG_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 /**
- * Load full restaurant config from database, with caching
+ * Load full restaurant config from database, with caching.
+ * Config-level feature toggles can disable a capability, but never re-enable a
+ * capability absent from the effective Account/Restaurant commercial plan.
  */
 export async function getRestaurantConfig(slug: string): Promise<RestaurantConfigResolved | null> {
-  // Check cache
   const cached = configCache.get(slug);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.data;
@@ -191,7 +198,10 @@ export async function getRestaurantConfig(slug: string): Promise<RestaurantConfi
 
   const restaurant = await db.restaurant.findUnique({
     where: { slug },
-    include: { config: true },
+    include: {
+      config: true,
+      account: { select: { plan: true } },
+    },
   });
 
   if (!restaurant) return null;
@@ -208,6 +218,33 @@ export async function getRestaurantConfig(slug: string): Promise<RestaurantConfi
   const parsedFeatures: Features = config?.features
     ? safeJsonParse(config.features, { delivery: true, reservations: true, reviews: true, loyalty: true, pos: true, invoices: true, quotes: true, expenses: true, staff: true, drivers: true })
     : { delivery: true, reservations: true, reviews: true, loyalty: true, pos: true, invoices: true, quotes: true, expenses: true, staff: true, drivers: true };
+
+  const effectivePlan = normalizeCommercialPlanValue(restaurant.account?.plan)
+    ?? normalizeCommercialPlanValue(restaurant.plan)
+    ?? 'free';
+  const allowedFeatures = new Set(getPlanFeatures(effectivePlan));
+  const enabled = (feature: keyof Features): boolean =>
+    parsedFeatures[feature] !== false && allowedFeatures.has(feature as any);
+
+  const resolvedFeatures: Features = {
+    delivery: enabled('delivery'),
+    reservations: enabled('reservations'),
+    reviews: enabled('reviews'),
+    loyalty: enabled('loyalty'),
+    pos: enabled('pos'),
+    invoices: enabled('invoices'),
+    quotes: enabled('quotes'),
+    expenses: enabled('expenses'),
+    staff: enabled('staff'),
+    drivers: enabled('drivers'),
+    advanced_analytics: enabled('advanced_analytics'),
+    exports: enabled('exports'),
+    // Enterprise-only capabilities are still opt-in at config level because
+    // their operational provisioning is not automatic yet.
+    custom_domain: Boolean(parsedFeatures.custom_domain) && allowedFeatures.has('custom_domain'),
+    api_access: Boolean(parsedFeatures.api_access) && allowedFeatures.has('api_access'),
+    white_label: Boolean(parsedFeatures.white_label) && allowedFeatures.has('white_label'),
+  };
 
   const parsedSocial: { facebook: string; instagram: string; twitter: string } = config?.socialLinks
     ? safeJsonParse(config.socialLinks, { facebook: '', instagram: '', twitter: '' })
@@ -229,29 +266,23 @@ export async function getRestaurantConfig(slug: string): Promise<RestaurantConfi
     primaryColor: config?.primaryColor || '#ea580c',
     accentColor: config?.accentColor || '#f97316',
     fontFamily: config?.fontFamily || 'Inter',
-    // Use ?? for rating/tables — they may be undefined if the column
-    // doesn't exist yet (safety net hasn't added it)
     rating: restaurant.rating ?? 4.5,
     tables: restaurant.tables ?? 20,
-    // Number() wraps BigInt (PostgreSQL) for JSON serialization.
-    // On SQLite these are already number (no-op).
-    // Use ?? 0 fallback in case the field is undefined.
     deliveryFee: Number(restaurant.deliveryFee ?? 5000),
     minDelivery: Number(restaurant.minDelivery ?? 15000),
     deliveryZones: restaurant.deliveryZones ? restaurant.deliveryZones.split(':') : [],
     menuCategories: parsedCategories,
     openingHours: parsedHours,
-    features: parsedFeatures,
+    features: resolvedFeatures,
     currency: restaurant.currency || 'GNF',
     locale: restaurant.locale || 'fr',
-    plan: restaurant.plan || 'free',
+    plan: effectivePlan,
     socialLinks: parsedSocial,
-    customDomain: config?.customDomain || '',
+    customDomain: allowedFeatures.has('custom_domain') ? (config?.customDomain || '') : '',
     metaTitle: config?.metaTitle || restaurant.name,
     metaDescription: config?.metaDescription || restaurant.description || '',
   };
 
-  // Cache
   configCache.set(slug, { data: resolved, expiresAt: Date.now() + CONFIG_CACHE_TTL });
   return resolved;
 }
@@ -262,7 +293,7 @@ export async function getRestaurantConfig(slug: string): Promise<RestaurantConfi
 export async function getRestaurantConfigById(restaurantId: string): Promise<RestaurantConfigResolved | null> {
   const restaurant = await db.restaurant.findUnique({
     where: { id: restaurantId },
-    include: { config: true },
+    select: { slug: true },
   });
   if (!restaurant) return null;
   return getRestaurantConfig(restaurant.slug);
@@ -315,7 +346,6 @@ function safeJsonParse<T>(json: unknown, fallback: T): T {
       return fallback;
     }
   }
-  // Already parsed (PostgreSQL Json type returns object/array)
   return json as T;
 }
 
@@ -406,15 +436,6 @@ export const staffStatusLabels: Record<string, string> = { active: "Actif", inac
 // ────────────────────────────────────────────────────────────────
 // Admin roles (login accounts with dashboard access)
 // 8 roles — from full restaurant owner to single-purpose accounts.
-//
-//   admin              — Super Admin restaurant (full access)
-//   manager            — Gérant adjoint (operational management)
-//   staff              — Personnel polyvalent (orders, reservations, kitchen view)
-//   cashier            — Caissier (POS, payments, invoices, customer list)
-//   kitchen            — Chef Cuisine (kitchen display, stock view, order status)
-//   delivery_manager   — Responsable Livraison (drivers, deliveries)
-//   host               — Hôte d'Accueil (reservations only)
-//   accountant         — Comptable (invoices, expenses, quotes, analytics — no ops)
 // ────────────────────────────────────────────────────────────────
 export const adminRoleLabels: Record<string, string> = {
   admin: "Super Admin",
@@ -438,7 +459,6 @@ export const adminRoleColors: Record<string, string> = {
   host: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300",
   accountant: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300",
 };
-// Ordered list (used by dropdowns and badge components)
 export const adminRoleOrder: string[] = [
   "admin", "manager", "staff", "cashier",
   "kitchen", "delivery_manager", "driver", "host", "accountant",
