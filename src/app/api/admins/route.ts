@@ -1,8 +1,26 @@
+import { randomBytes } from 'node:crypto';
 import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole, hashPassword, verifyPassword, ADMIN_ROLES } from "@/lib/auth";
 import { adminSchema, adminPatchSchema } from "@/lib/validations";
 import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, parseStatusFilter, buildSearchWhere } from "@/lib/pagination";
+import { logAudit } from '@/lib/audit';
+
+const SAFE_ADMIN_SELECT = {
+  id: true,
+  email: true,
+  name: true,
+  role: true,
+  status: true,
+  mustChangePassword: true,
+  restaurantId: true,
+  accountId: true,
+  canCreateRestaurant: true,
+  restaurantCreationLimit: true,
+  restaurantsCreatedCount: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
 
 // All methods: Admin only (most restrictive)
 export async function GET(request: Request) {
@@ -35,15 +53,7 @@ export async function GET(request: Request) {
       db.admin.findMany({
         where,
         orderBy: { [sortBy]: sortOrder },
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          role: true,
-          status: true,
-          createdAt: true,
-          updatedAt: true,
-        },
+        select: SAFE_ADMIN_SELECT,
         skip: prismaSkip(page, limit),
         take: prismaTake(limit),
       }),
@@ -79,17 +89,105 @@ export async function POST(request: Request) {
     }
 
     const { password, ...rest } = validation.data;
-    const createData: { email: string; name: string; password: string; role?: string; status?: string; restaurantId: string } = {
-      email: rest.email,
-      name: rest.name,
-      password: password ? await hashPassword(password) : await hashPassword('changeme123'),
-      restaurantId: admin.restaurantId,
-    };
-    if (rest.role) createData.role = rest.role;
-    if (rest.status) createData.status = rest.status;
+    if (rest.role && !ADMIN_ROLES.includes(rest.role as (typeof ADMIN_ROLES)[number])) {
+      return NextResponse.json({ error: 'Rôle administrateur invalide' }, { status: 400 });
+    }
 
-    const newAdmin = await db.admin.create({ data: createData });
-    return NextResponse.json(bigIntToNumber(newAdmin), { status: 201 });
+    const duplicate = await db.admin.findUnique({
+      where: { email: rest.email },
+      select: { id: true },
+    });
+    if (duplicate) {
+      return NextResponse.json(
+        { error: 'Cet email administrateur est déjà utilisé', code: 'ADMIN_EMAIL_EXISTS' },
+        { status: 409 }
+      );
+    }
+
+    const restaurant = await db.restaurant.findUnique({
+      where: { id: admin.restaurantId },
+      select: {
+        id: true,
+        accountId: true,
+        account: {
+          select: { id: true, status: true, maxAdmins: true },
+        },
+      },
+    });
+    if (!restaurant) {
+      return NextResponse.json({ error: 'Restaurant introuvable' }, { status: 404 });
+    }
+
+    const account = restaurant.account;
+    if (account) {
+      if (account.status === 'suspended' || account.status === 'cancelled') {
+        return NextResponse.json(
+          { error: 'Le compte SaaS est suspendu ou résilié', code: 'ACCOUNT_UNAVAILABLE' },
+          { status: 403 }
+        );
+      }
+
+      const accountRestaurants = await db.restaurant.findMany({
+        where: { accountId: account.id },
+        select: { id: true },
+      });
+      const restaurantIds = accountRestaurants.map((item) => item.id);
+      const currentAdmins = await db.admin.count({
+        where: { restaurantId: { in: restaurantIds } },
+      });
+      if (currentAdmins >= account.maxAdmins) {
+        return NextResponse.json(
+          {
+            error: `Quota d'administrateurs atteint (${currentAdmins}/${account.maxAdmins})`,
+            code: 'ACCOUNT_ADMIN_QUOTA_REACHED',
+            usage: currentAdmins,
+            limit: account.maxAdmins,
+          },
+          { status: 403 }
+        );
+      }
+    }
+
+    const temporaryPassword = password ? undefined : randomBytes(18).toString('base64url');
+    const rawPassword = password || temporaryPassword!;
+    const newAdmin = await db.admin.create({
+      data: {
+        email: rest.email,
+        name: rest.name,
+        password: await hashPassword(rawPassword),
+        restaurantId: admin.restaurantId,
+        accountId: restaurant.accountId,
+        role: rest.role || 'admin',
+        status: rest.status || 'active',
+        mustChangePassword: Boolean(temporaryPassword),
+      },
+      select: SAFE_ADMIN_SELECT,
+    });
+
+    await logAudit({
+      actorId: admin.id,
+      actorType: 'admin',
+      action: 'admin_create',
+      entityType: 'Admin',
+      entityId: newAdmin.id,
+      restaurantId: admin.restaurantId,
+      accountId: restaurant.accountId || undefined,
+      after: {
+        email: newAdmin.email,
+        name: newAdmin.name,
+        role: newAdmin.role,
+        temporaryPasswordIssued: Boolean(temporaryPassword),
+      },
+      request,
+    }).catch(() => {});
+
+    return NextResponse.json(
+      bigIntToNumber({
+        ...newAdmin,
+        ...(temporaryPassword ? { temporaryPassword } : {}),
+      }),
+      { status: 201 }
+    );
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
@@ -118,12 +216,10 @@ export async function PATCH(request: Request) {
     if (!id) {
       return NextResponse.json({ error: "ID requis" }, { status: 400 });
     }
+    if (rest.role && !ADMIN_ROLES.includes(rest.role as (typeof ADMIN_ROLES)[number])) {
+      return NextResponse.json({ error: 'Rôle administrateur invalide' }, { status: 400 });
+    }
 
-    // ── Multi-tenant isolation ──────────────────────────────────
-    // Verify the target admin belongs to the requesting admin's restaurant.
-    // Without this, an admin of restaurant A could change the password of
-    // an admin of restaurant B by guessing an admin UUID — full account
-    // takeover across tenants.
     const targetAdmin = await db.admin.findFirst({
       where: { id, restaurantId: admin.restaurantId },
       select: { id: true, password: true },
@@ -132,9 +228,15 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "Administrateur introuvable" }, { status: 404 });
     }
 
-    const updateData: { email?: string; name?: string; password?: string; role?: string; status?: string } = { ...rest };
+    const updateData: {
+      email?: string;
+      name?: string;
+      password?: string;
+      role?: string;
+      status?: string;
+      mustChangePassword?: boolean;
+    } = { ...rest };
     if (password) {
-      // If the admin is changing their own password, verify current password
       if (admin.id === id) {
         if (!currentPassword) {
           return NextResponse.json({ error: "Mot de passe actuel requis" }, { status: 400 });
@@ -144,11 +246,15 @@ export async function PATCH(request: Request) {
           return NextResponse.json({ error: "Mot de passe actuel incorrect" }, { status: 400 });
         }
       }
-      // If a different admin is changing this admin's password, no currentPassword needed
       updateData.password = await hashPassword(password);
+      updateData.mustChangePassword = false;
     }
 
-    const updatedAdmin = await db.admin.update({ where: { id }, data: updateData });
+    const updatedAdmin = await db.admin.update({
+      where: { id },
+      data: updateData,
+      select: SAFE_ADMIN_SELECT,
+    });
     return NextResponse.json(bigIntToNumber(updatedAdmin));
   } catch (error) {
     console.error(error);
@@ -178,7 +284,13 @@ export async function DELETE(request: Request) {
     if (!id) {
       return NextResponse.json({ error: "ID requis" }, { status: 400 });
     }
-    // Scope delete to admin's restaurant
+    if (id === admin.id) {
+      return NextResponse.json(
+        { error: 'Vous ne pouvez pas supprimer votre propre compte administrateur', code: 'SELF_DELETE_FORBIDDEN' },
+        { status: 400 }
+      );
+    }
+
     await db.admin.deleteMany({ where: { id, restaurantId: admin.restaurantId } });
     return NextResponse.json({ success: true });
   } catch (error) {
