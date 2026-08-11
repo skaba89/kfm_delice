@@ -2,6 +2,7 @@ import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticatePlatformAdmin } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
+import { invalidateTenantCache } from '@/lib/tenant';
 import { z } from "zod";
 
 const quotaSchema = z.object({
@@ -33,7 +34,6 @@ export async function PATCH(
     const account = await db.account.findUnique({ where: { id } });
     if (!account) return NextResponse.json({ error: "Compte non trouvé" }, { status: 404 });
 
-    // ── Mission 6: Quota coherence validation ──
     const newMaxRestaurants = validation.data.maxRestaurants ?? account.maxRestaurants;
     const newMaxSecondary = validation.data.maxSecondaryRestaurants ?? account.maxSecondaryRestaurants;
     const newMaxAdmins = validation.data.maxAdmins ?? account.maxAdmins;
@@ -59,7 +59,6 @@ export async function PATCH(
       status: account.status,
     };
 
-    // Check if new quota is below current usage → over_quota
     const restaurantCount = await db.restaurant.count({ where: { accountId: id } });
     let finalStatus = validation.data.status;
     if (newMaxRestaurants < restaurantCount && !finalStatus) {
@@ -70,6 +69,11 @@ export async function PATCH(
       where: { id },
       data: { ...validation.data, ...(finalStatus && { status: finalStatus }) },
     });
+
+    // Account status/plan affects public tenant availability and may already be
+    // cached by slug. Clear centrally so suspend/cancel takes effect on the
+    // next anonymous/QR request as well as on authenticated sessions.
+    invalidateTenantCache();
 
     await logAudit({
       actorId: admin.id,
@@ -83,7 +87,6 @@ export async function PATCH(
       request,
     });
 
-    // Audit: over_quota transition
     if (finalStatus === "over_quota" && account.status !== "over_quota") {
       await logAudit({
         actorId: admin.id,
