@@ -2,6 +2,7 @@ import { db } from './db';
 
 export type SubscriptionAccessCode =
   | 'RESTAURANT_UNAVAILABLE'
+  | 'RESTAURANT_TRIAL_EXPIRED'
   | 'ACCOUNT_UNAVAILABLE'
   | 'ACCOUNT_TRIAL_EXPIRED'
   | 'ACCOUNT_CONTRACT_EXPIRED';
@@ -46,10 +47,10 @@ function normalizeGraceDays(value: number | string | null | undefined): number {
 
 /**
  * Supports both the historical `(restaurantStatus, accountStatus)` signature
- * and the richer commercial lifecycle object. Legacy malformed/empty date
- * strings are ignored deliberately so an old record cannot be auto-suspended
- * by a parsing change; all new writes are validated by the platform contract
- * endpoint.
+ * and the richer commercial lifecycle object. When an Account exists, its
+ * trial/contract lifecycle is authoritative. Legacy standalone restaurants
+ * without Account hierarchy use Restaurant.status + Restaurant.trialEndsAt.
+ * Malformed/empty date strings remain non-blocking for backward compatibility.
  */
 export function evaluateSubscriptionAccess(
   inputOrRestaurantStatus: SubscriptionAccessInput | string | null | undefined,
@@ -72,14 +73,20 @@ export function evaluateSubscriptionAccess(
   }
 
   const now = input.now ?? new Date();
+  const trialEnd = parseDateOnlyEndOfDay(input.trialEndsAt);
 
   if (input.accountStatus === 'trial') {
-    const trialEnd = parseDateOnlyEndOfDay(input.trialEndsAt);
     if (trialEnd && now.getTime() > trialEnd.getTime()) {
       return { allowed: false, code: 'ACCOUNT_TRIAL_EXPIRED' };
     }
+  } else if (!input.accountStatus && input.restaurantStatus === 'trial') {
+    if (trialEnd && now.getTime() > trialEnd.getTime()) {
+      return { allowed: false, code: 'RESTAURANT_TRIAL_EXPIRED' };
+    }
   }
 
+  // Contract dates belong to the SaaS Account lifecycle. Legacy standalone
+  // restaurants pass no contractEndDate and are governed only by trial status.
   const contractEnd = parseDateOnlyEndOfDay(input.contractEndDate);
   if (contractEnd) {
     const graceDays = normalizeGraceDays(input.contractGraceDays);
@@ -98,6 +105,7 @@ export async function canAccessRestaurantSubscription(restaurantId: string): Pro
       where: { id: restaurantId },
       select: {
         status: true,
+        trialEndsAt: true,
         account: {
           select: {
             status: true,
@@ -109,10 +117,13 @@ export async function canAccessRestaurantSubscription(restaurantId: string): Pro
     });
 
     if (!restaurant) return false;
+    const hasAccount = Boolean(restaurant.account);
     return evaluateSubscriptionAccess({
       restaurantStatus: restaurant.status,
       accountStatus: restaurant.account?.status ?? null,
-      trialEndsAt: restaurant.account?.trialEndsAt ?? null,
+      trialEndsAt: hasAccount
+        ? restaurant.account?.trialEndsAt ?? null
+        : restaurant.trialEndsAt ?? null,
       contractEndDate: restaurant.account?.contractEndDate ?? null,
       contractGraceDays: normalizeGraceDays(process.env.COMMERCIAL_CONTRACT_GRACE_DAYS),
     }).allowed;
