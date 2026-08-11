@@ -2,11 +2,11 @@
  * Tenant Resolution — Multi-tenant SaaS utility
  *
  * Resolves the current restaurant from header/path/subdomain/query while
- * enforcing the tenant lifecycle centrally. Public/tenant-scoped operations
- * only receive active or trial restaurants.
+ * enforcing both restaurant and SaaS-account lifecycle centrally.
  */
 
 import { db } from './db';
+import { evaluateSubscriptionAccess } from './subscription-access';
 
 export interface TenantContext {
   restaurantId: string;
@@ -16,6 +16,7 @@ export interface TenantContext {
   locale: string;
   plan: string;
   status: string;
+  accountStatus?: string | null;
 }
 
 const tenantCache = new Map<string, { data: TenantContext; expiresAt: number }>();
@@ -46,8 +47,8 @@ export function extractSlug(request: Request): string | null {
   return null;
 }
 
-export function isTenantActive(tenant: Pick<TenantContext, 'status'>): boolean {
-  return tenant.status === 'active' || tenant.status === 'trial';
+export function isTenantActive(tenant: Pick<TenantContext, 'status' | 'accountStatus'>): boolean {
+  return evaluateSubscriptionAccess(tenant.status, tenant.accountStatus ?? null).allowed;
 }
 
 function toContext(restaurant: {
@@ -58,6 +59,7 @@ function toContext(restaurant: {
   locale: string;
   plan: string;
   status: string;
+  account?: { status: string } | null;
 }): TenantContext {
   return {
     restaurantId: restaurant.id,
@@ -67,6 +69,7 @@ function toContext(restaurant: {
     locale: restaurant.locale,
     plan: restaurant.plan,
     status: restaurant.status,
+    accountStatus: restaurant.account?.status ?? null,
   };
 }
 
@@ -86,6 +89,7 @@ export async function resolveTenant(slug: string): Promise<TenantContext | null>
       locale: true,
       plan: true,
       status: true,
+      account: { select: { status: true } },
     },
   });
 
@@ -117,6 +121,7 @@ export async function resolveDefaultTenant(): Promise<TenantContext | null> {
       locale: true,
       plan: true,
       status: true,
+      account: { select: { status: true } },
     },
   });
 
