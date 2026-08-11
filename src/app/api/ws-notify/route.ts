@@ -1,11 +1,23 @@
 import { NextResponse } from 'next/server';
 import { authenticateAdmin, hasRole } from '@/lib/auth';
 import { broadcastToType, sendToUser, getWSStats } from '@/lib/websocket-server';
+import { isLocalRealtimeEnabled } from '@/lib/realtime-policy';
 
-// POST /api/ws-notify — Trigger WebSocket broadcasts from API routes
-// Requires Admin/Manager authentication
+function localRealtimeUnavailable() {
+  return NextResponse.json(
+    {
+      error: 'Le temps réel local est désactivé en production',
+      code: 'LOCAL_REALTIME_DISABLED',
+    },
+    { status: 410 }
+  );
+}
+
+// POST /api/ws-notify — development/local realtime helper only.
 export async function POST(request: Request) {
   try {
+    if (!isLocalRealtimeEnabled()) return localRealtimeUnavailable();
+
     const admin = await authenticateAdmin(request);
     if (!admin) {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
@@ -15,12 +27,10 @@ export async function POST(request: Request) {
     }
 
     const { event, data, targetType, targetUserId } = await request.json();
-
     if (!event) {
       return NextResponse.json({ error: 'Event name is required' }, { status: 400 });
     }
 
-    // Validate event name to prevent arbitrary events
     const validEvents = [
       'ORDER_NEW', 'ORDER_STATUS_CHANGED', 'ORDER_ASSIGNED',
       'DRIVER_LOCATION_UPDATE', 'DRIVER_STATUS_CHANGED',
@@ -47,9 +57,11 @@ export async function POST(request: Request) {
   }
 }
 
-// GET /api/ws-notify — Check WebSocket server status (admin only)
+// GET /api/ws-notify — local development status only.
 export async function GET(request: Request) {
   try {
+    if (!isLocalRealtimeEnabled()) return localRealtimeUnavailable();
+
     const admin = await authenticateAdmin(request);
     if (!admin) {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
@@ -58,7 +70,7 @@ export async function GET(request: Request) {
       status: 'ok',
       ...getWSStats(),
     });
-  } catch (error) {
+  } catch {
     return NextResponse.json({ status: 'error', error: 'WS server not available' }, { status: 503 });
   }
 }
