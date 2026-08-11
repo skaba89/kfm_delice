@@ -1,0 +1,67 @@
+name: Apply commercial feature gates
+
+on:
+  push:
+    branches: [commercial/plan-feature-gating-clean]
+    paths: [.github/workflows/_apply-commercial-feature-gates.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: commercial/plan-feature-gating-clean
+      - name: Add plan guards to premium routes
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          targets = {
+              'src/app/api/invoices/route.ts': 'invoices',
+              'src/app/api/quotes/route.ts': 'quotes',
+              'src/app/api/expenses/route.ts': 'expenses',
+              'src/app/api/staff/route.ts': 'staff',
+              'src/app/api/drivers/route.ts': 'drivers',
+          }
+          role_guard = re.compile(
+              r'(    if \(!hasRole\(admin\.role, \[[^\]]+\]\)\) \{\n'
+              r'      return NextResponse\.json\(\{ error: "Accès refusé" \}, \{ status: 403 \}\);\n'
+              r'    \}\n)'
+          )
+
+          for filename, feature in targets.items():
+              path = Path(filename)
+              text = path.read_text()
+              import_line = 'import { commercialFeatureGate } from "@/lib/commercial-feature-gate";\n'
+              if import_line not in text:
+                  marker = 'import { authenticateAdmin, hasRole } from "@/lib/auth";\n'
+                  if marker not in text:
+                      raise SystemExit(f'Auth import marker not found in {filename}')
+                  text = text.replace(marker, marker + import_line, 1)
+
+              guard = (
+                  f"\n    const featureGate = await commercialFeatureGate(admin.restaurantId, '{feature}');\n"
+                  f"    if (featureGate) return featureGate;\n"
+              )
+              text, count = role_guard.subn(lambda m: m.group(1) + guard, text)
+              if count == 0:
+                  raise SystemExit(f'No RBAC guard patched in {filename}')
+              path.write_text(text)
+              print(f'{filename}: patched {count} method(s)')
+          PY
+          git config user.name "kfm-commercial-gating-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/app/api/invoices/route.ts src/app/api/quotes/route.ts src/app/api/expenses/route.ts src/app/api/staff/route.ts src/app/api/drivers/route.ts
+          git commit -m "feat: enforce paid plan features on premium admin routes"
+      - name: Remove one-shot workflow and push
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/_apply-commercial-feature-gates.yml
+          git commit -m "chore: remove one-shot feature gate workflow"
+          git push origin HEAD:commercial/plan-feature-gating-clean
