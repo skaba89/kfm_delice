@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   accountFindUnique: vi.fn(),
   accountUpdate: vi.fn(),
   restaurantCount: vi.fn(),
+  restaurantUpdateMany: vi.fn(),
+  transaction: vi.fn(),
   logAudit: vi.fn(),
   invalidateTenantCache: vi.fn(),
   invalidateConfigCache: vi.fn(),
@@ -34,9 +36,9 @@ vi.mock('@/lib/db', () => ({
     account: {
       create: mocks.accountCreate,
       findUnique: mocks.accountFindUnique,
-      update: mocks.accountUpdate,
     },
     restaurant: { count: mocks.restaurantCount },
+    $transaction: mocks.transaction,
   },
 }));
 
@@ -68,6 +70,11 @@ describe('platform commercial quota defaults', () => {
     mocks.restaurantCount.mockResolvedValue(1);
     mocks.accountCreate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'new-account', ...data }));
     mocks.accountUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ ...existingAccount(), ...data }));
+    mocks.restaurantUpdateMany.mockResolvedValue({ count: 1 });
+    mocks.transaction.mockImplementation(async (callback: (tx: unknown) => unknown) => callback({
+      account: { update: mocks.accountUpdate },
+      restaurant: { updateMany: mocks.restaurantUpdateMany },
+    }));
   });
 
   it('creates Starter with the quotas sold in the catalog when no overrides are supplied', async () => {
@@ -131,7 +138,7 @@ describe('platform commercial quota defaults', () => {
     expect(mocks.accountCreate).not.toHaveBeenCalled();
   });
 
-  it('adopts Pro defaults when an existing Starter account is upgraded and clears both caches', async () => {
+  it('adopts Pro defaults, syncs restaurant plan shadow and clears both caches', async () => {
     mocks.accountFindUnique.mockResolvedValue(existingAccount());
     mocks.restaurantCount.mockResolvedValue(2);
 
@@ -151,6 +158,10 @@ describe('platform commercial quota defaults', () => {
         maxAdmins: 15,
         maxUsers: 50,
       }),
+    });
+    expect(mocks.restaurantUpdateMany).toHaveBeenCalledWith({
+      where: { accountId: 'account-1' },
+      data: { plan: 'pro' },
     });
     expect(mocks.invalidateTenantCache).toHaveBeenCalledOnce();
     expect(mocks.invalidateConfigCache).toHaveBeenCalledOnce();
@@ -178,6 +189,10 @@ describe('platform commercial quota defaults', () => {
         status: 'over_quota',
       }),
     });
+    expect(mocks.restaurantUpdateMany).toHaveBeenCalledWith({
+      where: { accountId: 'account-1' },
+      data: { plan: 'free' },
+    });
     expect(mocks.invalidateTenantCache).toHaveBeenCalledOnce();
     expect(mocks.invalidateConfigCache).toHaveBeenCalledOnce();
   });
@@ -197,7 +212,24 @@ describe('platform commercial quota defaults', () => {
       where: { id: 'account-1' },
       data: expect.objectContaining({ status: 'active' }),
     });
+    expect(mocks.restaurantUpdateMany).toHaveBeenCalledWith({
+      where: { accountId: 'account-1' },
+      data: { plan: 'pro' },
+    });
     expect(mocks.invalidateTenantCache).toHaveBeenCalledOnce();
     expect(mocks.invalidateConfigCache).toHaveBeenCalledOnce();
+  });
+
+  it('does not rewrite restaurant plan shadows for a pure quota edit', async () => {
+    mocks.accountFindUnique.mockResolvedValue(existingAccount());
+
+    const response = await patchQuotas(new Request('https://example.test/api/platform/accounts/account-1/quotas', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ maxUsers: 20 }),
+    }), { params: Promise.resolve({ id: 'account-1' }) });
+
+    expect(response.status).toBe(200);
+    expect(mocks.restaurantUpdateMany).not.toHaveBeenCalled();
   });
 });
