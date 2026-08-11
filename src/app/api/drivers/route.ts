@@ -1,6 +1,7 @@
 import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
+import { commercialFeatureGate } from "@/lib/commercial-feature-gate";
 import { driverSchema, driverPatchSchema } from "@/lib/validations";
 import { parsePagination, parseSorting, parseSearch, parseStatusFilter } from "@/lib/pagination";
 import { Prisma } from "@prisma/client";
@@ -17,6 +18,9 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 
+    const featureGate = await commercialFeatureGate(admin.restaurantId, 'drivers');
+    if (featureGate) return featureGate;
+
     const sp = new URL(request.url).searchParams;
     const { page, limit } = parsePagination(sp);
     const { sortBy, sortOrder } = parseSorting(sp, ['createdAt', 'name', 'rating', 'totalDeliveries', 'status'] as const, 'createdAt');
@@ -25,8 +29,6 @@ export async function GET(request: Request) {
     const vehicleFilter = parseStatusFilter(sp, ['moto', 'velo', 'voiture'], 'vehicle');
 
     const restaurantId = admin.restaurantId;
-
-    // Build WHERE clause via Prisma (cross-database compatible).
     const where: Prisma.DriverWhereInput = { restaurantId };
     if (statusFilter) where.status = statusFilter;
     if (vehicleFilter) where.vehicle = vehicleFilter;
@@ -65,24 +67,13 @@ export async function POST(request: Request) {
   try {
     await dbReady;
     const admin = await authenticateAdmin(request);
-    if (!admin) {
-      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
-    }
-    if (!hasRole(admin.role, ["admin", "manager", "delivery_manager"])) {
-      return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
-    }
-
-    const body = await request.json();
-    const validation = driverSchema.safeParse(body);
-    if (!validation.success) {
-      const firstError = validation.error.issues[0]?.message || "Données invalides";
-      return NextResponse.json({ error: firstError }, { status: 400 });
-    }
-
-    const restaurantId = admin.restaurantId;
-    const driver = await db.driver.create({
-      data: { ...validation.data, restaurantId },
-    });
+    if (!admin) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    if (!hasRole(admin.role, ["admin", "manager", "delivery_manager"])) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+    const featureGate = await commercialFeatureGate(admin.restaurantId, 'drivers');
+    if (featureGate) return featureGate;
+    const validation = driverSchema.safeParse(await request.json());
+    if (!validation.success) return NextResponse.json({ error: validation.error.issues[0]?.message || "Données invalides" }, { status: 400 });
+    const driver = await db.driver.create({ data: { ...validation.data, restaurantId: admin.restaurantId } });
     return NextResponse.json(bigIntToNumber(driver), { status: 201 });
   } catch (error) {
     console.error("[drivers] POST error:", error);
@@ -94,45 +85,24 @@ export async function PATCH(request: Request) {
   try {
     await dbReady;
     const admin = await authenticateAdmin(request);
-    if (!admin) {
-      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
-    }
-    if (!hasRole(admin.role, ["admin", "manager", "delivery_manager"])) {
-      return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
-    }
-
-    const body = await request.json();
-    const validation = driverPatchSchema.safeParse(body);
-    if (!validation.success) {
-      const firstError = validation.error.issues[0]?.message || "Données invalides";
-      return NextResponse.json({ error: firstError }, { status: 400 });
-    }
+    if (!admin) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    if (!hasRole(admin.role, ["admin", "manager", "delivery_manager"])) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+    const featureGate = await commercialFeatureGate(admin.restaurantId, 'drivers');
+    if (featureGate) return featureGate;
+    const validation = driverPatchSchema.safeParse(await request.json());
+    if (!validation.success) return NextResponse.json({ error: validation.error.issues[0]?.message || "Données invalides" }, { status: 400 });
 
     const { id, currentOrderId, ...data } = validation.data;
-    if (!id) {
-      return NextResponse.json({ error: "ID requis" }, { status: 400 });
-    }
+    if (!id) return NextResponse.json({ error: "ID requis" }, { status: 400 });
 
-    // ── Multi-tenant isolation: verify driver belongs to admin's restaurant
-    // before update. Replaces raw SQL which was broken on PostgreSQL.
-    const existing = await db.driver.findFirst({
-      where: { id, restaurantId: admin.restaurantId },
-      select: { id: true },
-    });
+    const existing = await db.driver.findFirst({ where: { id, restaurantId: admin.restaurantId }, select: { id: true } });
     if (!existing) return NextResponse.json({ error: "Livreur introuvable" }, { status: 404 });
 
     const updateData: Record<string, unknown> = { ...data };
     if (currentOrderId !== undefined) updateData.currentOrderId = currentOrderId;
+    if (Object.keys(updateData).length === 0) return NextResponse.json({ error: "Aucune donnée à mettre à jour" }, { status: 400 });
 
-    if (Object.keys(updateData).length === 0) {
-      return NextResponse.json({ error: "Aucune donnée à mettre à jour" }, { status: 400 });
-    }
-
-    const updated = await db.driver.update({
-      where: { id },
-      data: updateData,
-    });
-
+    const updated = await db.driver.update({ where: { id }, data: updateData });
     return NextResponse.json(bigIntToNumber(updated));
   } catch (error) {
     console.error("[drivers] PATCH error:", error);
@@ -144,34 +114,18 @@ export async function DELETE(request: Request) {
   try {
     await dbReady;
     const admin = await authenticateAdmin(request);
-    if (!admin) {
-      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
-    }
-    if (!hasRole(admin.role, ["admin", "manager", "delivery_manager"])) {
-      return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
-    }
+    if (!admin) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    if (!hasRole(admin.role, ["admin", "manager", "delivery_manager"])) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+    const featureGate = await commercialFeatureGate(admin.restaurantId, 'drivers');
+    if (featureGate) return featureGate;
 
     const url = new URL(request.url);
     let id: string | undefined = url.searchParams.get("id") || undefined;
-    if (!id) {
-      try {
-        const body = await request.json();
-        id = body?.id;
-      } catch { /* empty body, ignore */ }
-    }
-    if (!id) {
-      return NextResponse.json({ error: "ID requis" }, { status: 400 });
-    }
+    if (!id) { try { id = (await request.json())?.id; } catch { /* empty body */ } }
+    if (!id) return NextResponse.json({ error: "ID requis" }, { status: 400 });
 
-    // ── Multi-tenant isolation: findFirst by id + restaurantId before delete
-    const existing = await db.driver.findFirst({
-      where: { id, restaurantId: admin.restaurantId },
-      select: { id: true },
-    });
-    if (!existing) {
-      return NextResponse.json({ error: "Livreur introuvable" }, { status: 404 });
-    }
-
+    const existing = await db.driver.findFirst({ where: { id, restaurantId: admin.restaurantId }, select: { id: true } });
+    if (!existing) return NextResponse.json({ error: "Livreur introuvable" }, { status: 404 });
     await db.driver.delete({ where: { id } });
     return NextResponse.json({ success: true });
   } catch (error) {

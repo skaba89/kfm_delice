@@ -2,6 +2,7 @@ import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole, PERMISSION_GROUPS } from "@/lib/auth";
 import { DEFAULT_TIERS } from "@/lib/loyalty-tiers";
+import { commercialFeatureGate } from "@/lib/commercial-feature-gate";
 
 // GET /api/loyalty/tiers — public read for the resolved restaurant.
 // A public GET must never seed/write data. If the restaurant has no persisted
@@ -22,6 +23,8 @@ export async function GET(request: Request) {
     if (!restaurantId) {
       return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
     }
+    const featureGate = await commercialFeatureGate(restaurantId, 'loyalty');
+    if (featureGate) return featureGate;
 
     const tiers = await db.loyaltyTier.findMany({
       where: { restaurantId },
@@ -54,17 +57,16 @@ export async function GET(request: Request) {
   }
 }
 
-// POST /api/loyalty/tiers — create or update a tier (admin/manager only).
 export async function POST(request: Request) {
   try {
     await dbReady;
     const admin = await authenticateAdmin(request);
-    if (!admin) {
-      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
-    }
+    if (!admin) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     if (!hasRole(admin.role, PERMISSION_GROUPS.LOYALTY_MANAGE)) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
+    const featureGate = await commercialFeatureGate(admin.restaurantId, 'loyalty');
+    if (featureGate) return featureGate;
 
     const body = await request.json();
     const { name, label, minSpent, discountPercent, freeDelivery, freeDish, color, icon, active } = body as {
@@ -84,10 +86,7 @@ export async function POST(request: Request) {
     }
     const normalizedName = name.trim().toLowerCase();
     if (!/^[a-z0-9_]+$/.test(normalizedName)) {
-      return NextResponse.json(
-        { error: "Nom invalide — minuscules, chiffres, underscores uniquement" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Nom invalide — minuscules, chiffres, underscores uniquement" }, { status: 400 });
     }
     if (typeof discountPercent === "number" && (discountPercent < 0 || discountPercent > 100)) {
       return NextResponse.json({ error: "Pourcentage de remise invalide (0-100)" }, { status: 400 });
@@ -126,21 +125,19 @@ export async function POST(request: Request) {
   }
 }
 
-// PATCH /api/loyalty/tiers — bulk update tiers (admin/manager only).
 export async function PATCH(request: Request) {
   try {
     await dbReady;
     const admin = await authenticateAdmin(request);
-    if (!admin) {
-      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
-    }
+    if (!admin) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     if (!hasRole(admin.role, PERMISSION_GROUPS.LOYALTY_MANAGE)) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
+    const featureGate = await commercialFeatureGate(admin.restaurantId, 'loyalty');
+    if (featureGate) return featureGate;
 
     const body = await request.json();
     const { tiers } = body as { tiers?: Array<Record<string, unknown>> };
-
     if (!Array.isArray(tiers)) {
       return NextResponse.json({ error: "Format invalide — attendu: { tiers: [...] }" }, { status: 400 });
     }

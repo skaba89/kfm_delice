@@ -2,6 +2,7 @@ import { db, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateCustomer } from "@/lib/auth";
 import { resolveTenantFromRequest } from "@/lib/tenant";
+import { commercialFeatureGate } from "@/lib/commercial-feature-gate";
 
 // GET: List active rewards for the resolved restaurant only.
 // Client-supplied restaurantId query parameters are intentionally ignored:
@@ -12,6 +13,8 @@ export async function GET(request: Request) {
     if (!tenant) {
       return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
     }
+    const featureGate = await commercialFeatureGate(tenant.restaurantId, 'loyalty');
+    if (featureGate) return featureGate;
 
     const rewards = await db.loyaltyReward.findMany({
       where: { active: true, restaurantId: tenant.restaurantId },
@@ -32,6 +35,8 @@ export async function POST(request: Request) {
     if (!customer) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
+    const featureGate = await commercialFeatureGate(customer.restaurantId, 'loyalty');
+    if (featureGate) return featureGate;
 
     const body = await request.json();
     const rewardId = typeof body?.rewardId === "string" ? body.rewardId.trim() : "";
@@ -41,20 +46,10 @@ export async function POST(request: Request) {
 
     const result = await db.$transaction(async (tx) => {
       const reward = await tx.loyaltyReward.findFirst({
-        where: {
-          id: rewardId,
-          restaurantId: customer.restaurantId,
-          active: true,
-        },
+        where: { id: rewardId, restaurantId: customer.restaurantId, active: true },
       });
+      if (!reward) return { kind: "not_found" as const };
 
-      if (!reward) {
-        return { kind: "not_found" as const };
-      }
-
-      // Compare-and-decrement in one SQL update. Two concurrent redemption
-      // requests cannot both spend the same points: once the first update
-      // commits, the second no longer satisfies loyaltyPoints >= pointsCost.
       const spent = await tx.customer.updateMany({
         where: {
           id: customer.id,
@@ -91,9 +86,7 @@ export async function POST(request: Request) {
         where: { id: customer.id, restaurantId: customer.restaurantId },
         select: { loyaltyPoints: true },
       });
-      if (!updatedCustomer) {
-        throw new Error("Customer disappeared during loyalty redemption");
-      }
+      if (!updatedCustomer) throw new Error("Customer disappeared during loyalty redemption");
 
       return {
         kind: "success" as const,
@@ -108,11 +101,7 @@ export async function POST(request: Request) {
     }
     if (result.kind === "insufficient") {
       return NextResponse.json(
-        {
-          error: "Points insuffisants",
-          currentPoints: result.currentPoints,
-          requiredPoints: result.requiredPoints,
-        },
+        { error: "Points insuffisants", currentPoints: result.currentPoints, requiredPoints: result.requiredPoints },
         { status: 400 }
       );
     }
