@@ -24,6 +24,7 @@ const restaurant = {
   locale: 'fr',
   plan: 'pro',
   status: 'active',
+  trialEndsAt: '',
 };
 
 describe('public tenant subscription lifecycle', () => {
@@ -70,7 +71,33 @@ describe('public tenant subscription lifecycle', () => {
     await expect(resolveTenant('tenant-a')).resolves.toBeNull();
   });
 
-  it('keeps legacy restaurants without account hierarchy accessible', async () => {
+  it('keeps a standalone future Restaurant trial accessible without Account hierarchy', async () => {
+    mocks.findUnique.mockResolvedValue({
+      ...restaurant,
+      status: 'trial',
+      trialEndsAt: '2099-12-31',
+      account: null,
+    });
+
+    await expect(resolveTenant('tenant-a')).resolves.toMatchObject({
+      restaurantId: 'r1',
+      status: 'trial',
+      restaurantTrialEndsAt: '2099-12-31',
+    });
+  });
+
+  it('blocks an expired standalone Restaurant trial without Account hierarchy', async () => {
+    mocks.findUnique.mockResolvedValue({
+      ...restaurant,
+      status: 'trial',
+      trialEndsAt: '2020-01-01',
+      account: null,
+    });
+
+    await expect(resolveTenant('tenant-a')).resolves.toBeNull();
+  });
+
+  it('keeps legacy active restaurants without account hierarchy accessible', async () => {
     mocks.findUnique.mockResolvedValue({
       ...restaurant,
       account: null,
