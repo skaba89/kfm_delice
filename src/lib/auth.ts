@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { db } from './db';
+import { canAccessRestaurantSubscription } from './subscription-access';
 
 const DEV_FALLBACK_SECRET = 'kfm-delice-dev-secret-change-in-prod';
 const isProduction = process.env.NODE_ENV === 'production';
@@ -249,6 +250,16 @@ async function getVerifiedPayload(request: Request): Promise<JwtPayload | null> 
   const payload = verifyToken(token);
   if (!payload) return null;
   if (!(await isAccessSessionValid(payload))) return null;
+
+  // Platform operators remain able to manage suspended customer accounts.
+  // Every restaurant-scoped session is re-checked against current subscription
+  // state so suspension/cancellation takes effect on the next protected call,
+  // not only after the access token expires.
+  if (payload.type !== 'platform_admin') {
+    if (!payload.restaurantId) return null;
+    if (!(await canAccessRestaurantSubscription(payload.restaurantId))) return null;
+  }
+
   return payload;
 }
 

@@ -11,6 +11,7 @@ vi.mock('@/lib/db', () => ({
     customer: { findUnique: vi.fn(), update: vi.fn() },
     driver: { findUnique: vi.fn() },
     platformAdmin: { findUnique: vi.fn(), update: vi.fn() },
+    restaurant: { findUnique: vi.fn() },
     revokedToken: { findUnique: vi.fn(), upsert: vi.fn() },
   },
 }));
@@ -146,30 +147,41 @@ describe('access session enforcement', () => {
   });
 });
 
-describe('central authenticators enforce session state', () => {
+describe('central authenticators enforce session and subscription state', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('rejects a revoked admin before profile lookup', async () => {
-    const token = generateToken({ id: 'admin-1', email: 'a@x.test', role: 'admin', type: 'admin', tokenVersion: 0 });
+  it('rejects a revoked admin before profile or subscription lookup', async () => {
+    const token = generateToken({ id: 'admin-1', email: 'a@x.test', role: 'admin', type: 'admin', tokenVersion: 0, restaurantId: 'r1' });
     vi.mocked(db.revokedToken.findUnique).mockResolvedValue({ id: 'revoked' } as any);
     const request = new Request('https://example.com/api/orders', { headers: { Authorization: `Bearer ${token}` } });
     await expect(authenticateAdmin(request)).resolves.toBeNull();
-    expect(db.admin.findUnique).not.toHaveBeenCalled();
+    expect(db.restaurant.findUnique).not.toHaveBeenCalled();
   });
 
-  it('accepts an active customer with matching tokenVersion', async () => {
-    const token = generateToken({ id: 'customer-1', email: 'c@x.test', role: 'customer', type: 'customer', tokenVersion: 4 });
+  it('accepts an active customer with matching tokenVersion and active subscription', async () => {
+    const token = generateToken({ id: 'customer-1', email: 'c@x.test', role: 'customer', type: 'customer', tokenVersion: 4, restaurantId: 'r1' });
     vi.mocked(db.revokedToken.findUnique).mockResolvedValue(null as any);
     vi.mocked(db.customer.findUnique)
       .mockResolvedValueOnce({ tokenVersion: 4 } as any)
       .mockResolvedValueOnce({ id: 'customer-1', email: 'c@x.test', name: 'Client', status: 'active', restaurantId: 'r1' } as any);
+    vi.mocked(db.restaurant.findUnique).mockResolvedValue({ status: 'active', account: { status: 'active' } } as any);
     const request = new Request('https://example.com/api/customer', { headers: { Authorization: `Bearer ${token}` } });
     await expect(authenticateCustomer(request)).resolves.toMatchObject({ id: 'customer-1', restaurantId: 'r1' });
   });
 
-  it('rejects inactive drivers', async () => {
-    const token = generateToken({ id: 'driver-1', email: 'd@x.test', role: 'driver', type: 'driver' });
+  it('rejects an otherwise valid customer session after account suspension', async () => {
+    const token = generateToken({ id: 'customer-2', email: 'c2@x.test', role: 'customer', type: 'customer', tokenVersion: 1, restaurantId: 'r2' });
     vi.mocked(db.revokedToken.findUnique).mockResolvedValue(null as any);
+    vi.mocked(db.customer.findUnique).mockResolvedValueOnce({ tokenVersion: 1 } as any);
+    vi.mocked(db.restaurant.findUnique).mockResolvedValue({ status: 'active', account: { status: 'suspended' } } as any);
+    const request = new Request('https://example.com/api/customer', { headers: { Authorization: `Bearer ${token}` } });
+    await expect(authenticateCustomer(request)).resolves.toBeNull();
+  });
+
+  it('rejects inactive drivers after subscription validation', async () => {
+    const token = generateToken({ id: 'driver-1', email: 'd@x.test', role: 'driver', type: 'driver', restaurantId: 'r1' });
+    vi.mocked(db.revokedToken.findUnique).mockResolvedValue(null as any);
+    vi.mocked(db.restaurant.findUnique).mockResolvedValue({ status: 'active', account: { status: 'active' } } as any);
     vi.mocked(db.driver.findUnique).mockResolvedValue({
       id: 'driver-1', email: 'd@x.test', name: 'Driver', phone: '1', vehicle: 'bike',
       status: 'inactive', zone: '', restaurantId: 'r1',
@@ -178,7 +190,7 @@ describe('central authenticators enforce session state', () => {
     await expect(authenticateDriver(request)).resolves.toBeNull();
   });
 
-  it('accepts an active platform admin with matching tokenVersion', async () => {
+  it('accepts an active platform admin regardless of customer subscription state', async () => {
     const token = generateToken({ id: 'pa-1', email: 'p@x.test', role: 'super_admin', type: 'platform_admin', tokenVersion: 7 });
     vi.mocked(db.revokedToken.findUnique).mockResolvedValue(null as any);
     vi.mocked(db.platformAdmin.findUnique)
@@ -186,5 +198,6 @@ describe('central authenticators enforce session state', () => {
       .mockResolvedValueOnce({ id: 'pa-1', email: 'p@x.test', name: 'Platform', role: 'super_admin', status: 'active' } as any);
     const request = new Request('https://example.com/api/platform/accounts', { headers: { Authorization: `Bearer ${token}` } });
     await expect(authenticatePlatformAdmin(request)).resolves.toMatchObject({ id: 'pa-1' });
+    expect(db.restaurant.findUnique).not.toHaveBeenCalled();
   });
 });
