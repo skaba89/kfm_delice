@@ -1,0 +1,255 @@
+name: Apply checkout server-contract alignment
+
+on:
+  push:
+    branches: [ux/checkout-server-contract]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ux/checkout-server-contract
+          fetch-depth: 0
+
+      - name: Patch checkout, restaurant config and payment response
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          # ── Checkout ──────────────────────────────────────────────
+          p = Path('src/app/checkout/page.tsx')
+          s = p.read_text()
+          s = s.replace(
+            'import { useState, useEffect, Suspense } from "react";',
+            'import { useState, useEffect, Suspense } from "react";'
+          )
+          marker = 'import { formatPrice } from "@/lib/constants";\n'
+          if marker not in s: raise SystemExit('checkout import marker missing')
+          s = s.replace(marker, marker + 'import { computeCheckoutPricing } from "@/lib/checkout-pricing";\n', 1)
+
+          old = '  const [success, setSuccess] = useState<{ orderId: string; points: number } | null>(null);'
+          new = '  const [success, setSuccess] = useState<{ orderId: string; paymentMessage?: string } | null>(null);'
+          if old not in s: raise SystemExit('success state marker missing')
+          s = s.replace(old, new, 1)
+
+          old = '  const [tableNumber, setTableNumber] = useState(0);\n'
+          if old not in s: raise SystemExit('table state marker missing')
+          s = s.replace(old, '', 1)
+
+          marker = '  const [paymentMethod, setPaymentMethod] = useState<"cash" | "orange_money" | "mtn_money" | "wave" | "card">("cash");\n'
+          addition = marker + '''  const [restaurantRules, setRestaurantRules] = useState({ deliveryFee: 0, minDelivery: 0 });\n  const [restaurantRulesLoading, setRestaurantRulesLoading] = useState(true);\n  const [restaurantRulesError, setRestaurantRulesError] = useState(false);\n'''
+          if marker not in s: raise SystemExit('payment state marker missing')
+          s = s.replace(marker, addition, 1)
+
+          old_effect_tail = '''    setCart(JSON.parse(storedCart));\n    setCartTotal(Number(storedTotal || 0));\n    if (storedType) setOrderType(storedType as "delivery" | "takeaway" | "dine_in");\n  }, [router]);\n'''
+          new_effect_tail = '''    setCart(JSON.parse(storedCart));\n    setCartTotal(Number(storedTotal || 0));\n    if (storedType) setOrderType(storedType as "delivery" | "takeaway" | "dine_in");\n\n    // Reuse the same order idempotency key across a network retry/reload of\n    // the SAME cart. A different cart starts a fresh logical order.\n    const cartFingerprint = `${storedCart}|${storedType || "delivery"}`;\n    const previousFingerprint = sessionStorage.getItem("kfm-order-idempotency-cart");\n    if (previousFingerprint !== cartFingerprint) {\n      sessionStorage.removeItem("kfm-order-idempotency-key");\n      sessionStorage.setItem("kfm-order-idempotency-cart", cartFingerprint);\n    }\n  }, [router]);\n\n  useEffect(() => {\n    let cancelled = false;\n    setRestaurantRulesLoading(true);\n    setRestaurantRulesError(false);\n    publicApiFetch("/api/restaurant")\n      .then(async (res) => {\n        if (!res.ok) throw new Error(`restaurant ${res.status}`);\n        return res.json();\n      })\n      .then((data) => {\n        if (cancelled) return;\n        setRestaurantRules({\n          deliveryFee: Math.max(0, Number(data.deliveryFee || 0)),\n          minDelivery: Math.max(0, Number(data.minDelivery || 0)),\n        });\n      })\n      .catch(() => {\n        if (!cancelled) setRestaurantRulesError(true);\n      })\n      .finally(() => {\n        if (!cancelled) setRestaurantRulesLoading(false);\n      });\n    return () => { cancelled = true; };\n  }, []);\n'''
+          if old_effect_tail not in s: raise SystemExit('cart effect tail marker missing')
+          s = s.replace(old_effect_tail, new_effect_tail, 1)
+
+          old_calc_start = '  const loyaltyPoints = Math.floor(cartTotal / 1000);\n\n'
+          if old_calc_start not in s: raise SystemExit('loyalty calc marker missing')
+          s = s.replace(old_calc_start, '', 1)
+
+          old_calc = '''  // 🎟️ Mission P2.6 — Promo discount\n  const promoDiscount = promoValidation?.valid ? (promoValidation.discountAmount || 0) : 0;\n  const cartAfterPromo = Math.max(0, cartTotal - promoDiscount);\n\n  // 💰 Mission P2.5 — Tip calculation (based on cart AFTER promo discount)\n  // tipPercent is 0, 5, 10, or 15. If customTip is non-empty, it\n  // overrides the percentage. The backend clamps to [0, 50% of total].\n  const calculatedTip = customTip.trim() !== ""\n    ? Math.max(0, parseInt(customTip, 10) || 0)\n    : Math.round(cartAfterPromo * (tipPercent / 100));\n  const grandTotal = cartAfterPromo + calculatedTip;\n'''
+          new_calc = '''  // Mirror the backend pricing order for DISPLAY ONLY. The backend remains\n  // authoritative and recalculates every amount from DB prices/config.\n  const promoDiscount = promoValidation?.valid ? (promoValidation.discountAmount || 0) : 0;\n  const pricing = computeCheckoutPricing({\n    subtotal: cartTotal,\n    promoDiscount,\n    deliveryFee: restaurantRules.deliveryFee,\n    minDelivery: restaurantRules.minDelivery,\n    orderType,\n    tipPercent,\n    customTip: customTip.trim() !== "" ? (parseInt(customTip, 10) || 0) : null,\n  });\n  const calculatedTip = pricing.tip;\n  const grandTotal = pricing.total;\n'''
+          if old_calc not in s: raise SystemExit('pricing block marker missing')
+          s = s.replace(old_calc, new_calc, 1)
+
+          start = s.find('  const handleSubmit = async (e: React.FormEvent) => {\n')
+          end = s.find('  // Success screen\n', start)
+          if start < 0 or end < 0: raise SystemExit('handleSubmit boundaries missing')
+          new_submit = r'''  const getOrCreateOrderIdempotencyKey = () => {
+    const stored = sessionStorage.getItem("kfm-order-idempotency-key");
+    if (stored) return stored;
+    const key = typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    sessionStorage.setItem("kfm-order-idempotency-key", key);
+    return key;
+  };
+
+  const clearCheckoutSession = () => {
+    sessionStorage.removeItem("kfm-cart");
+    sessionStorage.removeItem("kfm-cart-total");
+    sessionStorage.removeItem("kfm-order-type");
+    sessionStorage.removeItem("kfm-checkout-table-token");
+    sessionStorage.removeItem("kfm-order-idempotency-key");
+    sessionStorage.removeItem("kfm-order-idempotency-cart");
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (orderType === "delivery" && restaurantRulesError) {
+      toast.error("Tarification de livraison indisponible. Réessayez dans un instant.");
+      return;
+    }
+    if (orderType === "delivery" && !pricing.deliveryMinimumMet) {
+      toast.error(`Minimum de livraison non atteint. Ajoutez ${formatPrice(pricing.deliveryMinimumMissing)} au panier.`);
+      return;
+    }
+    if (paymentMethod !== "cash" && !customer) {
+      toast.error("Connectez-vous pour initier un paiement électronique.");
+      router.push("/client/login?redirect=/checkout");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const idempotencyKey = getOrCreateOrderIdempotencyKey();
+      const body = {
+        items: cart.map(item => ({ menuItemId: item.id, quantity: item.qty })),
+        tip: calculatedTip,
+        promoCode: promoValidation?.valid ? promoValidation.code : undefined,
+        orderType,
+        customerName: customerName || customer?.name || "Client",
+        phone,
+        paymentMethod,
+        ...(orderType === "delivery" && { deliveryAddress }),
+        ...(tableQrToken && { tableQrToken }),
+        idempotencyKey,
+      };
+
+      // Authenticated customers must create the order WITH their JWT so the
+      // backend binds customerId server-side in the same creation transaction.
+      // Guests/cash orders can still use the public route.
+      const orderRequest = customer ? apiFetch : publicApiFetch;
+      const res = await orderRequest("/api/orders", {
+        method: "POST",
+        headers: { "x-idempotency-key": idempotencyKey },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        if (data.code === "IDEMPOTENCY_HASH_MISMATCH") {
+          sessionStorage.removeItem("kfm-order-idempotency-key");
+          toast.error("La commande a changé depuis la tentative précédente. Réessayez pour créer une nouvelle tentative.");
+        } else {
+          toast.error(data.error || "Erreur lors de la commande");
+        }
+        return;
+      }
+
+      let paymentMessage = paymentMethod === "cash"
+        ? "Paiement en espèces à confirmer par le restaurant."
+        : undefined;
+
+      if (paymentMethod !== "cash") {
+        const paymentKey = `checkout-${data.id}-${paymentMethod}`;
+        const paymentRes = await apiFetch("/api/payment", {
+          method: "POST",
+          headers: { "x-idempotency-key": paymentKey },
+          body: JSON.stringify({
+            orderId: data.id,
+            method: paymentMethod,
+            phone,
+            customerName: customerName || customer?.name || "Client",
+            idempotencyKey: paymentKey,
+          }),
+        });
+        const paymentData = await paymentRes.json();
+
+        if (!paymentRes.ok) {
+          paymentMessage = `Commande créée, mais le paiement n'a pas pu être initié : ${paymentData.error || "service indisponible"}.`;
+          toast.error(paymentMessage);
+        } else {
+          paymentMessage = paymentData.message || "Paiement initié. Confirmez l'opération auprès du fournisseur.";
+          if (paymentData.paymentUrl) {
+            clearCheckoutSession();
+            window.location.assign(paymentData.paymentUrl);
+            return;
+          }
+        }
+      }
+
+      clearCheckoutSession();
+      setSuccess({ orderId: data.id, paymentMessage });
+      toast.success("Commande créée avec succès !");
+    } catch {
+      toast.error("Erreur de connexion. Vous pouvez réessayer sans créer de doublon.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+'''
+          s = s[:start] + new_submit + s[end:]
+
+          old_points = '''              <div className="bg-orange-50 dark:bg-orange-900/20 rounded-xl p-4 mb-6">\n                <p className="text-sm text-gray-600 dark:text-gray-400">Vous avez gagné</p>\n                <p className="text-3xl font-bold text-orange-600">{success.points} points</p>\n                <p className="text-xs text-gray-500">de fidélité sur cette commande</p>\n              </div>\n'''
+          new_points = '''              <div className="bg-orange-50 dark:bg-orange-900/20 rounded-xl p-4 mb-6">\n                <p className="text-sm font-semibold text-orange-700 dark:text-orange-400">Fidélité</p>\n                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">Les points sont calculés et crédités seulement après la livraison effective de la commande.</p>\n                {success.paymentMessage && (\n                  <p className="text-xs text-gray-700 dark:text-gray-300 mt-3">{success.paymentMessage}</p>\n                )}\n              </div>\n'''
+          if old_points not in s: raise SystemExit('success loyalty block missing')
+          s = s.replace(old_points, new_points, 1)
+
+          old_loyalty = '''            <div className="mt-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg p-2 text-center">\n              <p className="text-sm text-orange-600 dark:text-orange-400">\n                💎 +{loyaltyPoints} points de fidélité sur cette commande\n              </p>\n            </div>\n'''
+          new_loyalty = '''            <div className="mt-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg p-2 text-center">\n              <p className="text-sm text-orange-600 dark:text-orange-400">\n                💎 Les points de fidélité seront calculés et crédités après livraison.\n              </p>\n            </div>\n'''
+          if old_loyalty not in s: raise SystemExit('summary loyalty block missing')
+          s = s.replace(old_loyalty, new_loyalty, 1)
+
+          # Add delivery fee/minimum feedback after promo line.
+          marker = '''            {promoDiscount > 0 && (\n              <div className="mt-2 flex items-center justify-between text-sm">\n                <span className="text-gray-600 dark:text-gray-400">Remise promo</span>\n                <span className="font-medium text-red-500">-{formatPrice(promoDiscount)}</span>\n              </div>\n            )}\n'''
+          delivery_lines = marker + '''\n            {orderType === "delivery" && (\n              <>\n                <div className="mt-2 flex items-center justify-between text-sm">\n                  <span className="text-gray-600 dark:text-gray-400">Frais de livraison</span>\n                  <span className="font-medium text-gray-900 dark:text-white">\n                    {restaurantRulesLoading ? "…" : restaurantRulesError ? "Indisponible" : formatPrice(pricing.deliveryFee)}\n                  </span>\n                </div>\n                {!restaurantRulesLoading && !restaurantRulesError && restaurantRules.minDelivery > 0 && (\n                  <div className={`mt-2 text-xs rounded-lg px-3 py-2 ${pricing.deliveryMinimumMet ? "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400" : "bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400"}`}>\n                    {pricing.deliveryMinimumMet\n                      ? `Minimum livraison atteint (${formatPrice(restaurantRules.minDelivery)}).`\n                      : `Minimum livraison : ${formatPrice(restaurantRules.minDelivery)} — ajoutez ${formatPrice(pricing.deliveryMinimumMissing)}.`}\n                  </div>\n                )}\n              </>\n            )}\n'''
+          if marker not in s: raise SystemExit('promo display marker missing')
+          s = s.replace(marker, delivery_lines, 1)
+
+          old_total = '''            {/* Grand total (subtotal + tip) */}\n            {calculatedTip > 0 && (\n              <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">\n                <span className="text-lg font-bold text-gray-900 dark:text-white">Total à payer</span>\n                <span className="text-2xl font-extrabold text-orange-600">{formatPrice(grandTotal)}</span>\n              </div>\n            )}\n'''
+          new_total = '''            {/* Display estimate mirrors server rules; server still recalculates. */}\n            <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">\n              <span className="text-lg font-bold text-gray-900 dark:text-white">Total estimé</span>\n              <span className="text-2xl font-extrabold text-orange-600">{formatPrice(grandTotal)}</span>\n            </div>\n            <p className="mt-1 text-[11px] text-gray-400">Le montant définitif est recalculé par le serveur à partir des prix et règles du restaurant.</p>\n'''
+          if old_total not in s: raise SystemExit('grand total block missing')
+          s = s.replace(old_total, new_total, 1)
+
+          # Replace manual table number form by QR guidance only.
+          table_start = s.find('              {/* Table number (only for dine_in) */}\n')
+          payment_marker = s.find('              {/* Payment method */}\n', table_start)
+          if table_start < 0 or payment_marker < 0: raise SystemExit('table UI boundaries missing')
+          table_ui = '''              {/* Table context: QR token is the only server-authoritative table identity. */}\n              {orderType === "dine_in" && (\n                <div className="rounded-xl bg-orange-50 dark:bg-orange-900/20 px-4 py-3 text-sm text-orange-700 dark:text-orange-400">\n                  {tableQrToken\n                    ? "Table identifiée automatiquement par le QR code."\n                    : "Commande sur place sans table liée. Pour identifier automatiquement une table, scannez son QR code."}\n                </div>\n              )}\n\n'''
+          s = s[:table_start] + table_ui + s[payment_marker:]
+
+          # Surface card payment too.
+          old_methods = '''                    { value: "mtn_money", label: "MTN MoMo" },\n                    { value: "wave", label: "Wave" },\n'''
+          new_methods = '''                    { value: "mtn_money", label: "MTN MoMo" },\n                    { value: "wave", label: "Wave" },\n                    { value: "card", label: "Carte" },\n'''
+          if old_methods not in s: raise SystemExit('payment methods marker missing')
+          s = s.replace(old_methods, new_methods, 1)
+
+          old_disabled = '                disabled={loading}\n'
+          new_disabled = '                disabled={loading || restaurantRulesLoading || (orderType === "delivery" && (restaurantRulesError || !pricing.deliveryMinimumMet))}\n'
+          if old_disabled not in s: raise SystemExit('submit disabled marker missing')
+          s = s.replace(old_disabled, new_disabled, 1)
+          p.write_text(s)
+
+          # ── Payment response: expose provider redirect URL ─────────
+          p = Path('src/app/api/payment/route.ts')
+          s = p.read_text()
+          marker = '''      message: providerResult.message,\n      otpRequired: providerResult.otpRequired,\n'''
+          replacement = '''      message: providerResult.message,\n      paymentUrl: providerResult.paymentUrl,\n      otpRequired: providerResult.otpRequired,\n'''
+          if marker not in s: raise SystemExit('payment response marker missing')
+          s = s.replace(marker, replacement, 1)
+          p.write_text(s)
+
+          # ── Restaurant public GET: enforce tenant lifecycle ────────
+          p = Path('src/app/api/restaurant/route.ts')
+          s = p.read_text()
+          old_import = 'import { getRestaurantId } from "@/lib/tenant";\n'
+          new_import = 'import { getRestaurantId, resolveTenant } from "@/lib/tenant";\n'
+          if old_import not in s: raise SystemExit('restaurant tenant import missing')
+          s = s.replace(old_import, new_import, 1)
+          old_slug = '''    if (slug) {\n      const config = await getRestaurantConfig(slug);\n      if (!config) {\n        return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });\n      }\n      return NextResponse.json(config);\n    }\n'''
+          new_slug = '''    if (slug) {\n      const tenant = await resolveTenant(slug);\n      if (!tenant) {\n        return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });\n      }\n      const config = await getRestaurantConfig(tenant.slug);\n      if (!config) {\n        return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });\n      }\n      return NextResponse.json(config);\n    }\n'''
+          if old_slug not in s: raise SystemExit('restaurant slug GET marker missing')
+          s = s.replace(old_slug, new_slug, 1)
+          p.write_text(s)
+          PY
+
+      - name: Remove one-shot workflow and commit
+        run: |
+          rm .github/workflows/_apply-checkout-contract.yml
+          git config user.name "kfm-checkout-hardening-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: align checkout with server-authoritative order and payment flows"
+          git push origin HEAD:ux/checkout-server-contract

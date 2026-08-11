@@ -105,9 +105,6 @@ export async function POST(request: Request) {
       customerId: auth.type === "customer" ? auth.id : undefined,
     });
 
-    // Idempotent replay is checked BEFORE global order payment state so the
-    // exact same retry still returns the original payment after it became
-    // processing or paid.
     const existing = await db.paymentIdempotencyKey.findUnique({
       where: { restaurantId_key: { restaurantId: order.restaurantId, key: idempotencyKey } },
       include: { payment: true },
@@ -221,7 +218,11 @@ export async function POST(request: Request) {
           transactionRef: providerResult.transactionRef || "",
           phone: phone || "",
           customerName: customerName || order.customerName,
-          metadata: JSON.stringify({ otpRequired: providerResult.otpRequired, message: providerResult.message }),
+          metadata: JSON.stringify({
+            otpRequired: providerResult.otpRequired,
+            message: providerResult.message,
+            paymentUrl: providerResult.paymentUrl,
+          }),
           ...(providerResult.status === "paid" && { paidAt: new Date().toISOString() }),
           restaurantId: order.restaurantId,
         },
@@ -285,6 +286,7 @@ export async function POST(request: Request) {
       payment: bigIntToNumber(payment),
       created: true,
       message: providerResult.message,
+      paymentUrl: providerResult.paymentUrl,
       otpRequired: providerResult.otpRequired,
     }, { status: 201 });
   } catch (error) {
