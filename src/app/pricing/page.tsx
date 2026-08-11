@@ -88,11 +88,10 @@ const plans = [
       `${enterpriseQuotas.maxAdmins} administrateurs`,
       `${enterpriseQuotas.maxUsers} utilisateurs`,
       "Tout du plan Pro",
-      "Multi-devises",
-      "API access",
-      "White label",
-      "Account manager dédié",
-      "SLA 99.9%",
+      "Gestion multi-restaurants à grande échelle",
+      "Quotas entreprise étendus",
+      "Paramétrage contractuel sur mesure",
+      "Accompagnement au déploiement",
     ],
     cta: "Contacter les ventes",
     href: "/contact",
@@ -112,7 +111,7 @@ export default function PricingPage() {
             Choisissez votre plan
           </h1>
           <p className="text-lg text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
-            Des prix adaptés au marché guinéen. Sans frais cachés. Annulation à tout moment.
+            Des prix adaptés au marché guinéen. Des fonctionnalités et quotas clairement définis par offre.
           </p>
         </div>
 
@@ -179,12 +178,12 @@ export default function PricingPage() {
           </h2>
           <div className="space-y-4">
             {[
-              { q: "Puis-je changer de plan à tout moment ?", a: "Oui, vous pouvez upgrader ou downgrader à tout moment. Le changement prend effet immédiatement et est proratisé." },
-              { q: "Quels moyens de paiement acceptez-vous ?", a: "Orange Money, MTN MoMo, Wave, carte bancaire (Visa/Mastercard via Stripe) et virement bancaire pour les abonnements annuels." },
-              { q: "Y a-t-il des frais d'installation ?", a: "Non, l'installation est gratuite. Vous pouvez configurer votre restaurant en 5 minutes avec notre guide d'onboarding." },
-              { q: "Puis-je essayer gratuitement ?", a: "Oui, le plan Free est gratuit à vie. Les essais des plans payants sont activés selon votre offre commerciale." },
-              { q: "Que se passe-t-il si je dépasse mon quota ?", a: "Vous êtes notifié par email. Le compte passe en statut 'over_quota' et la création de nouveaux restaurants est bloquée jusqu'à upgrade." },
-              { q: "Mes données sont-elles sécurisées ?", a: "Oui : chiffrement bcrypt, 2FA TOTP pour les admins, HTTPS/TLS, audit logs et contrôles de sécurité automatisés." },
+              { q: "Puis-je changer de plan ?", a: "Oui. Les droits et quotas du nouveau plan prennent effet dès la modification du compte. Les modalités commerciales sont définies dans votre offre ou contrat." },
+              { q: "Comment régler l'abonnement ?", a: "Les modalités de règlement sont précisées lors de la souscription en fonction de l'offre et du contrat retenus." },
+              { q: "Y a-t-il des frais d'installation ?", a: "L'onboarding est guidé. Les éventuels services d'accompagnement spécifiques sont précisés dans l'offre commerciale." },
+              { q: "Puis-je essayer gratuitement ?", a: "Le catalogue propose un plan Free. Les essais des offres payantes sont activés selon les conditions commerciales applicables à votre compte." },
+              { q: "Que se passe-t-il si je dépasse mon quota ?", a: "Le compte passe en statut 'over_quota' lorsque les limites applicables sont dépassées. Les créations concernées restent bloquées jusqu'à régularisation ou upgrade." },
+              { q: "Mes données sont-elles sécurisées ?", a: "La plateforme applique notamment bcrypt, 2FA TOTP pour les admins, HTTPS/TLS, audit logs et des contrôles de sécurité automatisés." },
             ].map((faq, i) => (
               <Card key={i} className="bg-white dark:bg-gray-900 border-gray-200 dark:border-white/10">
                 <CardContent className="p-5">
