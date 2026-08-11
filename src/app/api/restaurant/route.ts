@@ -1,8 +1,15 @@
 import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
-import { getRestaurantConfig } from "@/lib/constants";
-import { getRestaurantId, resolveTenant } from "@/lib/tenant";
-import { authenticateAdmin, authenticatePlatformAdmin } from "@/lib/auth";
+import { getRestaurantConfig, invalidateConfigCache } from "@/lib/constants";
+import { getRestaurantId, invalidateTenantCache, resolveTenant } from "@/lib/tenant";
+import { authenticateAdmin, authenticatePlatformAdmin, hasRole } from "@/lib/auth";
+import { logAudit } from "@/lib/audit";
+import {
+  normalizeRestaurantConfigData,
+  normalizeRestaurantSettingsData,
+  restaurantSettingsPatchSchema,
+} from "@/lib/restaurant-settings";
+import type { Prisma } from "@prisma/client";
 
 export async function GET(request: Request) {
   try {
@@ -54,58 +61,104 @@ export async function PATCH(request: Request) {
     if (!admin) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
+    if (!hasRole(admin.role, ["admin", "manager"])) {
+      return NextResponse.json(
+        { error: "Accès refusé", code: "RESTAURANT_SETTINGS_ROLE_FORBIDDEN" },
+        { status: 403 }
+      );
+    }
 
-    const body = await request.json();
-    const { restaurant: restaurantData, config: configData } = body;
+    const validation = restaurantSettingsPatchSchema.safeParse(await request.json());
+    if (!validation.success) {
+      return NextResponse.json(
+        {
+          error: validation.error.issues[0]?.message || "Données invalides",
+          code: "RESTAURANT_SETTINGS_VALIDATION_ERROR",
+          details: validation.error.issues,
+        },
+        { status: 400 }
+      );
+    }
 
-    if (restaurantData) {
-      const allowedFields = [
-        'name', 'tagline', 'description', 'phone', 'whatsapp', 'email',
-        'address', 'hours', 'tables', 'deliveryFee', 'minDelivery',
-        'deliveryZones', 'currency', 'locale',
-      ];
-      const updateData: Record<string, unknown> = {};
-      for (const field of allowedFields) {
-        if (restaurantData[field] !== undefined) updateData[field] = restaurantData[field];
+    const restaurantInput = validation.data.restaurant;
+    const configInput = validation.data.config;
+    const restaurantUpdate = restaurantInput
+      ? normalizeRestaurantSettingsData(restaurantInput)
+      : {};
+    const configUpdate = configInput
+      ? normalizeRestaurantConfigData(configInput)
+      : {};
+
+    // Custom-domain routing is not provisioned by the application yet. Keep an
+    // existing stored value stable when old clients echo it back, allow an
+    // explicit clear, but never accept a new/changed hostname through this
+    // generic settings endpoint until DNS ownership + routing are implemented.
+    if (configInput?.customDomain !== undefined) {
+      const currentConfig = await db.restaurantConfig.findUnique({
+        where: { restaurantId: admin.restaurantId },
+        select: { customDomain: true },
+      });
+      const requestedDomain = configInput.customDomain.trim();
+      const currentDomain = currentConfig?.customDomain?.trim() || "";
+      if (requestedDomain && requestedDomain !== currentDomain) {
+        return NextResponse.json(
+          {
+            error: "Le domaine personnalisé nécessite un provisioning dédié non disponible sur cet endpoint.",
+            code: "CUSTOM_DOMAIN_NOT_PROVISIONED",
+          },
+          { status: 409 }
+        );
       }
-      if (Object.keys(updateData).length > 0) {
-        await db.restaurant.update({ where: { id: admin.restaurantId }, data: updateData });
+      if (requestedDomain === currentDomain) {
+        delete configUpdate.customDomain;
       }
     }
 
-    if (configData) {
-      const allowedConfigFields = [
-        'logo', 'heroImage', 'primaryColor', 'accentColor', 'fontFamily',
-        'menuCategories', 'features', 'openingHours', 'socialLinks',
-        'customDomain', 'metaTitle', 'metaDescription',
-      ];
-      const configUpdateData: Record<string, unknown> = {};
-      for (const field of allowedConfigFields) {
-        if (configData[field] !== undefined) {
-          configUpdateData[field] = typeof configData[field] === 'object'
-            ? JSON.stringify(configData[field])
-            : configData[field];
-        }
-      }
-      if (Object.keys(configUpdateData).length > 0) {
-        await db.restaurantConfig.upsert({
-          where: { restaurantId: admin.restaurantId },
-          update: configUpdateData,
-          create: { restaurantId: admin.restaurantId, ...configUpdateData },
+    await db.$transaction(async (tx) => {
+      if (Object.keys(restaurantUpdate).length > 0) {
+        await tx.restaurant.update({
+          where: { id: admin.restaurantId },
+          data: restaurantUpdate as unknown as Prisma.RestaurantUpdateInput,
         });
       }
-    }
 
-    const { invalidateConfigCache } = await import('@/lib/constants');
-    const { invalidateTenantCache } = await import('@/lib/tenant');
+      if (Object.keys(configUpdate).length > 0) {
+        await tx.restaurantConfig.upsert({
+          where: { restaurantId: admin.restaurantId },
+          update: configUpdate as unknown as Prisma.RestaurantConfigUpdateInput,
+          create: {
+            restaurantId: admin.restaurantId,
+            ...(configUpdate as unknown as Omit<Prisma.RestaurantConfigUncheckedCreateInput, 'restaurantId'>),
+          },
+        });
+      }
+    });
+
     invalidateConfigCache();
     invalidateTenantCache();
 
-    const restaurant = await db.restaurant.findUnique({ where: { id: admin.restaurantId } });
+    await logAudit({
+      actorId: admin.id,
+      actorType: "admin",
+      action: "restaurant_settings_update",
+      entityType: "Restaurant",
+      entityId: admin.restaurantId,
+      restaurantId: admin.restaurantId,
+      after: {
+        restaurantFields: Object.keys(restaurantUpdate),
+        configFields: Object.keys(configUpdate),
+      },
+      request,
+    }).catch(() => {});
+
+    const restaurant = await db.restaurant.findUnique({
+      where: { id: admin.restaurantId },
+      select: { slug: true },
+    });
     const config = restaurant ? await getRestaurantConfig(restaurant.slug) : null;
     return NextResponse.json(config);
   } catch (error) {
-    console.error(error);
+    console.error("[restaurant PATCH]", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
