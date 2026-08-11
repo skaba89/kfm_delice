@@ -1,6 +1,7 @@
 import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
+import { commercialFeatureGate } from "@/lib/commercial-feature-gate";
 import { quoteSchema, quotePatchSchema } from "@/lib/validations";
 import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, parseStatusFilter } from "@/lib/pagination";
 
@@ -15,6 +16,9 @@ export async function GET(request: Request) {
     if (!hasRole(admin.role, ["admin", "manager", "accountant"])) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
+
+    const featureGate = await commercialFeatureGate(admin.restaurantId, 'quotes');
+    if (featureGate) return featureGate;
 
     const sp = new URL(request.url).searchParams;
     const { page, limit } = parsePagination(sp);
@@ -65,6 +69,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 
+    const featureGate = await commercialFeatureGate(admin.restaurantId, 'quotes');
+    if (featureGate) return featureGate;
+
     const body = await request.json();
     const validation = quoteSchema.safeParse(body);
     if (!validation.success) {
@@ -93,6 +100,9 @@ export async function PATCH(request: Request) {
     if (!hasRole(admin.role, ["admin", "manager", "accountant"])) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
+
+    const featureGate = await commercialFeatureGate(admin.restaurantId, 'quotes');
+    if (featureGate) return featureGate;
 
     const body = await request.json();
     const validation = quotePatchSchema.safeParse(body);
@@ -128,6 +138,9 @@ export async function DELETE(request: Request) {
     if (!hasRole(admin.role, ["admin", "manager", "accountant"])) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
+
+    const featureGate = await commercialFeatureGate(admin.restaurantId, 'quotes');
+    if (featureGate) return featureGate;
 
     const url = new URL(request.url);
     let id: string | undefined = url.searchParams.get("id") || undefined;

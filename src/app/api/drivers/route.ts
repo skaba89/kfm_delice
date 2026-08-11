@@ -1,6 +1,7 @@
 import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
+import { commercialFeatureGate } from "@/lib/commercial-feature-gate";
 import { driverSchema, driverPatchSchema } from "@/lib/validations";
 import { parsePagination, parseSorting, parseSearch, parseStatusFilter } from "@/lib/pagination";
 import { Prisma } from "@prisma/client";
@@ -16,6 +17,9 @@ export async function GET(request: Request) {
     if (!hasRole(admin.role, ["admin", "manager", "delivery_manager"])) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
+
+    const featureGate = await commercialFeatureGate(admin.restaurantId, 'drivers');
+    if (featureGate) return featureGate;
 
     const sp = new URL(request.url).searchParams;
     const { page, limit } = parsePagination(sp);
@@ -72,6 +76,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 
+    const featureGate = await commercialFeatureGate(admin.restaurantId, 'drivers');
+    if (featureGate) return featureGate;
+
     const body = await request.json();
     const validation = driverSchema.safeParse(body);
     if (!validation.success) {
@@ -100,6 +107,9 @@ export async function PATCH(request: Request) {
     if (!hasRole(admin.role, ["admin", "manager", "delivery_manager"])) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
+
+    const featureGate = await commercialFeatureGate(admin.restaurantId, 'drivers');
+    if (featureGate) return featureGate;
 
     const body = await request.json();
     const validation = driverPatchSchema.safeParse(body);
@@ -150,6 +160,9 @@ export async function DELETE(request: Request) {
     if (!hasRole(admin.role, ["admin", "manager", "delivery_manager"])) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
+
+    const featureGate = await commercialFeatureGate(admin.restaurantId, 'drivers');
+    if (featureGate) return featureGate;
 
     const url = new URL(request.url);
     let id: string | undefined = url.searchParams.get("id") || undefined;
