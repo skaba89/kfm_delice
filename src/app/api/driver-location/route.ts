@@ -3,11 +3,23 @@ import { NextResponse } from "next/server";
 import { authenticateAdmin, authenticateDriver, hasRole } from "@/lib/auth";
 import { driverLocationPatchSchema } from "@/lib/validations";
 
+const DRIVER_STATUSES = new Set(["available", "busy", "offline"]);
+const DRIVER_LOCATION_SELECT = {
+  id: true,
+  name: true,
+  phone: true,
+  lat: true,
+  lng: true,
+  status: true,
+  vehicle: true,
+  currentOrderId: true,
+  lastLocationUpdate: true,
+} as const;
+
 // PATCH /api/driver-location — Update driver GPS position (Admin or Driver auth)
 export async function PATCH(request: Request) {
   try {
     await dbReady;
-    // Support both admin and driver authentication
     const admin = await authenticateAdmin(request);
     const driverAuth = !admin ? await authenticateDriver(request) : null;
     if (!admin && !driverAuth) {
@@ -17,57 +29,74 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 
-    const body = await request.json();
-    const validation = driverLocationPatchSchema.safeParse(body);
+    const validation = driverLocationPatchSchema.safeParse(await request.json());
     if (!validation.success) {
-      const firstError = validation.error.issues[0]?.message || "Données invalides";
-      return NextResponse.json({ error: firstError }, { status: 400 });
+      return NextResponse.json(
+        { error: validation.error.issues[0]?.message || "Données invalides" },
+        { status: 400 }
+      );
     }
 
     const { driverId, lat, lng, orderId, status } = validation.data;
-    // If admin is calling, they must specify a driverId AND that driver
-    // must belong to the admin's restaurant (multi-tenant isolation).
-    // If driver is calling, they can only update their own location.
-    let targetDriverId: string | undefined;
+    if (status !== undefined && !DRIVER_STATUSES.has(status)) {
+      return NextResponse.json({ error: "Statut livreur invalide" }, { status: 400 });
+    }
+
+    let targetDriverId: string;
+    let restaurantId: string;
+
     if (driverAuth) {
+      // A driver can never select another driver through a query/body id.
+      if (driverId && driverId !== driverAuth.id) {
+        return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+      }
       targetDriverId = driverAuth.id;
-    } else if (admin) {
-      targetDriverId = driverId;
-      if (!targetDriverId) {
+      restaurantId = driverAuth.restaurantId;
+    } else {
+      if (!admin || !driverId) {
         return NextResponse.json({ error: "driverId requis" }, { status: 400 });
       }
-      // ── Multi-tenant isolation ────────────────────────────────
-      // Verify the target driver belongs to the admin's restaurant.
       const targetDriver = await db.driver.findFirst({
-        where: { id: targetDriverId, restaurantId: admin.restaurantId },
+        where: { id: driverId, restaurantId: admin.restaurantId },
         select: { id: true },
       });
       if (!targetDriver) {
         return NextResponse.json({ error: "Livreur introuvable" }, { status: 404 });
       }
+      targetDriverId = targetDriver.id;
+      restaurantId = admin.restaurantId;
     }
-    if (!targetDriverId) return NextResponse.json({ error: "driverId requis" }, { status: 400 });
 
     const updateData: Record<string, unknown> = { lat, lng, lastLocationUpdate: new Date() };
     if (status !== undefined) updateData.status = status;
     if (orderId !== undefined) updateData.currentOrderId = orderId || "";
 
-    const driver = await db.driver.update({
-      where: { id: targetDriverId },
+    const updated = await db.driver.updateMany({
+      where: { id: targetDriverId, restaurantId },
       data: updateData,
     });
+    if (updated.count !== 1) {
+      return NextResponse.json({ error: "Livreur introuvable" }, { status: 404 });
+    }
 
-    // Also update the order's driver coordinates if there's an active order
+    // Order coordinates are also tenant + driver scoped. A malicious orderId
+    // cannot mutate another restaurant's delivery.
     if (orderId && lat !== undefined && lng !== undefined) {
       await db.order.updateMany({
-        where: { id: orderId, driverId: targetDriverId },
+        where: { id: orderId, restaurantId, driverId: targetDriverId },
         data: { driverLat: lat, driverLng: lng },
       });
     }
 
+    const driver = await db.driver.findFirst({
+      where: { id: targetDriverId, restaurantId },
+      select: DRIVER_LOCATION_SELECT,
+    });
+    if (!driver) return NextResponse.json({ error: "Livreur introuvable" }, { status: 404 });
+
     return NextResponse.json(bigIntToNumber(driver));
   } catch (error) {
-    console.error(error);
+    console.error("[driver-location:PATCH]", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
@@ -84,38 +113,38 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 
-    const { searchParams } = new URL(request.url);
-    const driverId = searchParams.get("driverId");
+    const driverId = new URL(request.url).searchParams.get("driverId");
 
-    // If driver is authenticated, only allow viewing their own location (or all if admin)
-    if (driverAuth && !admin) {
-      const targetId = driverId || driverAuth.id;
-      const driver = await db.driver.findUnique({
-        where: { id: targetId },
-        select: { id: true, name: true, phone: true, lat: true, lng: true, status: true, vehicle: true, currentOrderId: true, lastLocationUpdate: true },
+    if (driverAuth) {
+      if (driverId && driverId !== driverAuth.id) {
+        return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+      }
+      const driver = await db.driver.findFirst({
+        where: { id: driverAuth.id, restaurantId: driverAuth.restaurantId },
+        select: DRIVER_LOCATION_SELECT,
       });
       if (!driver) return NextResponse.json({ error: "Livreur non trouvé" }, { status: 404 });
       return NextResponse.json(bigIntToNumber(driver));
     }
+
+    if (!admin) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
     if (driverId) {
-      const driver = await db.driver.findUnique({
-        where: { id: driverId },
-        select: { id: true, name: true, phone: true, lat: true, lng: true, status: true, vehicle: true, currentOrderId: true, lastLocationUpdate: true },
+      const driver = await db.driver.findFirst({
+        where: { id: driverId, restaurantId: admin.restaurantId },
+        select: DRIVER_LOCATION_SELECT,
       });
       if (!driver) return NextResponse.json({ error: "Livreur non trouvé" }, { status: 404 });
       return NextResponse.json(bigIntToNumber(driver));
     }
 
-    // All drivers with locations (admin only)
-    const restaurantId = admin?.restaurantId || driverAuth?.restaurantId;
     const drivers = await db.driver.findMany({
-      where: { restaurantId },
-      select: { id: true, name: true, phone: true, lat: true, lng: true, status: true, vehicle: true, currentOrderId: true, lastLocationUpdate: true },
+      where: { restaurantId: admin.restaurantId },
+      select: DRIVER_LOCATION_SELECT,
     });
     return NextResponse.json(bigIntToNumber(drivers));
   } catch (error) {
-    console.error(error);
+    console.error("[driver-location:GET]", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
