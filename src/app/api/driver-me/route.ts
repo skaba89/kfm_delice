@@ -1,13 +1,13 @@
 import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
-import { authenticateDriver } from "@/lib/auth";
+import { authenticateEntitledDriver } from "@/lib/driver-feature-auth";
 import { driverMePatchSchema } from "@/lib/validations";
 
 // GET /api/driver-me — Get current driver profile
 export async function GET(request: Request) {
   try {
     await dbReady;
-    const driverAuth = await authenticateDriver(request);
+    const driverAuth = await authenticateEntitledDriver(request);
     if (!driverAuth) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
@@ -46,7 +46,7 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   try {
     await dbReady;
-    const driverAuth = await authenticateDriver(request);
+    const driverAuth = await authenticateEntitledDriver(request);
     if (!driverAuth) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
@@ -72,11 +72,20 @@ export async function PATCH(request: Request) {
       data: updateData,
     });
 
-    // Also update the order's driver coordinates if there's an active delivery
+    // Mirror only the coordinates that were actually supplied, and only on
+    // the active order owned by this driver inside the same tenant.
     if ((validatedData.lat !== undefined || validatedData.lng !== undefined) && driver.currentOrderId) {
-      await db.order.update({
-        where: { id: driver.currentOrderId },
-        data: { driverLat: validatedData.lat ?? 0, driverLng: validatedData.lng ?? 0 },
+      const coordinateUpdate: Record<string, number> = {};
+      if (validatedData.lat !== undefined) coordinateUpdate.driverLat = validatedData.lat;
+      if (validatedData.lng !== undefined) coordinateUpdate.driverLng = validatedData.lng;
+
+      await db.order.updateMany({
+        where: {
+          id: driver.currentOrderId,
+          restaurantId: driverAuth.restaurantId,
+          driverId: driverAuth.id,
+        },
+        data: coordinateUpdate,
       });
     }
 

@@ -1,6 +1,8 @@
 import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
-import { authenticateAdmin, authenticateDriver, hasRole } from "@/lib/auth";
+import { authenticateAdmin, hasRole } from "@/lib/auth";
+import { authenticateEntitledDriver } from "@/lib/driver-feature-auth";
+import { commercialFeatureGate } from "@/lib/commercial-feature-gate";
 import { driverLocationPatchSchema } from "@/lib/validations";
 
 const DRIVER_STATUSES = new Set(["available", "busy", "offline"]);
@@ -21,12 +23,16 @@ export async function PATCH(request: Request) {
   try {
     await dbReady;
     const admin = await authenticateAdmin(request);
-    const driverAuth = !admin ? await authenticateDriver(request) : null;
+    const driverAuth = !admin ? await authenticateEntitledDriver(request) : null;
     if (!admin && !driverAuth) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
     if (admin && !hasRole(admin.role, ["admin", "manager", "delivery_manager"])) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+    }
+    if (admin) {
+      const featureDenied = await commercialFeatureGate(admin.restaurantId, "drivers");
+      if (featureDenied) return featureDenied;
     }
 
     const validation = driverLocationPatchSchema.safeParse(await request.json());
@@ -105,12 +111,16 @@ export async function PATCH(request: Request) {
 export async function GET(request: Request) {
   try {
     const admin = await authenticateAdmin(request);
-    const driverAuth = !admin ? await authenticateDriver(request) : null;
+    const driverAuth = !admin ? await authenticateEntitledDriver(request) : null;
     if (!admin && !driverAuth) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
     if (admin && !hasRole(admin.role, ["admin", "manager", "delivery_manager"])) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+    }
+    if (admin) {
+      const featureDenied = await commercialFeatureGate(admin.restaurantId, "drivers");
+      if (featureDenied) return featureDenied;
     }
 
     const driverId = new URL(request.url).searchParams.get("driverId");

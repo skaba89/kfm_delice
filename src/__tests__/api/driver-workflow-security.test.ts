@@ -5,6 +5,7 @@ import path from 'node:path';
 const mocks = vi.hoisted(() => ({
   authenticateAdmin: vi.fn(),
   authenticateDriver: vi.fn(),
+  getRestaurantFeatureEntitlement: vi.fn(),
   driverFindFirst: vi.fn(),
   driverFindMany: vi.fn(),
   driverUpdateMany: vi.fn(),
@@ -15,6 +16,9 @@ vi.mock('@/lib/auth', () => ({
   authenticateAdmin: mocks.authenticateAdmin,
   authenticateDriver: mocks.authenticateDriver,
   hasRole: () => true,
+}));
+vi.mock('@/lib/commercial-entitlements', () => ({
+  getRestaurantFeatureEntitlement: mocks.getRestaurantFeatureEntitlement,
 }));
 vi.mock('@/lib/db', () => ({
   dbReady: Promise.resolve(),
@@ -50,6 +54,11 @@ describe('driver location tenant isolation', () => {
     vi.clearAllMocks();
     mocks.authenticateAdmin.mockResolvedValue(null);
     mocks.authenticateDriver.mockResolvedValue(driverAuth);
+    mocks.getRestaurantFeatureEntitlement.mockResolvedValue({
+      allowed: true,
+      plan: 'pro',
+      feature: 'drivers',
+    });
     mocks.driverFindFirst.mockResolvedValue({ id: 'driver-a', name: 'A', phone: '', lat: 1, lng: 2, status: 'available', vehicle: 'moto', currentOrderId: '', lastLocationUpdate: new Date() });
     mocks.driverUpdateMany.mockResolvedValue({ count: 1 });
     mocks.orderUpdateMany.mockResolvedValue({ count: 1 });
