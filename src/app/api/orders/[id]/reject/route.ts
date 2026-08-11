@@ -1,6 +1,6 @@
 import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
-import { authenticateDriver } from "@/lib/auth";
+import { authenticateEntitledDriver } from "@/lib/driver-feature-auth";
 import { logAudit } from "@/lib/audit";
 
 /**
@@ -14,7 +14,7 @@ export async function POST(
 ) {
   try {
     await dbReady;
-    const driverAuth = await authenticateDriver(request);
+    const driverAuth = await authenticateEntitledDriver(request);
     if (!driverAuth) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
     const { id: orderId } = await params;
