@@ -20,6 +20,8 @@ export function getUtcMonthWindow(now: Date = new Date()): { start: Date; end: D
  * This function is designed to run *inside* the same Serializable transaction
  * as order creation. PostgreSQL can then abort/retry concurrent transactions
  * that both observe the last available slot, preventing silent quota overruns.
+ * CI runs this change against the current main including subscription and
+ * trusted-proxy enforcement before the quota can be merged.
  */
 export async function checkMonthlyOrderEntitlement(
   tx: any,
