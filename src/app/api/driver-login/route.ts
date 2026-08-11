@@ -4,6 +4,7 @@ import { verifyPassword } from "@/lib/auth";
 import { rateLimit } from "@/lib/rate-limit";
 import { driverLoginSchema } from "@/lib/validations";
 import { getRestaurantId } from "@/lib/tenant";
+import { commercialFeatureGate } from "@/lib/commercial-feature-gate";
 import { issueTokenPair, setRefreshTokenCookie } from "@/lib/refresh-token";
 
 export async function POST(request: Request) {
@@ -49,6 +50,10 @@ export async function POST(request: Request) {
     if (driver.status === "inactive") {
       return NextResponse.json({ error: "Compte livreur désactivé" }, { status: 403 });
     }
+
+    // Do not reveal plan entitlements until credentials are valid.
+    const featureGate = await commercialFeatureGate(driver.restaurantId, 'drivers');
+    if (featureGate) return featureGate;
 
     const restaurantSlug = driver.restaurant?.slug || "";
     const tokenPair = await issueTokenPair({
