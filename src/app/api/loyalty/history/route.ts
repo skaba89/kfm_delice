@@ -1,19 +1,18 @@
 import { db, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateCustomer } from "@/lib/auth";
+import { commercialFeatureGate } from "@/lib/commercial-feature-gate";
 import { parsePagination, prismaSkip, prismaTake } from "@/lib/pagination";
 
-// GET: Customer points history (requires customer auth)
 export async function GET(request: Request) {
   try {
     const customer = await authenticateCustomer(request);
-    if (!customer) {
-      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
-    }
+    if (!customer) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    const featureGate = await commercialFeatureGate(customer.restaurantId, 'loyalty');
+    if (featureGate) return featureGate;
 
     const sp = new URL(request.url).searchParams;
     const { page, limit } = parsePagination(sp);
-
     const [history, total] = await Promise.all([
       db.loyaltyPointsHistory.findMany({
         where: { customerId: customer.id },
@@ -21,23 +20,12 @@ export async function GET(request: Request) {
         skip: prismaSkip(page, limit),
         take: prismaTake(limit),
       }),
-      db.loyaltyPointsHistory.count({
-        where: { customerId: customer.id },
-      }),
+      db.loyaltyPointsHistory.count({ where: { customerId: customer.id } }),
     ]);
-
     const totalPages = Math.ceil(total / limit);
     return NextResponse.json({
-      // bigIntToNumber wraps any BigInt fields for JSON serialization
       data: bigIntToNumber(history),
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages,
-        hasNext: page < totalPages,
-        hasPrev: page > 1,
-      },
+      pagination: { page, limit, total, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
     });
   } catch (error) {
     console.error(error);
