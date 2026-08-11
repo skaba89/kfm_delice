@@ -78,10 +78,31 @@ const PLAN_QUOTA_DEFAULTS: Record<CommercialPlan, CommercialPlanQuotaDefaults> =
   },
 };
 
+/**
+ * Public catalog monthly prices in GNF. Custom contracts intentionally have no
+ * synthetic price: their negotiated amount is not modelled in the database yet.
+ */
+const PLAN_MONTHLY_PRICE_GNF: Record<CommercialPlan, number | null> = {
+  free: 0,
+  starter: 50_000,
+  pro: 150_000,
+  enterprise: 500_000,
+  custom: null,
+};
+
 const VALID_PLANS = new Set<CommercialPlan>(['free', 'starter', 'pro', 'enterprise', 'custom']);
 
 export function normalizeCommercialPlanValue(value: string | null | undefined): CommercialPlan | null {
   return value && VALID_PLANS.has(value as CommercialPlan) ? value as CommercialPlan : null;
+}
+
+export function resolveEffectiveCommercialPlan(
+  accountPlan: string | null | undefined,
+  restaurantPlan: string | null | undefined
+): CommercialPlan {
+  return normalizeCommercialPlanValue(accountPlan)
+    ?? normalizeCommercialPlanValue(restaurantPlan)
+    ?? 'free';
 }
 
 export function planIncludesFeature(plan: CommercialPlan, feature: CommercialFeature): boolean {
@@ -94,4 +115,8 @@ export function getPlanFeatures(plan: CommercialPlan): readonly CommercialFeatur
 
 export function getPlanQuotaDefaults(plan: CommercialPlan): CommercialPlanQuotaDefaults {
   return { ...PLAN_QUOTA_DEFAULTS[plan] };
+}
+
+export function getPlanMonthlyPriceGnf(plan: CommercialPlan): number | null {
+  return PLAN_MONTHLY_PRICE_GNF[plan];
 }
