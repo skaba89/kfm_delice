@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { authenticatePlatformAdmin } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
 import { invalidateTenantCache } from '@/lib/tenant';
+import { invalidateConfigCache } from '@/lib/constants';
 import { getPlanQuotaDefaults } from '@/lib/commercial-plan-catalog';
 import { z } from "zod";
 
@@ -40,8 +41,6 @@ export async function PATCH(
     const planChanged = Boolean(input.plan && input.plan !== account.plan);
     const planDefaults = planChanged && input.plan ? getPlanQuotaDefaults(input.plan) : null;
 
-    // A plan change adopts the catalog defaults for quota fields the operator
-    // did not explicitly override. Pure quota/status edits keep existing values.
     const newMaxRestaurants = input.maxRestaurants
       ?? planDefaults?.maxRestaurants
       ?? account.maxRestaurants;
@@ -102,9 +101,11 @@ export async function PATCH(
       data: updateData,
     });
 
-    // Account status/plan affects public tenant availability and may already be
-    // cached by slug. Clear centrally so changes take effect on the next request.
+    // Account status/plan changes affect both authorization and the resolved
+    // feature/config payload shown by restaurant clients. Clear both caches so
+    // upgrades/downgrades/suspensions take effect on the next request.
     invalidateTenantCache();
+    invalidateConfigCache();
 
     await logAudit({
       actorId: admin.id,
