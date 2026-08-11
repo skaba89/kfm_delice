@@ -1,11 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// This suite is intentionally replayed on the current main so loyalty tenant
-// isolation is validated together with the commercial monthly-order quota and
-// the latest production-readiness hardening before merge.
 const mocks = vi.hoisted(() => ({
   authenticateAdmin: vi.fn(),
   getRestaurantId: vi.fn(),
+  commercialFeatureGate: vi.fn(),
   findMany: vi.fn(),
   upsert: vi.fn(),
 }));
@@ -15,11 +13,8 @@ vi.mock('@/lib/auth', () => ({
   hasRole: () => true,
   PERMISSION_GROUPS: { LOYALTY_MANAGE: ['admin', 'manager'] },
 }));
-
-vi.mock('@/lib/tenant', () => ({
-  getRestaurantId: mocks.getRestaurantId,
-}));
-
+vi.mock('@/lib/tenant', () => ({ getRestaurantId: mocks.getRestaurantId }));
+vi.mock('@/lib/commercial-feature-gate', () => ({ commercialFeatureGate: mocks.commercialFeatureGate }));
 vi.mock('@/lib/db', () => ({
   dbReady: Promise.resolve(),
   bigIntToNumber: (value: unknown) => value,
@@ -38,6 +33,7 @@ describe('public loyalty tiers GET', () => {
     vi.clearAllMocks();
     mocks.authenticateAdmin.mockResolvedValue(null);
     mocks.getRestaurantId.mockResolvedValue('restaurant-1');
+    mocks.commercialFeatureGate.mockResolvedValue(null);
     mocks.findMany.mockResolvedValue([]);
   });
 
@@ -48,6 +44,7 @@ describe('public loyalty tiers GET', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
+    expect(mocks.commercialFeatureGate).toHaveBeenCalledWith('restaurant-1', 'loyalty');
     expect(body.data).toHaveLength(4);
     expect(body.data[0]).toMatchObject({ id: 'default:bronze', name: 'bronze', active: true });
     expect(mocks.findMany).toHaveBeenCalledWith({
@@ -62,6 +59,7 @@ describe('public loyalty tiers GET', () => {
     const response = await GET(new Request('https://example.test/api/loyalty/tiers'));
 
     expect(response.status).toBe(404);
+    expect(mocks.commercialFeatureGate).not.toHaveBeenCalled();
     expect(mocks.findMany).not.toHaveBeenCalled();
     expect(mocks.upsert).not.toHaveBeenCalled();
   });
