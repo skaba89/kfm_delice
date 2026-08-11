@@ -3,8 +3,9 @@
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Building2, UtensilsCrossed, TrendingUp, Users, AlertTriangle, CheckCircle2, Activity } from "lucide-react";
+import { Building2, UtensilsCrossed, TrendingUp, Users, AlertTriangle, Activity } from "lucide-react";
 import { formatPrice } from "@/lib/constants";
+import { getPlanMonthlyPriceGnf, normalizeCommercialPlanValue } from "@/lib/commercial-plan-catalog";
 
 interface OverviewData {
   stats: {
@@ -12,6 +13,8 @@ interface OverviewData {
     activeRestaurants: number;
     trialRestaurants: number;
     totalRevenue: number;
+    estimatedMonthlyCatalogValue?: number;
+    unpricedCustomSubscriptions?: number;
   };
   accounts: Array<{
     id: string;
@@ -22,6 +25,15 @@ interface OverviewData {
     _count: { restaurants: number; admins: number };
   }>;
 }
+
+const EMPTY_STATS: OverviewData["stats"] = {
+  totalRestaurants: 0,
+  activeRestaurants: 0,
+  trialRestaurants: 0,
+  totalRevenue: 0,
+  estimatedMonthlyCatalogValue: 0,
+  unpricedCustomSubscriptions: 0,
+};
 
 export function PlatformOverview({ token }: { token: string }) {
   const [data, setData] = useState<OverviewData | null>(null);
@@ -37,7 +49,7 @@ export function PlatformOverview({ token }: { token: string }) {
         const restData = await restRes.json();
         const accData = await accRes.json();
         setData({
-          stats: restData.stats || { totalRestaurants: 0, activeRestaurants: 0, trialRestaurants: 0, totalRevenue: 0 },
+          stats: restData.stats || EMPTY_STATS,
           accounts: accData.data || [],
         });
       } catch (err) {
@@ -61,7 +73,7 @@ export function PlatformOverview({ token }: { token: string }) {
     );
   }
 
-  const stats = data?.stats ?? { totalRestaurants: 0, activeRestaurants: 0, trialRestaurants: 0, totalRevenue: 0 };
+  const stats = data?.stats ?? EMPTY_STATS;
   const accounts = data?.accounts || [];
   const totalAccounts = accounts.length;
   const activeAccounts = accounts.filter((a) => a.status === "active").length;
@@ -71,6 +83,9 @@ export function PlatformOverview({ token }: { token: string }) {
     acc[a.plan] = (acc[a.plan] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
+
+  const estimatedMonthlyCatalogValue = stats.estimatedMonthlyCatalogValue ?? stats.totalRevenue ?? 0;
+  const unpricedCustomSubscriptions = stats.unpricedCustomSubscriptions ?? 0;
 
   const statCards = [
     {
@@ -88,9 +103,11 @@ export function PlatformOverview({ token }: { token: string }) {
       gradient: "from-orange-500 to-red-600",
     },
     {
-      title: "Revenus estimés",
-      value: formatPrice(stats.totalRevenue || 0),
-      subtitle: "Basé sur les plans actifs",
+      title: "Valeur catalogue active",
+      value: formatPrice(estimatedMonthlyCatalogValue),
+      subtitle: unpricedCustomSubscriptions > 0
+        ? `Par mois · ${unpricedCustomSubscriptions} contrat(s) custom non chiffré(s)`
+        : "Par mois · hors essais et comptes suspendus",
       icon: TrendingUp,
       gradient: "from-green-500 to-emerald-600",
     },
@@ -105,7 +122,6 @@ export function PlatformOverview({ token }: { token: string }) {
 
   return (
     <div className="space-y-6">
-      {/* Stat Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {statCards.map((card, i) => (
           <Card key={i} className="bg-gray-900 border-white/10 hover:border-white/20 transition-colors">
@@ -123,9 +139,7 @@ export function PlatformOverview({ token }: { token: string }) {
         ))}
       </div>
 
-      {/* Plan Distribution + Recent Accounts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Plan Distribution */}
         <Card className="bg-gray-900 border-white/10">
           <CardHeader>
             <CardTitle className="text-white flex items-center gap-2">
@@ -144,18 +158,14 @@ export function PlatformOverview({ token }: { token: string }) {
                 enterprise: "bg-purple-600",
                 custom: "bg-green-600",
               };
-              const planPrices: Record<string, string> = {
-                free: "0 GNF",
-                starter: "50 000 GNF",
-                pro: "150 000 GNF",
-                enterprise: "500 000 GNF",
-                custom: "Sur mesure",
-              };
+              const normalizedPlan = normalizeCommercialPlanValue(plan) ?? "free";
+              const catalogPrice = getPlanMonthlyPriceGnf(normalizedPlan);
+              const priceLabel = catalogPrice === null ? "Sur mesure" : formatPrice(catalogPrice);
               return (
                 <div key={plan}>
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-sm font-medium text-gray-300 capitalize">{plan}</span>
-                    <span className="text-xs text-gray-500">{planPrices[plan]} · {count} compte(s)</span>
+                    <span className="text-xs text-gray-500">{priceLabel} · {count} compte(s)</span>
                   </div>
                   <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
                     <div
@@ -172,7 +182,6 @@ export function PlatformOverview({ token }: { token: string }) {
           </CardContent>
         </Card>
 
-        {/* Recent Accounts */}
         <Card className="bg-gray-900 border-white/10">
           <CardHeader>
             <CardTitle className="text-white flex items-center gap-2">
@@ -216,7 +225,6 @@ export function PlatformOverview({ token }: { token: string }) {
         </Card>
       </div>
 
-      {/* Alerts */}
       {suspendedAccounts > 0 && (
         <Card className="bg-orange-500/5 border-orange-500/20">
           <CardContent className="p-4 flex items-center gap-3">
