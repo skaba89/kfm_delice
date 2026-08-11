@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { db as prisma, bigIntToNumber } from "@/lib/db";
-import { authenticateDriver } from "@/lib/auth";
+import { authenticateEntitledDriver } from "@/lib/driver-feature-auth";
 
 // GET /api/driver-earnings — earnings summary for the authenticated driver
 // Returns: totalEarnings, commissionRate, today/week/month breakdown, last 50 paid orders
 export async function GET(request: Request) {
   try {
-    const driver = await authenticateDriver(request);
+    const driver = await authenticateEntitledDriver(request);
     if (!driver) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
     // Driver profile (commission rate, total earnings)
