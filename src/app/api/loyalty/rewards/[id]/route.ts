@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
+import { commercialFeatureGate } from "@/lib/commercial-feature-gate";
 import { z } from "zod";
 
 const loyaltyRewardUpdateSchema = z.object({
@@ -26,6 +27,8 @@ export async function PATCH(
     if (!hasRole(admin.role, ["admin", "manager"])) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
+    const featureGate = await commercialFeatureGate(admin.restaurantId, 'loyalty');
+    if (featureGate) return featureGate;
 
     const { id } = await params;
     const raw = await request.json();
@@ -70,6 +73,8 @@ export async function DELETE(
     if (!hasRole(admin.role, ["admin"])) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
+    const featureGate = await commercialFeatureGate(admin.restaurantId, 'loyalty');
+    if (featureGate) return featureGate;
 
     const { id } = await params;
 
