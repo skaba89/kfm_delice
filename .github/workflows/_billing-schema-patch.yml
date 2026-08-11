@@ -1,0 +1,145 @@
+name: Temporary platform billing schema patch
+
+on:
+  push:
+    branches: [commercial/platform-billing-ledger]
+    paths: [.github/workflows/_billing-schema-patch.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: commercial/platform-billing-ledger
+          fetch-depth: 0
+
+      - name: Patch all Prisma schemas and add migration
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          account_anchor = '  auditLogs                AuditLog[]\n'
+          relation_lines = (
+              '  platformSubscription     PlatformSubscription?\n'
+              '  platformInvoices         PlatformInvoice[]\n'
+              '  platformPayments         PlatformPayment[]\n'
+          )
+          restaurant_marker = '// ────────────────────────────────────────────────────────────────\n// Restaurant — central tenant entity\n'
+
+          def models(money_type: str) -> str:
+              return f'''// ────────────────────────────────────────────────────────────────
+// Platform billing — SaaS subscription ledger, separate from restaurant sales
+// ────────────────────────────────────────────────────────────────
+model PlatformSubscription {{
+  id                     String   @id @default(cuid())
+  accountId              String   @unique
+  account                Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  status                 String   @default("active") // trialing, active, past_due, suspended, cancelled
+  billingCycle           String   @default("monthly") // monthly, annual, custom
+  currency               String   @default("GNF")
+  amount                 {money_type}      @default(0)
+  collectionMethod       String   @default("manual") // manual, bank_transfer, card, mobile_money, other
+  provider               String   @default("manual")
+  externalSubscriptionId String   @default("")
+  currentPeriodStart     DateTime?
+  currentPeriodEnd       DateTime?
+  nextBillingAt          DateTime?
+  cancelAtPeriodEnd      Boolean  @default(false)
+  cancelledAt            DateTime?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  invoices               PlatformInvoice[]
+
+  @@index([status])
+  @@index([nextBillingAt])
+}}
+
+model PlatformInvoice {{
+  id                String   @id @default(cuid())
+  accountId         String
+  account           Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  subscriptionId    String?
+  subscription      PlatformSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  invoiceNumber     String   @unique
+  status            String   @default("open") // draft, open, paid, void, overdue
+  currency          String   @default("GNF")
+  amountDue         {money_type}
+  amountPaid        {money_type}      @default(0)
+  periodStart       DateTime
+  periodEnd         DateTime
+  issuedAt          DateTime @default(now())
+  dueAt             DateTime?
+  paidAt            DateTime?
+  description       String   @default("")
+  provider          String   @default("manual")
+  externalInvoiceId String   @default("")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  payments          PlatformPayment[]
+
+  @@unique([accountId, periodStart, periodEnd])
+  @@index([accountId, status])
+  @@index([dueAt])
+}}
+
+model PlatformPayment {{
+  id                String   @id @default(cuid())
+  accountId         String
+  account           Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  invoiceId         String?
+  invoice           PlatformInvoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  amount            {money_type}
+  currency          String   @default("GNF")
+  status            String   @default("succeeded") // pending, succeeded, failed, refunded
+  method            String   @default("manual")
+  provider          String   @default("manual")
+  providerReference String   @default("")
+  idempotencyKey    String?  @unique
+  receivedAt        DateTime @default(now())
+  note              String   @default("")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([accountId, receivedAt])
+  @@index([invoiceId])
+  @@index([provider, providerReference])
+}}
+
+'''
+
+          for filename, money_type in [
+              ('prisma/schema.prisma', 'Int'),
+              ('prisma/schema.sqlite.prisma', 'Int'),
+              ('prisma/schema.postgres.prisma', 'BigInt'),
+          ]:
+              path = Path(filename)
+              text = path.read_text()
+              if 'model PlatformSubscription {' not in text:
+                  if account_anchor not in text:
+                      raise SystemExit(f'Account anchor not found in {filename}')
+                  text = text.replace(account_anchor, account_anchor + relation_lines, 1)
+                  if restaurant_marker not in text:
+                      raise SystemExit(f'Restaurant marker not found in {filename}')
+                  text = text.replace(restaurant_marker, models(money_type) + restaurant_marker, 1)
+                  path.write_text(text)
+
+          migration = Path('prisma/migrations/20260811103000_add_platform_billing_ledger/migration.sql')
+          migration.parent.mkdir(parents=True, exist_ok=True)
+          migration.write_text('''-- Platform SaaS billing ledger. Intentionally separate from restaurant Invoice/Payment tables.\nCREATE TABLE "PlatformSubscription" (\n    "id" TEXT NOT NULL,\n    "accountId" TEXT NOT NULL,\n    "status" TEXT NOT NULL DEFAULT 'active',\n    "billingCycle" TEXT NOT NULL DEFAULT 'monthly',\n    "currency" TEXT NOT NULL DEFAULT 'GNF',\n    "amount" BIGINT NOT NULL DEFAULT 0,\n    "collectionMethod" TEXT NOT NULL DEFAULT 'manual',\n    "provider" TEXT NOT NULL DEFAULT 'manual',\n    "externalSubscriptionId" TEXT NOT NULL DEFAULT '',\n    "currentPeriodStart" TIMESTAMP(3),\n    "currentPeriodEnd" TIMESTAMP(3),\n    "nextBillingAt" TIMESTAMP(3),\n    "cancelAtPeriodEnd" BOOLEAN NOT NULL DEFAULT false,\n    "cancelledAt" TIMESTAMP(3),\n    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    "updatedAt" TIMESTAMP(3) NOT NULL,\n    CONSTRAINT "PlatformSubscription_pkey" PRIMARY KEY ("id")\n);\n\nCREATE TABLE "PlatformInvoice" (\n    "id" TEXT NOT NULL,\n    "accountId" TEXT NOT NULL,\n    "subscriptionId" TEXT,\n    "invoiceNumber" TEXT NOT NULL,\n    "status" TEXT NOT NULL DEFAULT 'open',\n    "currency" TEXT NOT NULL DEFAULT 'GNF',\n    "amountDue" BIGINT NOT NULL,\n    "amountPaid" BIGINT NOT NULL DEFAULT 0,\n    "periodStart" TIMESTAMP(3) NOT NULL,\n    "periodEnd" TIMESTAMP(3) NOT NULL,\n    "issuedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    "dueAt" TIMESTAMP(3),\n    "paidAt" TIMESTAMP(3),\n    "description" TEXT NOT NULL DEFAULT '',\n    "provider" TEXT NOT NULL DEFAULT 'manual',\n    "externalInvoiceId" TEXT NOT NULL DEFAULT '',\n    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    "updatedAt" TIMESTAMP(3) NOT NULL,\n    CONSTRAINT "PlatformInvoice_pkey" PRIMARY KEY ("id")\n);\n\nCREATE TABLE "PlatformPayment" (\n    "id" TEXT NOT NULL,\n    "accountId" TEXT NOT NULL,\n    "invoiceId" TEXT,\n    "amount" BIGINT NOT NULL,\n    "currency" TEXT NOT NULL DEFAULT 'GNF',\n    "status" TEXT NOT NULL DEFAULT 'succeeded',\n    "method" TEXT NOT NULL DEFAULT 'manual',\n    "provider" TEXT NOT NULL DEFAULT 'manual',\n    "providerReference" TEXT NOT NULL DEFAULT '',\n    "idempotencyKey" TEXT,\n    "receivedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    "note" TEXT NOT NULL DEFAULT '',\n    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    "updatedAt" TIMESTAMP(3) NOT NULL,\n    CONSTRAINT "PlatformPayment_pkey" PRIMARY KEY ("id")\n);\n\nCREATE UNIQUE INDEX "PlatformSubscription_accountId_key" ON "PlatformSubscription"("accountId");\nCREATE INDEX "PlatformSubscription_status_idx" ON "PlatformSubscription"("status");\nCREATE INDEX "PlatformSubscription_nextBillingAt_idx" ON "PlatformSubscription"("nextBillingAt");\nCREATE UNIQUE INDEX "PlatformInvoice_invoiceNumber_key" ON "PlatformInvoice"("invoiceNumber");\nCREATE UNIQUE INDEX "PlatformInvoice_accountId_periodStart_periodEnd_key" ON "PlatformInvoice"("accountId", "periodStart", "periodEnd");\nCREATE INDEX "PlatformInvoice_accountId_status_idx" ON "PlatformInvoice"("accountId", "status");\nCREATE INDEX "PlatformInvoice_dueAt_idx" ON "PlatformInvoice"("dueAt");\nCREATE UNIQUE INDEX "PlatformPayment_idempotencyKey_key" ON "PlatformPayment"("idempotencyKey");\nCREATE INDEX "PlatformPayment_accountId_receivedAt_idx" ON "PlatformPayment"("accountId", "receivedAt");\nCREATE INDEX "PlatformPayment_invoiceId_idx" ON "PlatformPayment"("invoiceId");\nCREATE INDEX "PlatformPayment_provider_providerReference_idx" ON "PlatformPayment"("provider", "providerReference");\n\nALTER TABLE "PlatformSubscription" ADD CONSTRAINT "PlatformSubscription_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE CASCADE ON UPDATE CASCADE;\nALTER TABLE "PlatformInvoice" ADD CONSTRAINT "PlatformInvoice_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE CASCADE ON UPDATE CASCADE;\nALTER TABLE "PlatformInvoice" ADD CONSTRAINT "PlatformInvoice_subscriptionId_fkey" FOREIGN KEY ("subscriptionId") REFERENCES "PlatformSubscription"("id") ON DELETE SET NULL ON UPDATE CASCADE;\nALTER TABLE "PlatformPayment" ADD CONSTRAINT "PlatformPayment_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE CASCADE ON UPDATE CASCADE;\nALTER TABLE "PlatformPayment" ADD CONSTRAINT "PlatformPayment_invoiceId_fkey" FOREIGN KEY ("invoiceId") REFERENCES "PlatformInvoice"("id") ON DELETE SET NULL ON UPDATE CASCADE;\n''')
+          PY
+
+      - name: Remove temporary workflow and commit product changes
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/_billing-schema-patch.yml
+          git config user.name "SK_DATA_ENGINEER"
+          git config user.email "64856267+skaba89@users.noreply.github.com"
+          git add prisma/schema.prisma prisma/schema.sqlite.prisma prisma/schema.postgres.prisma prisma/migrations/20260811103000_add_platform_billing_ledger/migration.sql
+          git commit -m "feat: add provider-neutral platform billing ledger schema"
+          git push origin HEAD:commercial/platform-billing-ledger
