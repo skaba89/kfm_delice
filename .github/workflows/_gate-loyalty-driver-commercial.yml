@@ -1,0 +1,128 @@
+name: Apply loyalty and driver commercial gates
+
+on:
+  push:
+    branches: [commercial/plan-feature-gating-final]
+    paths: [.github/workflows/_gate-loyalty-driver-commercial.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: commercial/plan-feature-gating-final
+      - name: Gate loyalty and driver flows by effective plan
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # Loyalty rewards
+          p = Path('src/app/api/loyalty/rewards/route.ts')
+          text = p.read_text()
+          marker = 'import { resolveTenantFromRequest } from "@/lib/tenant";\n'
+          gate_import = 'import { commercialFeatureGate } from "@/lib/commercial-feature-gate";\n'
+          if gate_import not in text:
+              text = text.replace(marker, marker + gate_import, 1)
+          needle = '''    if (!tenant) {
+      return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
+    }
+
+    const rewards = await db.loyaltyReward.findMany({'''
+          replacement = '''    if (!tenant) {
+      return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
+    }
+    const featureGate = await commercialFeatureGate(tenant.restaurantId, 'loyalty');
+    if (featureGate) return featureGate;
+
+    const rewards = await db.loyaltyReward.findMany({'''
+          if needle not in text:
+              raise SystemExit('Rewards GET marker not found')
+          text = text.replace(needle, replacement, 1)
+          needle = '''    if (!customer) {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+
+    const body = await request.json();'''
+          replacement = '''    if (!customer) {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+    const featureGate = await commercialFeatureGate(customer.restaurantId, 'loyalty');
+    if (featureGate) return featureGate;
+
+    const body = await request.json();'''
+          if needle not in text:
+              raise SystemExit('Rewards POST marker not found')
+          p.write_text(text.replace(needle, replacement, 1))
+
+          # Loyalty tiers
+          p = Path('src/app/api/loyalty/tiers/route.ts')
+          text = p.read_text()
+          auth_marker = 'import { authenticateAdmin, hasRole, PERMISSION_GROUPS } from "@/lib/auth";\n'
+          if gate_import not in text:
+              text = text.replace(auth_marker, auth_marker + gate_import, 1)
+          needle = '''    if (!restaurantId) {
+      return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
+    }
+
+    const tiers = await db.loyaltyTier.findMany({'''
+          replacement = '''    if (!restaurantId) {
+      return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
+    }
+    const featureGate = await commercialFeatureGate(restaurantId, 'loyalty');
+    if (featureGate) return featureGate;
+
+    const tiers = await db.loyaltyTier.findMany({'''
+          if needle not in text:
+              raise SystemExit('Tiers GET marker not found')
+          text = text.replace(needle, replacement, 1)
+          role_guard = '''    if (!hasRole(admin.role, PERMISSION_GROUPS.LOYALTY_MANAGE)) {
+      return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+    }
+'''
+          guarded = role_guard + '''
+    const featureGate = await commercialFeatureGate(admin.restaurantId, 'loyalty');
+    if (featureGate) return featureGate;
+'''
+          count = text.count(role_guard)
+          if count != 2:
+              raise SystemExit(f'Expected 2 tiers RBAC guards, found {count}')
+          text = text.replace(role_guard, guarded)
+          p.write_text(text)
+
+          # Driver login — only reveal plan denial after valid credentials/status.
+          p = Path('src/app/api/driver-login/route.ts')
+          text = p.read_text()
+          tenant_marker = 'import { getRestaurantId } from "@/lib/tenant";\n'
+          if gate_import not in text:
+              text = text.replace(tenant_marker, tenant_marker + gate_import, 1)
+          needle = '''    if (driver.status === "inactive") {
+      return NextResponse.json({ error: "Compte livreur désactivé" }, { status: 403 });
+    }
+
+    const restaurantSlug = driver.restaurant?.slug || "";'''
+          replacement = '''    if (driver.status === "inactive") {
+      return NextResponse.json({ error: "Compte livreur désactivé" }, { status: 403 });
+    }
+    const featureGate = await commercialFeatureGate(driver.restaurantId, 'drivers');
+    if (featureGate) return featureGate;
+
+    const restaurantSlug = driver.restaurant?.slug || "";'''
+          if needle not in text:
+              raise SystemExit('Driver login marker not found')
+          p.write_text(text.replace(needle, replacement, 1))
+          PY
+          git config user.name "kfm-commercial-flow-gating-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/app/api/loyalty/rewards/route.ts src/app/api/loyalty/tiers/route.ts src/app/api/driver-login/route.ts
+          git commit -m "commercial: gate loyalty and driver flows by plan"
+      - name: Remove one-shot workflow and push
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/_gate-loyalty-driver-commercial.yml
+          git commit -m "chore: remove one-shot commercial flow workflow"
+          git push origin HEAD:commercial/plan-feature-gating-final
