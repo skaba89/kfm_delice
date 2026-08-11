@@ -18,6 +18,7 @@ function runSafety(overrides: Record<string, string | undefined>) {
     SCALE_MODE: 'single-instance',
     STRIPE_SECRET_KEY: '',
     STRIPE_WEBHOOK_SECRET: '',
+    SENTRY_DSN: '',
     UPSTASH_REDIS_REST_URL: '',
     UPSTASH_REDIS_REST_TOKEN: '',
     // CI jobs may deliberately enable bootstrap helpers. Production-safety
@@ -55,15 +56,32 @@ describe('production safety guard', () => {
     expect(result.output).toContain('SCALE_MODE=national requires distributed rate limiting');
   });
 
+  it('rejects national scale without error monitoring', () => {
+    const result = runSafety({
+      SCALE_MODE: 'national',
+      UPSTASH_REDIS_REST_URL: 'https://example.upstash.io',
+      UPSTASH_REDIS_REST_TOKEN: 'token',
+    });
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('SENTRY_DSN is required for national scale observability');
+  });
+
   it('rejects a partially configured Upstash backend', () => {
     const result = runSafety({ UPSTASH_REDIS_REST_URL: 'https://example.upstash.io' });
     expect(result.status).toBe(1);
     expect(result.output).toContain('Upstash rate limiting is partially configured');
   });
 
-  it('accepts national scale when the supported distributed backend is complete', () => {
+  it('rejects an unknown scale mode instead of silently downgrading safety', () => {
+    const result = runSafety({ SCALE_MODE: 'nationnal' });
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('SCALE_MODE=nationnal is invalid');
+  });
+
+  it('accepts national scale when supported distributed and observability backends are complete', () => {
     const result = runSafety({
       SCALE_MODE: 'national',
+      SENTRY_DSN: 'https://public@example.invalid/1',
       UPSTASH_REDIS_REST_URL: 'https://example.upstash.io',
       UPSTASH_REDIS_REST_TOKEN: 'token',
     });
