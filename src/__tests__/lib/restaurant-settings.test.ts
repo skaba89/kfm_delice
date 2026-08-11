@@ -67,7 +67,7 @@ describe('restaurant settings contract', () => {
   });
 
   it('normalizes monetary fields to bigint for PostgreSQL', () => {
-    process.env.DATABASE_URL = 'postgresql://postgres:postgres@localhost:5432/kfm_test';
+    process.env.DATABASE_URL = 'postgresql://localhost/kfm_test';
     const data = normalizeRestaurantSettingsData({
       deliveryFee: 5000,
       minDelivery: 15000,
