@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // This suite is intentionally replayed on the current main so loyalty tenant
-// isolation is validated together with the commercial monthly-order quota.
+// isolation is validated together with the commercial monthly-order quota and
+// the latest production-readiness hardening before merge.
 const mocks = vi.hoisted(() => ({
   authenticateAdmin: vi.fn(),
   getRestaurantId: vi.fn(),
