@@ -3,28 +3,36 @@ import { NextResponse } from "next/server";
 import { authenticateDriver } from "@/lib/auth";
 import { parsePagination, prismaSkip, prismaTake } from "@/lib/pagination";
 import { driverOrderPatchSchema } from "@/lib/validations";
+import { applyOrderPatchAtomically } from "@/lib/order-transition-service";
 
-// GET /api/driver-orders — Get orders assigned to the logged-in driver
+const DRIVER_TRANSITIONS = new Set(["picking_up", "delivering", "delivered"]);
+const OPEN_ASSIGNMENT_STATES = ["none", "rejected", "expired"];
+
+// GET /api/driver-orders — Get orders assigned to the logged-in driver plus
+// genuinely unassigned ready deliveries. Orders already proposed to another
+// driver are intentionally excluded from the shared pool.
 export async function GET(request: Request) {
   try {
     await dbReady;
     const driverAuth = await authenticateDriver(request);
-    if (!driverAuth) {
-      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
-    }
+    if (!driverAuth) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
     const { page, limit } = parsePagination(new URL(request.url).searchParams);
-
     const restaurantId = driverAuth.restaurantId;
-    if (!restaurantId) return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
+    if (!restaurantId) {
+      return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
+    }
 
-    // Get all orders assigned to this driver, or delivery orders that are unassigned
     const where = {
       restaurantId,
       orderType: "delivery" as const,
       OR: [
         { driverId: driverAuth.id },
-        { status: { in: ["ready", "picking_up"] }, driverId: null },
+        {
+          status: "ready",
+          driverId: null,
+          assignmentStatus: { in: OPEN_ASSIGNMENT_STATES },
+        },
       ],
     };
 
@@ -43,126 +51,122 @@ export async function GET(request: Request) {
       pagination: { page, limit, total, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
     });
   } catch (error) {
-    console.error(error);
+    console.error("[driver-orders:GET]", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
 
-// PATCH /api/driver-orders — Driver updates an order status or accepts an order
+// PATCH /api/driver-orders — Driver progresses an assigned delivery or claims
+// an unassigned READY delivery. All state/terminal financial effects go through
+// the same atomic service as admin order transitions.
 export async function PATCH(request: Request) {
   try {
     await dbReady;
     const driverAuth = await authenticateDriver(request);
-    if (!driverAuth) {
-      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
-    }
+    if (!driverAuth) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
-    const body = await request.json();
-    const validation = driverOrderPatchSchema.safeParse(body);
+    const validation = driverOrderPatchSchema.safeParse(await request.json());
     if (!validation.success) {
-      const firstError = validation.error.issues[0]?.message || "Données invalides";
-      return NextResponse.json({ error: firstError }, { status: 400 });
-    }
-
-    const { orderId, status, lat, lng } = validation.data;
-
-    // ── Multi-tenant isolation + driver ownership ───────────────
-    // The driver must only be able to update an order that:
-    //   1. Belongs to the driver's restaurant (tenant scope)
-    //   2. Is EITHER already assigned to them OR is an unassigned
-    //      delivery order that they are now accepting (picking_up)
-    //
-    // Without this check, a driver of restaurant A could mutate any
-    // order of restaurant B by guessing an order UUID — including
-    // marking it as "delivered" (which would credit their own earnings).
-    const order = await db.order.findFirst({
-      where: {
-        id: orderId,
-        restaurantId: driverAuth.restaurantId,
-        orderType: "delivery",
-        OR: [
-          { driverId: driverAuth.id },
-          // Allow accepting an unassigned order only if action is pickup
-          { driverId: null, status: { in: ["ready", "picking_up"] } },
-        ],
-      },
-      select: { id: true, driverId: true, status: true },
-    });
-    if (!order) {
       return NextResponse.json(
-        { error: "Commande non trouvée ou non assignée à ce livreur" },
-        { status: 404 }
+        { error: validation.error.issues[0]?.message || "Données invalides" },
+        { status: 400 }
       );
     }
 
-    // If the driver is trying to update a status on an order that
-    // belongs to another driver (after the OR filter above matched the
-    // unassigned branch but the order was since assigned to someone
-    // else), reject. This is a race-condition guard.
-    if (order.driverId && order.driverId !== driverAuth.id) {
+    const { orderId, status, lat, lng } = validation.data;
+    if (status && !DRIVER_TRANSITIONS.has(status)) {
       return NextResponse.json(
-        { error: "Cette commande est assignée à un autre livreur" },
+        { error: "Transition livreur non autorisée", code: "DRIVER_ORDER_STATUS_FORBIDDEN" },
+        { status: 403 }
+      );
+    }
+    if ((lat === undefined) !== (lng === undefined)) {
+      return NextResponse.json({ error: "Latitude et longitude doivent être fournies ensemble" }, { status: 400 });
+    }
+    if (!status && lat === undefined) {
+      return NextResponse.json({ error: "Aucune modification demandée" }, { status: 400 });
+    }
+
+    const order = await db.order.findFirst({
+      where: { id: orderId, restaurantId: driverAuth.restaurantId, orderType: "delivery" },
+      select: { id: true, driverId: true, status: true, assignmentStatus: true },
+    });
+    if (!order) {
+      return NextResponse.json({ error: "Commande non trouvée" }, { status: 404 });
+    }
+
+    const isAssignedToSelf = order.driverId === driverAuth.id;
+    const isOpenUnassigned =
+      order.driverId === null &&
+      order.status === "ready" &&
+      OPEN_ASSIGNMENT_STATES.includes(order.assignmentStatus);
+
+    if (!isAssignedToSelf && !isOpenUnassigned) {
+      return NextResponse.json(
+        { error: "Commande non assignée à ce livreur", code: "DRIVER_ORDER_OWNERSHIP_REQUIRED" },
         { status: 403 }
       );
     }
 
-    const updateData: Record<string, unknown> = {};
+    // A free/unassigned delivery may only be claimed by entering picking_up.
+    // It cannot jump straight to delivering/delivered.
+    if (isOpenUnassigned && status !== "picking_up") {
+      return NextResponse.json(
+        { error: "Une commande libre doit d'abord être récupérée", code: "DRIVER_ORDER_CLAIM_REQUIRED" },
+        { status: 409 }
+      );
+    }
 
+    let responseOrder: unknown = order;
     if (status) {
-      updateData.status = status;
-    }
-
-    // If accepting an order (assigning self)
-    if (status === "picking_up" || status === "delivering") {
-      updateData.driverId = driverAuth.id;
-    }
-
-    // If delivering, update GPS coords
-    if (lat !== undefined && lng !== undefined) {
-      updateData.driverLat = lat;
-      updateData.driverLng = lng;
-    }
-
-    // If delivered, increment driver's totalDeliveries
-    if (status === "delivered") {
-      await db.driver.update({
-        where: { id: driverAuth.id },
-        data: {
-          totalDeliveries: { increment: 1 },
-          status: "available",
-          currentOrderId: "",
+      const result = await applyOrderPatchAtomically(
+        {
+          id: orderId,
+          status,
+          ...(isOpenUnassigned ? { driverId: driverAuth.id } : {}),
         },
-      });
+        {
+          restaurantId: driverAuth.restaurantId,
+          actorId: driverAuth.id,
+          // Reuse the delivery-scoped field policy; authentication and
+          // ownership were already established above for the driver itself.
+          actorRole: "delivery_manager",
+        }
+      );
+
+      if (!result.ok) {
+        return NextResponse.json(
+          { error: result.error, code: result.code },
+          { status: result.status }
+        );
+      }
+      responseOrder = result.order;
     }
 
-    // If picking up, mark driver as busy
-    if (status === "picking_up") {
-      await db.driver.update({
-        where: { id: driverAuth.id },
-        data: { status: "busy", currentOrderId: orderId },
+    if (lat !== undefined && lng !== undefined) {
+      const located = await db.order.updateMany({
+        where: { id: orderId, restaurantId: driverAuth.restaurantId, driverId: driverAuth.id },
+        data: { driverLat: lat, driverLng: lng },
       });
+      if (located.count !== 1) {
+        return NextResponse.json(
+          { error: "La commande n'est plus assignée à ce livreur", code: "DRIVER_ORDER_ASSIGNMENT_CHANGED" },
+          { status: 409 }
+        );
+      }
+      await db.driver.updateMany({
+        where: { id: driverAuth.id, restaurantId: driverAuth.restaurantId },
+        data: { lat, lng, lastLocationUpdate: new Date() },
+      });
+      const refreshed = await db.order.findFirst({
+        where: { id: orderId, restaurantId: driverAuth.restaurantId },
+      });
+      if (refreshed) responseOrder = refreshed;
     }
 
-    const updatedOrder = await db.order.update({
-      where: { id: orderId },
-      data: updateData,
-    });
-
-    // WebSocket: broadcast order and driver status changes
-    try {
-      const { broadcastToType, sendToUser } = await import('@/lib/websocket-server');
-      const { WSEvents } = await import('@/lib/ws-events');
-      // Notify admin of order status change
-      broadcastToType('admin', WSEvents.ORDER_STATUS_CHANGED, { orderId: updatedOrder.id, status: updatedOrder.status, driverId: driverAuth.id });
-      // Notify customer of tracking update
-      broadcastToType('customer', WSEvents.TRACKING_UPDATE, { orderId: updatedOrder.id, status: updatedOrder.status });
-      // Notify admin of driver status change
-      broadcastToType('admin', WSEvents.DRIVER_STATUS_CHANGED, { driverId: driverAuth.id, status: status === 'delivered' ? 'available' : (status === 'picking_up' ? 'busy' : undefined) });
-    } catch (e) { /* WS not available, fall back to polling */ }
-
-    return NextResponse.json(bigIntToNumber(updatedOrder));
+    return NextResponse.json(bigIntToNumber(responseOrder));
   } catch (error) {
-    console.error(error);
+    console.error("[driver-orders:PATCH]", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
