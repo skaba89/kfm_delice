@@ -1,6 +1,7 @@
 import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
+import { commercialFeatureGate } from "@/lib/commercial-feature-gate";
 import { haversineDistance } from "@/lib/geo";
 import { logAudit } from "@/lib/audit";
 
@@ -24,6 +25,8 @@ export async function POST(
     if (!hasRole(admin.role, ["admin", "manager", "delivery_manager"])) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
+    const featureDenied = await commercialFeatureGate(admin.restaurantId, "drivers");
+    if (featureDenied) return featureDenied;
 
     const { id: orderId } = await params;
     const body = await request.json().catch(() => ({}));
