@@ -1,6 +1,6 @@
-import { db, dbReady, bigIntToNumber } from "@/lib/db";
+import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
-import { authenticateDriver } from "@/lib/auth";
+import { authenticateEntitledDriver } from "@/lib/driver-feature-auth";
 
 /**
  * GET /api/driver-orders/pending
@@ -12,15 +12,16 @@ import { authenticateDriver } from "@/lib/auth";
 export async function GET(request: Request) {
   try {
     await dbReady;
-    const driverAuth = await authenticateDriver(request);
+    const driverAuth = await authenticateEntitledDriver(request);
     if (!driverAuth) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
 
-    // Auto-expire proposals older than 60 seconds
+    // Auto-expire proposals older than 60 seconds, always inside this tenant.
     const sixtySecondsAgo = new Date(Date.now() - 60 * 1000);
     await db.order.updateMany({
       where: {
+        restaurantId: driverAuth.restaurantId,
         proposedToDriverId: driverAuth.id,
         assignmentStatus: "proposed",
         proposedAt: { lt: sixtySecondsAgo },
@@ -32,9 +33,10 @@ export async function GET(request: Request) {
       },
     }).catch(() => {});
 
-    // Find pending proposals for this driver
+    // Find pending proposals for this driver inside their tenant only.
     const pendingOrders = await db.order.findMany({
       where: {
+        restaurantId: driverAuth.restaurantId,
         proposedToDriverId: driverAuth.id,
         assignmentStatus: "proposed",
       },
