@@ -4,6 +4,7 @@
 
 import { db } from './db';
 import { hashFingerprint } from './crypto';
+import { checkMonthlyOrderEntitlement } from './order-entitlements';
 import { Prisma } from '@prisma/client';
 
 const IDEMPOTENCY_TTL_HOURS = 24;
@@ -181,6 +182,15 @@ export async function createOrderAtomically(
         },
       });
       idempotencyRecordId = created.id;
+    }
+
+    const entitlement = await checkMonthlyOrderEntitlement(tx, restaurantId);
+    if (!entitlement.allowed) {
+      throw new OrderValidationError(
+        entitlement.error || 'Quota commercial de commandes atteint',
+        entitlement.code || 'ACCOUNT_MONTHLY_ORDER_QUOTA_REACHED',
+        403
+      );
     }
 
     const restaurant = await tx.restaurant.findUnique({
