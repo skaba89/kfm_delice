@@ -10,6 +10,7 @@ const quotaSchema = z.object({
   maxSecondaryRestaurants: z.number().int().min(0).optional(),
   maxAdmins: z.number().int().min(1, "Le nombre maximum d'administrateurs doit être au moins 1").optional(),
   maxUsers: z.number().int().min(1).optional(),
+  maxOrdersPerMonth: z.number().int().min(1, "Le quota mensuel de commandes doit être au moins 1").optional(),
   plan: z.enum(["free", "starter", "pro", "enterprise", "custom"]).optional(),
   status: z.enum(["active", "trial", "suspended", "cancelled", "over_quota"]).optional(),
 });
@@ -55,6 +56,9 @@ export async function PATCH(
     const before = {
       maxRestaurants: account.maxRestaurants,
       maxSecondaryRestaurants: account.maxSecondaryRestaurants,
+      maxAdmins: account.maxAdmins,
+      maxUsers: account.maxUsers,
+      maxOrdersPerMonth: account.maxOrdersPerMonth,
       plan: account.plan,
       status: account.status,
     };
