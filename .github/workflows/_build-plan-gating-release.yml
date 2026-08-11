@@ -1,0 +1,137 @@
+name: Build clean final plan gating release
+
+on:
+  push:
+    branches: [commercial/plan-feature-gating-release]
+    paths: [.github/workflows/_build-plan-gating-release.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: commercial/plan-feature-gating-release
+          fetch-depth: 0
+      - name: Copy final commercial route gates
+        run: |
+          set -euo pipefail
+          git fetch origin commercial/plan-feature-gating-final
+          git checkout origin/commercial/plan-feature-gating-final -- \
+            src/lib/commercial-entitlements.ts \
+            src/lib/commercial-feature-gate.ts \
+            src/__tests__/lib/commercial-entitlements.test.ts \
+            src/__tests__/lib/commercial-feature-gate.test.ts \
+            src/__tests__/api/premium-route-feature-gates.test.ts \
+            src/app/api/invoices/route.ts \
+            src/app/api/quotes/route.ts \
+            src/app/api/expenses/route.ts \
+            src/app/api/staff/route.ts \
+            src/app/api/drivers/route.ts \
+            src/app/api/loyalty/rewards/route.ts \
+            src/app/api/loyalty/tiers/route.ts \
+            src/app/api/driver-login/route.ts
+      - name: Gate automatic loyalty and invoice effects
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('src/lib/order-transition-service.ts')
+          text = p.read_text()
+          prisma_import = "import { Prisma } from '@prisma/client';\n"
+          entitlement_import = "import { normalizeCommercialPlan, planIncludesFeature } from './commercial-entitlements';\n"
+          if entitlement_import not in text:
+              if prisma_import not in text:
+                  raise SystemExit('Prisma import marker not found')
+              text = text.replace(prisma_import, prisma_import + entitlement_import, 1)
+
+          old_loyalty = '''        const restaurant = await tx.restaurant.findUnique({
+          where: { id: context.restaurantId },
+          select: { loyaltyPointsRate: true },
+        });
+        const pointsEarned = Math.floor(moneyNumber(existing.total) / 1000) * (restaurant?.loyaltyPointsRate ?? 1);'''
+          new_loyalty = '''        const restaurant = await tx.restaurant.findUnique({
+          where: { id: context.restaurantId },
+          select: {
+            loyaltyPointsRate: true,
+            plan: true,
+            account: { select: { plan: true } },
+          },
+        });
+        const commercialPlan = normalizeCommercialPlan(restaurant?.account?.plan, restaurant?.plan);
+        const loyaltyEnabled = planIncludesFeature(commercialPlan, 'loyalty');
+        const pointsEarned = loyaltyEnabled
+          ? Math.floor(moneyNumber(existing.total) / 1000) * (restaurant?.loyaltyPointsRate ?? 1)
+          : 0;'''
+          if old_loyalty not in text:
+              raise SystemExit('Loyalty delivery block not found')
+          text = text.replace(old_loyalty, new_loyalty, 1)
+
+          old_invoice = '''    if (becameDelivered) {
+      const existingInvoice = await tx.invoice.findFirst({
+        where: { orderId: id, restaurantId: context.restaurantId },
+        select: { id: true },
+      });
+      if (!existingInvoice) {'''
+          new_invoice = '''    if (becameDelivered) {
+      const invoiceRestaurant = await tx.restaurant.findUnique({
+        where: { id: context.restaurantId },
+        select: {
+          plan: true,
+          account: { select: { plan: true } },
+        },
+      });
+      const invoicePlan = normalizeCommercialPlan(invoiceRestaurant?.account?.plan, invoiceRestaurant?.plan);
+      const invoicesEnabled = planIncludesFeature(invoicePlan, 'invoices');
+      const existingInvoice = invoicesEnabled
+        ? await tx.invoice.findFirst({
+            where: { orderId: id, restaurantId: context.restaurantId },
+            select: { id: true },
+          })
+        : { id: 'feature-disabled' };
+      if (!existingInvoice) {'''
+          if old_invoice not in text:
+              raise SystemExit('Invoice delivery block not found')
+          text = text.replace(old_invoice, new_invoice, 1)
+          p.write_text(text)
+          PY
+      - name: Add release contract test
+        run: |
+          cat > src/__tests__/lib/premium-order-effects-contract.test.ts <<'EOF'
+          import { describe, expect, it } from 'vitest';
+          import { readFileSync } from 'node:fs';
+          import path from 'node:path';
+
+          describe('automatic premium order effects', () => {
+            const source = readFileSync(path.join(process.cwd(), 'src/lib/order-transition-service.ts'), 'utf8');
+
+            it('gates loyalty points using the effective commercial plan', () => {
+              expect(source).toContain("normalizeCommercialPlan(restaurant?.account?.plan, restaurant?.plan)");
+              expect(source).toContain("planIncludesFeature(commercialPlan, 'loyalty')");
+              expect(source).toContain('const pointsEarned = loyaltyEnabled');
+              // Customer operational statistics stay independent from paid loyalty.
+              expect(source).toContain('totalOrders: { increment: 1 }');
+              expect(source).toContain('totalSpent: { increment: money(existing.total) as any }');
+            });
+
+            it('does not auto-create invoices when the effective plan excludes invoices', () => {
+              expect(source).toContain("normalizeCommercialPlan(invoiceRestaurant?.account?.plan, invoiceRestaurant?.plan)");
+              expect(source).toContain("planIncludesFeature(invoicePlan, 'invoices')");
+              expect(source).toContain("{ id: 'feature-disabled' }");
+            });
+          });
+          EOF
+      - name: Commit product-only release and remove workflow
+        run: |
+          set -euo pipefail
+          git config user.name "kfm-plan-release-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add src
+          git commit -m "commercial: enforce paid plan features end to end"
+          git rm .github/workflows/_build-plan-gating-release.yml
+          git commit -m "chore: remove one-shot plan release workflow"
+          git push origin HEAD:commercial/plan-feature-gating-release
