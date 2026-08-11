@@ -17,10 +17,18 @@ export interface TenantContext {
   plan: string;
   status: string;
   accountStatus?: string | null;
+  accountTrialEndsAt?: string | null;
+  accountContractEndDate?: string | null;
 }
 
 const tenantCache = new Map<string, { data: TenantContext; expiresAt: number }>();
 const CACHE_TTL = 5 * 60 * 1000;
+
+function contractGraceDays(): number {
+  const parsed = Number(process.env.COMMERCIAL_CONTRACT_GRACE_DAYS ?? 0);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.min(90, Math.max(0, Math.trunc(parsed)));
+}
 
 export function extractSlug(request: Request): string | null {
   const strategy = process.env.TENANT_STRATEGY || 'slug-header';
@@ -47,8 +55,17 @@ export function extractSlug(request: Request): string | null {
   return null;
 }
 
-export function isTenantActive(tenant: Pick<TenantContext, 'status' | 'accountStatus'>): boolean {
-  return evaluateSubscriptionAccess(tenant.status, tenant.accountStatus ?? null).allowed;
+export function isTenantActive(tenant: Pick<
+  TenantContext,
+  'status' | 'accountStatus' | 'accountTrialEndsAt' | 'accountContractEndDate'
+>): boolean {
+  return evaluateSubscriptionAccess({
+    restaurantStatus: tenant.status,
+    accountStatus: tenant.accountStatus ?? null,
+    trialEndsAt: tenant.accountTrialEndsAt ?? null,
+    contractEndDate: tenant.accountContractEndDate ?? null,
+    contractGraceDays: contractGraceDays(),
+  }).allowed;
 }
 
 function toContext(restaurant: {
@@ -59,7 +76,11 @@ function toContext(restaurant: {
   locale: string;
   plan: string;
   status: string;
-  account?: { status: string } | null;
+  account?: {
+    status: string;
+    trialEndsAt: string | null;
+    contractEndDate: string | null;
+  } | null;
 }): TenantContext {
   return {
     restaurantId: restaurant.id,
@@ -70,6 +91,8 @@ function toContext(restaurant: {
     plan: restaurant.plan,
     status: restaurant.status,
     accountStatus: restaurant.account?.status ?? null,
+    accountTrialEndsAt: restaurant.account?.trialEndsAt ?? null,
+    accountContractEndDate: restaurant.account?.contractEndDate ?? null,
   };
 }
 
@@ -89,7 +112,13 @@ export async function resolveTenant(slug: string): Promise<TenantContext | null>
       locale: true,
       plan: true,
       status: true,
-      account: { select: { status: true } },
+      account: {
+        select: {
+          status: true,
+          trialEndsAt: true,
+          contractEndDate: true,
+        },
+      },
     },
   });
 
@@ -121,7 +150,13 @@ export async function resolveDefaultTenant(): Promise<TenantContext | null> {
       locale: true,
       plan: true,
       status: true,
-      account: { select: { status: true } },
+      account: {
+        select: {
+          status: true,
+          trialEndsAt: true,
+          contractEndDate: true,
+        },
+      },
     },
   });
 
