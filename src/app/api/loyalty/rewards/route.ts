@@ -2,6 +2,7 @@ import { db, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateCustomer } from "@/lib/auth";
 import { resolveTenantFromRequest } from "@/lib/tenant";
+import { commercialFeatureGate } from "@/lib/commercial-feature-gate";
 
 // GET: List active rewards for the resolved restaurant only.
 // Client-supplied restaurantId query parameters are intentionally ignored:
@@ -12,6 +13,8 @@ export async function GET(request: Request) {
     if (!tenant) {
       return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
     }
+    const featureGate = await commercialFeatureGate(tenant.restaurantId, 'loyalty');
+    if (featureGate) return featureGate;
 
     const rewards = await db.loyaltyReward.findMany({
       where: { active: true, restaurantId: tenant.restaurantId },
@@ -32,6 +35,8 @@ export async function POST(request: Request) {
     if (!customer) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
+    const featureGate = await commercialFeatureGate(customer.restaurantId, 'loyalty');
+    if (featureGate) return featureGate;
 
     const body = await request.json();
     const rewardId = typeof body?.rewardId === "string" ? body.rewardId.trim() : "";
