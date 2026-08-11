@@ -1,0 +1,78 @@
+name: Patch loyalty tiers read-only
+
+on:
+  push:
+    branches: [security/loyalty-tenant-isolation]
+    paths: [.github/workflows/_patch-loyalty-tiers-readonly.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: security/loyalty-tenant-isolation
+      - name: Remove public GET database seeding
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/app/api/loyalty/tiers/route.ts')
+          text = p.read_text()
+          text = text.replace(
+              'import { ensureDefaultTiers, DEFAULT_TIERS } from "@/lib/loyalty-tiers";',
+              'import { DEFAULT_TIERS } from "@/lib/loyalty-tiers";'
+          )
+          text = text.replace(
+              '    // Ensure default tiers exist (idempotent)\n    await ensureDefaultTiers(restaurantId);\n\n',
+              ''
+          )
+          old = '''    return NextResponse.json({
+      data: tiers.map((t) => ({
+        id: t.id,
+        name: t.name,
+        label: t.label,
+        minSpent: Number(t.minSpent),
+        discountPercent: t.discountPercent,
+        freeDelivery: t.freeDelivery,
+        freeDish: t.freeDish,
+        color: t.color,
+        icon: t.icon,
+        active: t.active,
+      })),
+    });'''
+          new = '''    const data = tiers.length > 0
+      ? tiers.map((t) => ({
+          id: t.id,
+          name: t.name,
+          label: t.label,
+          minSpent: Number(t.minSpent),
+          discountPercent: t.discountPercent,
+          freeDelivery: t.freeDelivery,
+          freeDish: t.freeDish,
+          color: t.color,
+          icon: t.icon,
+          active: t.active,
+        }))
+      : DEFAULT_TIERS.map((t) => ({
+          id: `default:${t.name}`,
+          ...t,
+          active: true,
+        }));
+
+    return NextResponse.json({ data });'''
+          if old not in text:
+              raise SystemExit('Expected tiers response block not found')
+          p.write_text(text.replace(old, new))
+          PY
+          git config user.name "kfm-loyalty-hardening-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/app/api/loyalty/tiers/route.ts
+          git commit -m "security: make public loyalty tiers GET read-only"
+      - name: Remove one-shot workflow and push
+        run: |
+          git rm .github/workflows/_patch-loyalty-tiers-readonly.yml
+          git commit -m "chore: remove one-shot loyalty patch workflow"
+          git push origin HEAD:security/loyalty-tenant-isolation
