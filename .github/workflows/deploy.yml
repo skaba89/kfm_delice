@@ -121,14 +121,7 @@ jobs:
           matched="false"
           for attempt in $(seq 1 60); do
             payload="$(curl --fail --silent --show-error --max-time 10 "$BASE_URL/api/status" 2>/dev/null || true)"
-            release="$(PAYLOAD="$payload" python3 - <<'PY'
-          import json, os
-          try:
-              print(json.loads(os.environ.get('PAYLOAD', '{}')).get('release', ''))
-          except Exception:
-              print('')
-          PY
-            )"
+            release="$(PAYLOAD="$payload" python3 -c 'import json, os; payload=os.environ.get("PAYLOAD", "{}"); print((json.loads(payload) if payload else {}).get("release", ""))' 2>/dev/null || true)"
             if [ "$release" = "$TARGET_SHA" ]; then
               matched="true"
               echo "Exact release is live after attempt $attempt."
