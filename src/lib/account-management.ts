@@ -7,12 +7,17 @@
 
 import { db, dbReady } from "@/lib/db";
 import { NextResponse } from "next/server";
-import { authenticateAdmin, hasRole } from "@/lib/auth";
-import { hashPassword } from "@/lib/auth";
+import { authenticateAdmin, hasRole, hashPassword } from "@/lib/auth";
 import { unlockAccount } from "@/lib/account-security";
 import { logAudit } from "@/lib/audit";
+import { commercialFeatureGate } from "@/lib/commercial-feature-gate";
 
 type ModelName = 'admin' | 'customer' | 'driver';
+
+async function gateModelFeature(restaurantId: string, model: ModelName) {
+  if (model !== 'driver') return null;
+  return commercialFeatureGate(restaurantId, 'drivers');
+}
 
 /**
  * POST handler for resetting a user's password.
@@ -34,6 +39,8 @@ export function createResetPasswordHandler(model: ModelName) {
       if (!hasRole(admin.role, ["admin"])) {
         return NextResponse.json({ error: "Accès refusé — admin uniquement" }, { status: 403 });
       }
+      const featureDenied = await gateModelFeature(admin.restaurantId, model);
+      if (featureDenied) return featureDenied;
 
       const { id: userId } = await params;
       const body = await request.json();
@@ -113,6 +120,8 @@ export function createUnlockHandler(model: ModelName) {
       if (!hasRole(admin.role, ["admin"])) {
         return NextResponse.json({ error: "Accès refusé — admin uniquement" }, { status: 403 });
       }
+      const featureDenied = await gateModelFeature(admin.restaurantId, model);
+      if (featureDenied) return featureDenied;
 
       const { id: userId } = await params;
 
