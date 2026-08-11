@@ -1,8 +1,7 @@
 # KFM Delice — Render deployment gate
-# Automatic production deploys are triggered only after CI succeeds on main.
-# The exact CI commit is passed to Render and, when a public base URL secret is
-# configured, the workflow blocks until that exact release is ready and passes
-# read-only smoke tests.
+# Production deploys require the exact current main commit to have both CI and
+# Security Scan green. Stale CI completions are skipped and can never roll
+# production backwards. Render is always triggered with the validated SHA.
 name: Deploy to Render
 
 on:
@@ -24,10 +23,14 @@ on:
         type: boolean
         default: false
 
+permissions:
+  actions: read
+  contents: read
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     if: >-
       ${{
         github.event_name == 'workflow_dispatch' ||
@@ -60,9 +63,36 @@ jobs:
           fi
           echo "TARGET_SHA=$TARGET_SHA" >> "$GITHUB_ENV"
           echo "TARGET_ENV=$TARGET_ENV" >> "$GITHUB_ENV"
+          echo "SKIP_DEPLOY=false" >> "$GITHUB_ENV"
           echo "Deploy target: $TARGET_ENV @ $TARGET_SHA"
 
+      - name: Verify exact production release gates
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$TARGET_ENV" != "production" ]; then
+            echo "Staging manual deployment: production main-tip gate not applied."
+            exit 0
+          fi
+
+          set +e
+          node scripts/verify-release-gate.cjs "$TARGET_SHA"
+          gate_rc=$?
+          set -e
+
+          if [ "$gate_rc" -eq 78 ]; then
+            echo "SKIP_DEPLOY=true" >> "$GITHUB_ENV"
+            echo "Production deployment skipped because the validated CI SHA is no longer current main."
+            exit 0
+          fi
+          if [ "$gate_rc" -ne 0 ]; then
+            echo "::error::Production release gate rejected $TARGET_SHA."
+            exit "$gate_rc"
+          fi
+
       - name: Resolve Render endpoint
+        if: env.SKIP_DEPLOY != 'true'
         env:
           PROD_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
           STAGING_HOOK_URL: ${{ secrets.RENDER_STAGING_DEPLOY_HOOK_URL }}
@@ -85,6 +115,7 @@ jobs:
           echo "BASE_URL=$BASE_URL" >> "$GITHUB_ENV"
 
       - name: Trigger exact Render revision
+        if: env.SKIP_DEPLOY != 'true'
         env:
           CLEAR_CACHE: ${{ github.event.inputs.clear_cache || 'false' }}
         run: |
@@ -94,7 +125,7 @@ jobs:
           else
             DEPLOY_URL="${HOOK_URL}?ref=${TARGET_SHA}"
           fi
-          echo "Triggering CI-gated Render deployment for $TARGET_SHA..."
+          echo "Triggering CI+Security-gated Render deployment for $TARGET_SHA..."
           if [ "$CLEAR_CACHE" = "true" ]; then
             curl --fail-with-body --silent --show-error --location \
               --request POST \
@@ -108,6 +139,7 @@ jobs:
           fi
 
       - name: Wait for exact release and run read-only smoke
+        if: env.SKIP_DEPLOY != 'true'
         env:
           SMOKE_RESTAURANT_SLUG: ${{ secrets.SMOKE_RESTAURANT_SLUG }}
         run: |
@@ -142,12 +174,17 @@ jobs:
           python3 scripts/post-deploy-smoke.py
 
       - name: Deployment summary
+        if: always()
         run: |
+          if [ "${SKIP_DEPLOY:-false}" = "true" ]; then
+            echo "Render deployment skipped: target $TARGET_SHA is stale relative to current main."
+            exit 0
+          fi
           echo "Render deployment workflow completed."
           echo "Environment: $TARGET_ENV"
           echo "Commit: $TARGET_SHA"
-          if [ -n "$BASE_URL" ]; then
+          if [ -n "${BASE_URL:-}" ]; then
             echo "Post-deploy smoke: passed for the exact release."
           else
-            echo "Post-deploy smoke: not configured (base URL secret missing)."
+            echo "Post-deploy smoke: not configured (base URL secret missing or deployment stopped before endpoint resolution)."
           fi
