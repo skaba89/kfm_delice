@@ -1,0 +1,111 @@
+name: Gate premium order effects final
+
+on:
+  push:
+    branches: [commercial/plan-feature-gating-final]
+    paths: [.github/workflows/_gate-premium-order-effects-final.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: commercial/plan-feature-gating-final
+      - name: Gate automatic loyalty points and invoices
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('src/lib/order-transition-service.ts')
+          text = p.read_text()
+          prisma_import = "import { Prisma } from '@prisma/client';\n"
+          entitlement_import = "import { normalizeCommercialPlan, planIncludesFeature } from './commercial-entitlements';\n"
+          if entitlement_import not in text:
+              if prisma_import not in text:
+                  raise SystemExit('Prisma import marker not found')
+              text = text.replace(prisma_import, prisma_import + entitlement_import, 1)
+
+          old_loyalty = '''        const restaurant = await tx.restaurant.findUnique({
+          where: { id: context.restaurantId },
+          select: { loyaltyPointsRate: true },
+        });
+        const pointsEarned = Math.floor(moneyNumber(existing.total) / 1000) * (restaurant?.loyaltyPointsRate ?? 1);
+        await tx.customer.update({
+          where: { id: effectiveCustomerId },
+          data: {
+            ...(pointsEarned > 0 ? { loyaltyPoints: { increment: pointsEarned } } : {}),
+            totalOrders: { increment: 1 },
+            totalSpent: { increment: money(existing.total) as any },
+          } as any,
+        });
+        if (pointsEarned > 0) {'''
+          new_loyalty = '''        const restaurant = await tx.restaurant.findUnique({
+          where: { id: context.restaurantId },
+          select: {
+            loyaltyPointsRate: true,
+            plan: true,
+            account: { select: { plan: true } },
+          },
+        });
+        const commercialPlan = normalizeCommercialPlan(restaurant?.account?.plan, restaurant?.plan);
+        const loyaltyEnabled = planIncludesFeature(commercialPlan, 'loyalty');
+        const pointsEarned = loyaltyEnabled
+          ? Math.floor(moneyNumber(existing.total) / 1000) * (restaurant?.loyaltyPointsRate ?? 1)
+          : 0;
+        await tx.customer.update({
+          where: { id: effectiveCustomerId },
+          data: {
+            ...(pointsEarned > 0 ? { loyaltyPoints: { increment: pointsEarned } } : {}),
+            totalOrders: { increment: 1 },
+            totalSpent: { increment: money(existing.total) as any },
+          } as any,
+        });
+        if (pointsEarned > 0) {'''
+          if old_loyalty not in text:
+              raise SystemExit('Loyalty delivery block not found')
+          text = text.replace(old_loyalty, new_loyalty, 1)
+
+          old_invoice = '''    if (becameDelivered) {
+      const existingInvoice = await tx.invoice.findFirst({
+        where: { orderId: id, restaurantId: context.restaurantId },
+        select: { id: true },
+      });
+      if (!existingInvoice) {'''
+          new_invoice = '''    if (becameDelivered) {
+      const invoiceRestaurant = await tx.restaurant.findUnique({
+        where: { id: context.restaurantId },
+        select: {
+          plan: true,
+          account: { select: { plan: true } },
+        },
+      });
+      const invoicePlan = normalizeCommercialPlan(invoiceRestaurant?.account?.plan, invoiceRestaurant?.plan);
+      const invoicesEnabled = planIncludesFeature(invoicePlan, 'invoices');
+      const existingInvoice = invoicesEnabled
+        ? await tx.invoice.findFirst({
+            where: { orderId: id, restaurantId: context.restaurantId },
+            select: { id: true },
+          })
+        : { id: 'feature-disabled' };
+      if (!existingInvoice) {'''
+          if old_invoice not in text:
+              raise SystemExit('Invoice delivery block not found')
+          text = text.replace(old_invoice, new_invoice, 1)
+
+          p.write_text(text)
+          PY
+          git config user.name "kfm-premium-effects-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/lib/order-transition-service.ts
+          git commit -m "commercial: gate automatic loyalty and invoice effects"
+      - name: Remove one-shot workflow and push
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/_gate-premium-order-effects-final.yml
+          git commit -m "chore: remove one-shot premium effects final workflow"
+          git push origin HEAD:commercial/plan-feature-gating-final
