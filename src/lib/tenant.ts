@@ -22,6 +22,7 @@ export interface TenantContext {
   locale: string;
   plan: CommercialPlan;
   status: string;
+  restaurantTrialEndsAt?: string | null;
   accountStatus?: string | null;
   accountTrialEndsAt?: string | null;
   accountContractEndDate?: string | null;
@@ -63,12 +64,15 @@ export function extractSlug(request: Request): string | null {
 
 export function isTenantActive(tenant: Pick<
   TenantContext,
-  'status' | 'accountStatus' | 'accountTrialEndsAt' | 'accountContractEndDate'
+  'status' | 'restaurantTrialEndsAt' | 'accountStatus' | 'accountTrialEndsAt' | 'accountContractEndDate'
 >): boolean {
+  const hasAccount = Boolean(tenant.accountStatus);
   return evaluateSubscriptionAccess({
     restaurantStatus: tenant.status,
     accountStatus: tenant.accountStatus ?? null,
-    trialEndsAt: tenant.accountTrialEndsAt ?? null,
+    trialEndsAt: hasAccount
+      ? tenant.accountTrialEndsAt ?? null
+      : tenant.restaurantTrialEndsAt ?? null,
     contractEndDate: tenant.accountContractEndDate ?? null,
     contractGraceDays: contractGraceDays(),
   }).allowed;
@@ -82,6 +86,7 @@ function toContext(restaurant: {
   locale: string;
   plan: string;
   status: string;
+  trialEndsAt?: string | null;
   account?: {
     plan?: string | null;
     status: string;
@@ -101,6 +106,7 @@ function toContext(restaurant: {
     locale: restaurant.locale,
     plan,
     status: restaurant.status,
+    restaurantTrialEndsAt: restaurant.trialEndsAt ?? null,
     accountStatus: restaurant.account?.status ?? null,
     accountTrialEndsAt: restaurant.account?.trialEndsAt ?? null,
     accountContractEndDate: restaurant.account?.contractEndDate ?? null,
@@ -123,6 +129,7 @@ export async function resolveTenant(slug: string): Promise<TenantContext | null>
       locale: true,
       plan: true,
       status: true,
+      trialEndsAt: true,
       account: {
         select: {
           plan: true,
@@ -162,6 +169,7 @@ export async function resolveDefaultTenant(): Promise<TenantContext | null> {
       locale: true,
       plan: true,
       status: true,
+      trialEndsAt: true,
       account: {
         select: {
           plan: true,
