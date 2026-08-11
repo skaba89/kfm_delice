@@ -1,6 +1,7 @@
 import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
+import { commercialFeatureGate } from "@/lib/commercial-feature-gate";
 import { staffSchema, staffPatchSchema } from "@/lib/validations";
 import { parsePagination, prismaSkip, prismaTake, parseSorting, parseSearch, parseStatusFilter, buildSearchWhere } from "@/lib/pagination";
 
@@ -16,6 +17,9 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 
+    const featureGate = await commercialFeatureGate(admin.restaurantId, 'staff');
+    if (featureGate) return featureGate;
+
     const sp = new URL(request.url).searchParams;
     const { page, limit } = parsePagination(sp);
     const { sortBy, sortOrder } = parseSorting(sp, ['createdAt', 'name', 'role', 'status'] as const, 'createdAt');
@@ -24,7 +28,6 @@ export async function GET(request: Request) {
     const statusFilter = parseStatusFilter(sp, ['active', 'inactive', 'on_leave']);
 
     const restaurantId = admin.restaurantId;
-
     const where = {
       restaurantId,
       ...(roleFilter && { role: roleFilter }),
@@ -62,6 +65,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 
+    const featureGate = await commercialFeatureGate(admin.restaurantId, 'staff');
+    if (featureGate) return featureGate;
+
     const body = await request.json();
     const validation = staffSchema.safeParse(body);
     if (!validation.success) {
@@ -91,6 +97,9 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 
+    const featureGate = await commercialFeatureGate(admin.restaurantId, 'staff');
+    if (featureGate) return featureGate;
+
     const body = await request.json();
     const validation = staffPatchSchema.safeParse(body);
     if (!validation.success) {
@@ -103,7 +112,6 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "ID requis" }, { status: 400 });
     }
 
-    // Scope update to admin's restaurant
     const existing = await db.staff.findFirst({ where: { id, restaurantId: admin.restaurantId } });
     if (!existing) return NextResponse.json({ error: "Personnel introuvable" }, { status: 404 });
 
@@ -126,7 +134,9 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 
-    // Accept id either from JSON body or query string (?id=...)
+    const featureGate = await commercialFeatureGate(admin.restaurantId, 'staff');
+    if (featureGate) return featureGate;
+
     const url = new URL(request.url);
     let id: string | undefined = url.searchParams.get("id") || undefined;
     if (!id) {
@@ -138,7 +148,6 @@ export async function DELETE(request: Request) {
     if (!id) {
       return NextResponse.json({ error: "ID requis" }, { status: 400 });
     }
-    // Scope delete to admin's restaurant
     await db.staff.deleteMany({ where: { id, restaurantId: admin.restaurantId } });
     return NextResponse.json({ success: true });
   } catch (error) {
