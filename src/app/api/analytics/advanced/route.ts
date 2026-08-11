@@ -1,6 +1,7 @@
 import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
+import { commercialFeatureGate } from "@/lib/commercial-feature-gate";
 
 // GET /api/analytics/advanced — advanced analytics dashboard data
 export async function GET(request: Request) {
@@ -11,6 +12,8 @@ export async function GET(request: Request) {
     if (!hasRole(admin.role, ["admin", "manager", "accountant"])) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
+    const featureDenied = await commercialFeatureGate(admin.restaurantId, 'advanced_analytics');
+    if (featureDenied) return featureDenied;
 
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
