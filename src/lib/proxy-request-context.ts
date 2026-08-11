@@ -18,7 +18,8 @@ const INTERNAL_CONTEXT_HEADERS = [
 /**
  * Build the headers forwarded from Next.js Proxy to route handlers.
  * Client-provided internal identity headers are removed first so only the
- * trusted proxy can assert authenticated request context.
+ * trusted proxy can assert authenticated request context. CI exercises this
+ * against the synthetic merge ref, including current SaaS subscription rules.
  */
 export function buildTrustedRequestHeaders(
   incoming: Headers,
