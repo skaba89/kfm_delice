@@ -1,32 +1,31 @@
 import { db, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
-import { authenticateCustomer, authenticateAdmin, hasRole } from "@/lib/auth";
+import { authenticateCustomer } from "@/lib/auth";
+import { resolveTenantFromRequest } from "@/lib/tenant";
 
-// GET: List all active rewards (public, no auth needed)
+// GET: List active rewards for the resolved restaurant only.
+// Client-supplied restaurantId query parameters are intentionally ignored:
+// tenant identity comes from the trusted slug/header/path resolver.
 export async function GET(request: Request) {
   try {
-    const sp = new URL(request.url).searchParams;
-    const restaurantId = sp.get("restaurantId");
-
-    const where: Record<string, unknown> = { active: true };
-    if (restaurantId) where.restaurantId = restaurantId;
+    const tenant = await resolveTenantFromRequest(request);
+    if (!tenant) {
+      return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
+    }
 
     const rewards = await db.loyaltyReward.findMany({
-      where,
+      where: { active: true, restaurantId: tenant.restaurantId },
       orderBy: { pointsCost: "asc" },
     });
 
-    // bigIntToNumber wraps BigInt fields (value) for JSON serialization.
-    // On SQLite these are already number (no-op); on PostgreSQL they are
-    // bigint and JSON.stringify would throw without this conversion.
     return NextResponse.json({ data: bigIntToNumber(rewards) });
   } catch (error) {
-    console.error(error);
+    console.error("[loyalty/rewards:GET]", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
 
-// POST: Redeem a reward (requires customer auth)
+// POST: Redeem a reward for the authenticated customer's restaurant.
 export async function POST(request: Request) {
   try {
     const customer = await authenticateCustomer(request);
@@ -35,39 +34,49 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { rewardId } = body;
-
+    const rewardId = typeof body?.rewardId === "string" ? body.rewardId.trim() : "";
     if (!rewardId) {
       return NextResponse.json({ error: "rewardId requis" }, { status: 400 });
     }
 
-    // Get the reward
-    const reward = await db.loyaltyReward.findUnique({ where: { id: rewardId } });
-    if (!reward || !reward.active) {
-      return NextResponse.json({ error: "Récompense introuvable ou inactive" }, { status: 404 });
-    }
-
-    // Check customer has enough points
-    const customerData = await db.customer.findUnique({ where: { id: customer.id } });
-    if (!customerData) {
-      return NextResponse.json({ error: "Client introuvable" }, { status: 404 });
-    }
-    if (customerData.loyaltyPoints < reward.pointsCost) {
-      return NextResponse.json(
-        { error: "Points insuffisants", currentPoints: customerData.loyaltyPoints, requiredPoints: reward.pointsCost },
-        { status: 400 }
-      );
-    }
-
-    // Deduct points and create history entry in a transaction
     const result = await db.$transaction(async (tx) => {
-      // Deduct points from customer
-      const updatedCustomer = await tx.customer.update({
-        where: { id: customer.id },
+      const reward = await tx.loyaltyReward.findFirst({
+        where: {
+          id: rewardId,
+          restaurantId: customer.restaurantId,
+          active: true,
+        },
+      });
+
+      if (!reward) {
+        return { kind: "not_found" as const };
+      }
+
+      // Compare-and-decrement in one SQL update. Two concurrent redemption
+      // requests cannot both spend the same points: once the first update
+      // commits, the second no longer satisfies loyaltyPoints >= pointsCost.
+      const spent = await tx.customer.updateMany({
+        where: {
+          id: customer.id,
+          restaurantId: customer.restaurantId,
+          status: "active",
+          loyaltyPoints: { gte: reward.pointsCost },
+        },
         data: { loyaltyPoints: { decrement: reward.pointsCost } },
       });
 
-      // Create history entry
+      if (spent.count !== 1) {
+        const current = await tx.customer.findFirst({
+          where: { id: customer.id, restaurantId: customer.restaurantId },
+          select: { loyaltyPoints: true },
+        });
+        return {
+          kind: "insufficient" as const,
+          currentPoints: current?.loyaltyPoints ?? 0,
+          requiredPoints: reward.pointsCost,
+        };
+      }
+
       const historyEntry = await tx.loyaltyPointsHistory.create({
         data: {
           customerId: customer.id,
@@ -78,24 +87,50 @@ export async function POST(request: Request) {
         },
       });
 
-      return { updatedCustomer, historyEntry };
+      const updatedCustomer = await tx.customer.findFirst({
+        where: { id: customer.id, restaurantId: customer.restaurantId },
+        select: { loyaltyPoints: true },
+      });
+      if (!updatedCustomer) {
+        throw new Error("Customer disappeared during loyalty redemption");
+      }
+
+      return {
+        kind: "success" as const,
+        reward,
+        historyEntry,
+        remainingPoints: updatedCustomer.loyaltyPoints,
+      };
     });
+
+    if (result.kind === "not_found") {
+      return NextResponse.json({ error: "Récompense introuvable ou inactive" }, { status: 404 });
+    }
+    if (result.kind === "insufficient") {
+      return NextResponse.json(
+        {
+          error: "Points insuffisants",
+          currentPoints: result.currentPoints,
+          requiredPoints: result.requiredPoints,
+        },
+        { status: 400 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
-      message: `Récompense "${reward.name}" échangée avec succès !`,
-      remainingPoints: result.updatedCustomer.loyaltyPoints,
+      message: `Récompense "${result.reward.name}" échangée avec succès !`,
+      remainingPoints: result.remainingPoints,
       historyEntry: bigIntToNumber(result.historyEntry),
       reward: {
-        id: reward.id,
-        name: reward.name,
-        category: reward.category,
-        // Number() wraps BigInt (value field) for JSON serialization
-        value: Number(reward.value),
+        id: result.reward.id,
+        name: result.reward.name,
+        category: result.reward.category,
+        value: Number(result.reward.value),
       },
     });
   } catch (error) {
-    console.error(error);
+    console.error("[loyalty/rewards:POST]", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
