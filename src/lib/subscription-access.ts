@@ -25,18 +25,37 @@ const ACTIVE_RESTAURANT_STATUSES = new Set(['active', 'trial']);
 const ACTIVE_ACCOUNT_STATUSES = new Set(['active', 'trial', 'over_quota']);
 const MAX_CONTRACT_GRACE_DAYS = 90;
 
-function parseDateOnlyEndOfDay(value: string | null | undefined): Date | null {
-  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const [year, month, day] = value.split('-').map(Number);
-  const parsed = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
-  if (
-    parsed.getUTCFullYear() !== year ||
-    parsed.getUTCMonth() + 1 !== month ||
-    parsed.getUTCDate() !== day
-  ) {
+/**
+ * Lifecycle dates exist in two historical shapes:
+ * - Account contract/trial dates are generally `YYYY-MM-DD` and remain valid
+ *   through the named UTC day.
+ * - Standalone restaurant registration stores a full ISO timestamp and should
+ *   expire at that exact instant.
+ * Invalid legacy strings remain non-blocking for backward compatibility.
+ */
+function parseLifecycleEnd(value: string | null | undefined): Date | null {
+  if (!value) return null;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split('-').map(Number);
+    const parsed = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
+    if (
+      parsed.getUTCFullYear() !== year ||
+      parsed.getUTCMonth() + 1 !== month ||
+      parsed.getUTCDate() !== day
+    ) {
+      return null;
+    }
+    return parsed;
+  }
+
+  // Require an explicit timezone on full timestamps so server-local timezone
+  // cannot silently alter commercial expiry semantics.
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(value)) {
     return null;
   }
-  return parsed;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 function normalizeGraceDays(value: number | string | null | undefined): number {
@@ -73,7 +92,7 @@ export function evaluateSubscriptionAccess(
   }
 
   const now = input.now ?? new Date();
-  const trialEnd = parseDateOnlyEndOfDay(input.trialEndsAt);
+  const trialEnd = parseLifecycleEnd(input.trialEndsAt);
 
   if (input.accountStatus === 'trial') {
     if (trialEnd && now.getTime() > trialEnd.getTime()) {
@@ -87,7 +106,7 @@ export function evaluateSubscriptionAccess(
 
   // Contract dates belong to the SaaS Account lifecycle. Legacy standalone
   // restaurants pass no contractEndDate and are governed only by trial status.
-  const contractEnd = parseDateOnlyEndOfDay(input.contractEndDate);
+  const contractEnd = parseLifecycleEnd(input.contractEndDate);
   if (contractEnd) {
     const graceDays = normalizeGraceDays(input.contractGraceDays);
     const effectiveEnd = new Date(contractEnd.getTime() + graceDays * 24 * 60 * 60 * 1000);
