@@ -76,12 +76,18 @@ if (STRIPE_SECRET_KEY && !STRIPE_WEBHOOK_SECRET) {
   violations.push('STRIPE_SECRET_KEY is set but STRIPE_WEBHOOK_SECRET is missing — webhook signature cannot be verified');
 }
 
-// The built-in WebSocket server is process-local and not tenant-safe across
-// multiple instances. Production policy always disables it.
 const REALTIME_MODE = (process.env.REALTIME_MODE || 'disabled').toLowerCase();
 if (REALTIME_MODE === 'local') {
   violations.push('REALTIME_MODE=local is forbidden in production; use disabled until a distributed tenant-scoped realtime adapter is configured');
 }
+
+const SCALE_MODE = (process.env.SCALE_MODE || 'single-instance').toLowerCase();
+const VALID_SCALE_MODES = ['single-instance', 'multi-instance', 'national'];
+if (!VALID_SCALE_MODES.includes(SCALE_MODE)) {
+  violations.push(`SCALE_MODE=${SCALE_MODE} is invalid; expected one of: ${VALID_SCALE_MODES.join(', ')}`);
+}
+const nationalScale = SCALE_MODE === 'national';
+const distributedScale = SCALE_MODE === 'multi-instance' || nationalScale;
 
 // Distributed rate limiting currently supports Upstash REST only. Do not count
 // REDIS_URL or KV_REST_API_URL as configured until a corresponding adapter is
@@ -94,10 +100,7 @@ const distributedRateLimitReady = hasUpstashUrl && hasUpstashToken;
 if (hasUpstashUrl !== hasUpstashToken) {
   violations.push('Upstash rate limiting is partially configured — both UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are required');
 }
-
-const SCALE_MODE = (process.env.SCALE_MODE || 'single-instance').toLowerCase();
-const requiresDistributedRateLimit = ['multi-instance', 'national', 'scale'].includes(SCALE_MODE);
-if (requiresDistributedRateLimit && !distributedRateLimitReady) {
+if (distributedScale && !distributedRateLimitReady) {
   violations.push(`SCALE_MODE=${SCALE_MODE} requires distributed rate limiting via Upstash REST URL + token`);
 } else if (!distributedRateLimitReady) {
   warnings.push('Distributed rate limiting is not configured — safe only for a single application instance');
@@ -105,14 +108,16 @@ if (requiresDistributedRateLimit && !distributedRateLimitReady) {
 
 const PUBLIC_APP_URL = process.env.PUBLIC_APP_URL || '';
 if (!PUBLIC_APP_URL) {
-  warnings.push('PUBLIC_APP_URL is not set');
+  if (nationalScale) violations.push('PUBLIC_APP_URL is required for national scale');
+  else warnings.push('PUBLIC_APP_URL is not set');
 } else if (!PUBLIC_APP_URL.startsWith('https://')) {
   violations.push(`PUBLIC_APP_URL must be HTTPS in production (got: ${PUBLIC_APP_URL.substring(0, 10)}...)`);
 }
 
 const SENTRY_DSN = process.env.SENTRY_DSN || '';
 if (!SENTRY_DSN) {
-  warnings.push('SENTRY_DSN is not set — error monitoring will be limited');
+  if (nationalScale) violations.push('SENTRY_DSN is required for national scale observability');
+  else warnings.push('SENTRY_DSN is not set — error monitoring will be limited');
 }
 
 if (warnings.length > 0) {
