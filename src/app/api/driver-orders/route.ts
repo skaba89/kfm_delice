@@ -1,6 +1,6 @@
 import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
-import { authenticateDriver } from "@/lib/auth";
+import { authenticateEntitledDriver } from "@/lib/driver-feature-auth";
 import { parsePagination, prismaSkip, prismaTake } from "@/lib/pagination";
 import { driverOrderPatchSchema } from "@/lib/validations";
 import { applyOrderPatchAtomically } from "@/lib/order-transition-service";
@@ -14,7 +14,7 @@ const OPEN_ASSIGNMENT_STATES = ["none", "rejected", "expired"];
 export async function GET(request: Request) {
   try {
     await dbReady;
-    const driverAuth = await authenticateDriver(request);
+    const driverAuth = await authenticateEntitledDriver(request);
     if (!driverAuth) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
     const { page, limit } = parsePagination(new URL(request.url).searchParams);
@@ -62,7 +62,7 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   try {
     await dbReady;
-    const driverAuth = await authenticateDriver(request);
+    const driverAuth = await authenticateEntitledDriver(request);
     if (!driverAuth) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
     const validation = driverOrderPatchSchema.safeParse(await request.json());
