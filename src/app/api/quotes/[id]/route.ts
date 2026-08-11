@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
+import { commercialFeatureGate } from "@/lib/commercial-feature-gate";
 import { generateQuotePDF } from "@/lib/pdf-quote";
 
 /**
@@ -12,33 +13,22 @@ export async function GET(
 ) {
   try {
     const admin = await authenticateAdmin(request);
-    if (!admin) {
-      return NextResponse.json({ error: "Non autorise" }, { status: 401 });
-    }
+    if (!admin) return NextResponse.json({ error: "Non autorise" }, { status: 401 });
     if (!hasRole(admin.role, ["admin", "manager", "accountant"])) {
       return NextResponse.json({ error: "Acces refuse" }, { status: 403 });
     }
+    const featureGate = await commercialFeatureGate(admin.restaurantId, 'quotes');
+    if (featureGate) return featureGate;
 
     const { id } = await params;
-    const quote = await db.quote.findUnique({ where: { id } });
-    if (!quote) {
-      return NextResponse.json({ error: "Devis non trouve" }, { status: 404 });
-    }
-
-    // ── Multi-tenant isolation ──────────────────────────────────
-    if (quote.restaurantId !== admin.restaurantId) {
-      return NextResponse.json({ error: "Acces refuse" }, { status: 403 });
-    }
+    const quote = await db.quote.findFirst({ where: { id, restaurantId: admin.restaurantId } });
+    if (!quote) return NextResponse.json({ error: "Devis non trouve" }, { status: 404 });
 
     const restaurant = await db.restaurant.findUnique({ where: { id: admin.restaurantId } });
-    if (!restaurant) {
-      return NextResponse.json({ error: "Restaurant non trouve" }, { status: 404 });
-    }
+    if (!restaurant) return NextResponse.json({ error: "Restaurant non trouve" }, { status: 404 });
 
-    // Check if this is a PDF request (via ?format=pdf)
     const url = new URL(request.url);
     if (url.searchParams.get("format") === "pdf") {
-      // Convert BigInt fields to Number and Json to string for PDF rendering.
       const pdfBuffer = await generateQuotePDF(
         {
           ...quote,
@@ -66,7 +56,6 @@ export async function GET(
       });
     }
 
-    // Default: return quote data as JSON
     return NextResponse.json(quote);
   } catch (error) {
     console.error(error);
