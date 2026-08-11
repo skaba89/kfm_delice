@@ -1,16 +1,16 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Building2, Plus, Search, Edit, Eye, RefreshCw, AlertCircle } from "lucide-react";
+import { Building2, Plus, Search, Edit, Eye, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
-import { formatPrice } from "@/lib/constants";
+import { getPlanQuotaDefaults, type CommercialPlan } from "@/lib/commercial-plan-catalog";
 
 interface Account {
   id: string;
@@ -28,13 +28,14 @@ interface Account {
   _count: { restaurants: number; admins: number };
 }
 
-const PLAN_LIMITS: Record<string, { maxRestaurants: number; maxSecondaryRestaurants: number; maxAdmins: number; maxUsers: number }> = {
-  free: { maxRestaurants: 1, maxSecondaryRestaurants: 0, maxAdmins: 2, maxUsers: 5 },
-  starter: { maxRestaurants: 2, maxSecondaryRestaurants: 1, maxAdmins: 5, maxUsers: 15 },
-  pro: { maxRestaurants: 5, maxSecondaryRestaurants: 4, maxAdmins: 15, maxUsers: 50 },
-  enterprise: { maxRestaurants: 20, maxSecondaryRestaurants: 19, maxAdmins: 50, maxUsers: 200 },
-  custom: { maxRestaurants: 10, maxSecondaryRestaurants: 5, maxAdmins: 10, maxUsers: 30 },
-};
+const PLATFORM_PLANS: CommercialPlan[] = ["free", "starter", "pro", "enterprise", "custom"];
+
+function quotaPreset(plan: string) {
+  const normalized = PLATFORM_PLANS.includes(plan as CommercialPlan)
+    ? plan as CommercialPlan
+    : "free";
+  return getPlanQuotaDefaults(normalized);
+}
 
 export function PlatformAccounts({ token }: { token: string }) {
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -54,7 +55,7 @@ export function PlatformAccounts({ token }: { token: string }) {
       });
       const data = await res.json();
       setAccounts(data.data || []);
-    } catch (err) {
+    } catch {
       toast.error("Erreur lors du chargement des comptes");
     } finally {
       setLoading(false);
@@ -93,7 +94,6 @@ export function PlatformAccounts({ token }: { token: string }) {
 
   return (
     <div className="space-y-6">
-      {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-48">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
@@ -123,11 +123,9 @@ export function PlatformAccounts({ token }: { token: string }) {
           </SelectTrigger>
           <SelectContent className="bg-gray-900 border-white/10">
             <SelectItem value="all">Tous plans</SelectItem>
-            <SelectItem value="free">Free</SelectItem>
-            <SelectItem value="starter">Starter</SelectItem>
-            <SelectItem value="pro">Pro</SelectItem>
-            <SelectItem value="enterprise">Enterprise</SelectItem>
-            <SelectItem value="custom">Custom</SelectItem>
+            {PLATFORM_PLANS.map((plan) => (
+              <SelectItem key={plan} value={plan} className="capitalize">{plan}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
         <Button
@@ -141,7 +139,6 @@ export function PlatformAccounts({ token }: { token: string }) {
         </Button>
       </div>
 
-      {/* Accounts Table */}
       <Card className="bg-gray-900 border-white/10">
         <CardContent className="p-0">
           {loading ? (
@@ -170,10 +167,7 @@ export function PlatformAccounts({ token }: { token: string }) {
                 </thead>
                 <tbody>
                   {filteredAccounts.map((account) => (
-                    <tr
-                      key={account.id}
-                      className="border-b border-white/5 hover:bg-white/5 transition-colors"
-                    >
+                    <tr key={account.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
                       <td className="p-4">
                         <p className="font-medium text-white">{account.name}</p>
                         <p className="text-xs text-gray-500">
@@ -206,20 +200,10 @@ export function PlatformAccounts({ token }: { token: string }) {
                       </td>
                       <td className="p-4">
                         <div className="flex items-center justify-end gap-1">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setViewingAccount(account)}
-                            className="text-gray-400 hover:text-white hover:bg-white/5"
-                          >
+                          <Button size="sm" variant="ghost" onClick={() => setViewingAccount(account)} className="text-gray-400 hover:text-white hover:bg-white/5">
                             <Eye className="w-4 h-4" />
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setEditingAccount(account)}
-                            className="text-gray-400 hover:text-white hover:bg-white/5"
-                          >
+                          <Button size="sm" variant="ghost" onClick={() => setEditingAccount(account)} className="text-gray-400 hover:text-white hover:bg-white/5">
                             <Edit className="w-4 h-4" />
                           </Button>
                         </div>
@@ -233,7 +217,6 @@ export function PlatformAccounts({ token }: { token: string }) {
         </CardContent>
       </Card>
 
-      {/* Create Account Dialog */}
       <CreateAccountDialog
         open={showCreate}
         onClose={() => setShowCreate(false)}
@@ -241,7 +224,6 @@ export function PlatformAccounts({ token }: { token: string }) {
         onCreated={fetchAccounts}
       />
 
-      {/* Edit Account Dialog */}
       {editingAccount && (
         <EditAccountDialog
           account={editingAccount}
@@ -252,7 +234,6 @@ export function PlatformAccounts({ token }: { token: string }) {
         />
       )}
 
-      {/* View Account Dialog */}
       {viewingAccount && (
         <ViewAccountDialog
           account={viewingAccount}
@@ -264,7 +245,6 @@ export function PlatformAccounts({ token }: { token: string }) {
   );
 }
 
-// ── Create Account Dialog ──────────────────────────────────────
 function CreateAccountDialog({
   open,
   onClose,
@@ -289,14 +269,12 @@ function CreateAccountDialog({
     e.preventDefault();
     setLoading(true);
     try {
-      const limits = PLAN_LIMITS[form.plan];
+      // Do not send catalog quotas as if they were negotiated overrides. The
+      // API applies the current catalog defaults for the selected plan.
       const res = await fetch("/api/platform/accounts", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          ...form,
-          ...limits,
-        }),
+        body: JSON.stringify(form),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -323,43 +301,21 @@ function CreateAccountDialog({
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <Label className="text-gray-300">Nom du compte *</Label>
-            <Input
-              required
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="Ex: Restaurant Le Baobab"
-              className="bg-gray-800 border-white/10 text-white mt-1"
-            />
+            <Input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ex: Restaurant Le Baobab" className="bg-gray-800 border-white/10 text-white mt-1" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label className="text-gray-300">Nom du propriétaire</Label>
-              <Input
-                value={form.ownerName}
-                onChange={(e) => setForm({ ...form, ownerName: e.target.value })}
-                placeholder="Nom complet"
-                className="bg-gray-800 border-white/10 text-white mt-1"
-              />
+              <Input value={form.ownerName} onChange={(e) => setForm({ ...form, ownerName: e.target.value })} placeholder="Nom complet" className="bg-gray-800 border-white/10 text-white mt-1" />
             </div>
             <div>
               <Label className="text-gray-300">Téléphone</Label>
-              <Input
-                value={form.ownerPhone}
-                onChange={(e) => setForm({ ...form, ownerPhone: e.target.value })}
-                placeholder="+224 ..."
-                className="bg-gray-800 border-white/10 text-white mt-1"
-              />
+              <Input value={form.ownerPhone} onChange={(e) => setForm({ ...form, ownerPhone: e.target.value })} placeholder="+224 ..." className="bg-gray-800 border-white/10 text-white mt-1" />
             </div>
           </div>
           <div>
             <Label className="text-gray-300">Email du propriétaire</Label>
-            <Input
-              type="email"
-              value={form.ownerEmail}
-              onChange={(e) => setForm({ ...form, ownerEmail: e.target.value })}
-              placeholder="proprietaire@email.com"
-              className="bg-gray-800 border-white/10 text-white mt-1"
-            />
+            <Input type="email" value={form.ownerEmail} onChange={(e) => setForm({ ...form, ownerEmail: e.target.value })} placeholder="proprietaire@email.com" className="bg-gray-800 border-white/10 text-white mt-1" />
           </div>
           <div>
             <Label className="text-gray-300">Plan</Label>
@@ -368,23 +324,20 @@ function CreateAccountDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="bg-gray-900 border-white/10">
-                {Object.entries(PLAN_LIMITS).map(([plan, limits]) => (
-                  <SelectItem key={plan} value={plan} className="capitalize">
-                    {plan} — {limits.maxRestaurants} rest. / {limits.maxAdmins} admins
-                  </SelectItem>
-                ))}
+                {PLATFORM_PLANS.map((plan) => {
+                  const limits = quotaPreset(plan);
+                  return (
+                    <SelectItem key={plan} value={plan} className="capitalize">
+                      {plan} — {limits.maxRestaurants} rest. / {limits.maxAdmins} admins
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
           </div>
           <div className="flex justify-end gap-2 pt-4">
-            <Button type="button" variant="ghost" onClick={onClose} className="text-gray-400">
-              Annuler
-            </Button>
-            <Button
-              type="submit"
-              disabled={loading}
-              className="bg-gradient-to-r from-orange-500 to-red-600 text-white"
-            >
+            <Button type="button" variant="ghost" onClick={onClose} className="text-gray-400">Annuler</Button>
+            <Button type="submit" disabled={loading} className="bg-gradient-to-r from-orange-500 to-red-600 text-white">
               {loading ? <RefreshCw className="w-4 h-4 animate-spin mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
               Créer le compte
             </Button>
@@ -395,7 +348,6 @@ function CreateAccountDialog({
   );
 }
 
-// ── Edit Account Dialog (Quotas) ───────────────────────────────
 function EditAccountDialog({
   account,
   open,
@@ -444,17 +396,15 @@ function EditAccountDialog({
   };
 
   const applyPreset = (plan: string) => {
-    const limits = PLAN_LIMITS[plan];
-    if (limits) {
-      setForm({
-        ...form,
-        plan,
-        maxRestaurants: limits.maxRestaurants,
-        maxSecondaryRestaurants: limits.maxSecondaryRestaurants,
-        maxAdmins: limits.maxAdmins,
-        maxUsers: limits.maxUsers,
-      });
-    }
+    const limits = quotaPreset(plan);
+    setForm((current) => ({
+      ...current,
+      plan,
+      maxRestaurants: limits.maxRestaurants,
+      maxSecondaryRestaurants: limits.maxSecondaryRestaurants,
+      maxAdmins: limits.maxAdmins,
+      maxUsers: limits.maxUsers,
+    }));
   };
 
   return (
@@ -467,21 +417,13 @@ function EditAccountDialog({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label className="text-gray-300">Plan</Label>
-              <Select
-                value={form.plan}
-                onValueChange={(v) => {
-                  setForm({ ...form, plan: v });
-                  applyPreset(v);
-                }}
-              >
+              <Select value={form.plan} onValueChange={applyPreset}>
                 <SelectTrigger className="bg-gray-800 border-white/10 text-white mt-1">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="bg-gray-900 border-white/10">
-                  {Object.keys(PLAN_LIMITS).map((plan) => (
-                    <SelectItem key={plan} value={plan} className="capitalize">
-                      {plan}
-                    </SelectItem>
+                  {PLATFORM_PLANS.map((plan) => (
+                    <SelectItem key={plan} value={plan} className="capitalize">{plan}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -489,9 +431,7 @@ function EditAccountDialog({
             <div>
               <Label className="text-gray-300">Statut</Label>
               <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
-                <SelectTrigger className="bg-gray-800 border-white/10 text-white mt-1">
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger className="bg-gray-800 border-white/10 text-white mt-1"><SelectValue /></SelectTrigger>
                 <SelectContent className="bg-gray-900 border-white/10">
                   <SelectItem value="active">Actif</SelectItem>
                   <SelectItem value="trial">Essai</SelectItem>
@@ -505,54 +445,24 @@ function EditAccountDialog({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label className="text-gray-300">Max restaurants</Label>
-              <Input
-                type="number"
-                min={1}
-                value={form.maxRestaurants}
-                onChange={(e) => setForm({ ...form, maxRestaurants: parseInt(e.target.value) || 1 })}
-                className="bg-gray-800 border-white/10 text-white mt-1"
-              />
+              <Input type="number" min={1} value={form.maxRestaurants} onChange={(e) => setForm({ ...form, maxRestaurants: parseInt(e.target.value) || 1 })} className="bg-gray-800 border-white/10 text-white mt-1" />
             </div>
             <div>
               <Label className="text-gray-300">Max restaurants secondaires</Label>
-              <Input
-                type="number"
-                min={0}
-                value={form.maxSecondaryRestaurants}
-                onChange={(e) => setForm({ ...form, maxSecondaryRestaurants: parseInt(e.target.value) || 0 })}
-                className="bg-gray-800 border-white/10 text-white mt-1"
-              />
+              <Input type="number" min={0} value={form.maxSecondaryRestaurants} onChange={(e) => setForm({ ...form, maxSecondaryRestaurants: parseInt(e.target.value) || 0 })} className="bg-gray-800 border-white/10 text-white mt-1" />
             </div>
             <div>
               <Label className="text-gray-300">Max admins</Label>
-              <Input
-                type="number"
-                min={1}
-                value={form.maxAdmins}
-                onChange={(e) => setForm({ ...form, maxAdmins: parseInt(e.target.value) || 1 })}
-                className="bg-gray-800 border-white/10 text-white mt-1"
-              />
+              <Input type="number" min={1} value={form.maxAdmins} onChange={(e) => setForm({ ...form, maxAdmins: parseInt(e.target.value) || 1 })} className="bg-gray-800 border-white/10 text-white mt-1" />
             </div>
             <div>
               <Label className="text-gray-300">Max utilisateurs</Label>
-              <Input
-                type="number"
-                min={1}
-                value={form.maxUsers}
-                onChange={(e) => setForm({ ...form, maxUsers: parseInt(e.target.value) || 1 })}
-                className="bg-gray-800 border-white/10 text-white mt-1"
-              />
+              <Input type="number" min={1} value={form.maxUsers} onChange={(e) => setForm({ ...form, maxUsers: parseInt(e.target.value) || 1 })} className="bg-gray-800 border-white/10 text-white mt-1" />
             </div>
           </div>
           <div className="flex justify-end gap-2 pt-4">
-            <Button type="button" variant="ghost" onClick={onClose} className="text-gray-400">
-              Annuler
-            </Button>
-            <Button
-              type="submit"
-              disabled={loading}
-              className="bg-gradient-to-r from-orange-500 to-red-600 text-white"
-            >
+            <Button type="button" variant="ghost" onClick={onClose} className="text-gray-400">Annuler</Button>
+            <Button type="submit" disabled={loading} className="bg-gradient-to-r from-orange-500 to-red-600 text-white">
               {loading ? <RefreshCw className="w-4 h-4 animate-spin mr-2" /> : <Edit className="w-4 h-4 mr-2" />}
               Enregistrer
             </Button>
@@ -563,7 +473,6 @@ function EditAccountDialog({
   );
 }
 
-// ── View Account Dialog ────────────────────────────────────────
 function ViewAccountDialog({
   account,
   token,
@@ -587,9 +496,7 @@ function ViewAccountDialog({
   return (
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="bg-gray-900 border-white/10 text-white max-w-2xl">
-        <DialogHeader>
-          <DialogTitle className="text-white">{account.name}</DialogTitle>
-        </DialogHeader>
+        <DialogHeader><DialogTitle className="text-white">{account.name}</DialogTitle></DialogHeader>
         <div className="space-y-4 max-h-[60vh] overflow-y-auto">
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -597,38 +504,16 @@ function ViewAccountDialog({
               <p className="text-sm text-white">{account.ownerName || "—"}</p>
               <p className="text-xs text-gray-400">{account.ownerEmail || "—"}</p>
             </div>
-            <div>
-              <p className="text-xs text-gray-500 uppercase">Téléphone</p>
-              <p className="text-sm text-white">{account.ownerPhone || "—"}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 uppercase">Plan</p>
-              <Badge variant="outline" className="capitalize mt-1 border-orange-500/30 text-orange-400">
-                {account.plan}
-              </Badge>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 uppercase">Statut</p>
-              <Badge variant="outline" className="capitalize mt-1 border-green-500/30 text-green-400">
-                {account.status}
-              </Badge>
-            </div>
+            <div><p className="text-xs text-gray-500 uppercase">Téléphone</p><p className="text-sm text-white">{account.ownerPhone || "—"}</p></div>
+            <div><p className="text-xs text-gray-500 uppercase">Plan</p><Badge variant="outline" className="capitalize mt-1 border-orange-500/30 text-orange-400">{account.plan}</Badge></div>
+            <div><p className="text-xs text-gray-500 uppercase">Statut</p><Badge variant="outline" className="capitalize mt-1 border-green-500/30 text-green-400">{account.status}</Badge></div>
           </div>
           <div>
             <p className="text-xs text-gray-500 uppercase mb-2">Quotas</p>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              <div className="p-3 bg-gray-800/50 rounded-lg">
-                <p className="text-xs text-gray-500">Restaurants</p>
-                <p className="text-lg font-bold text-white">{account._count?.restaurants || 0} / {account.maxRestaurants}</p>
-              </div>
-              <div className="p-3 bg-gray-800/50 rounded-lg">
-                <p className="text-xs text-gray-500">Admins</p>
-                <p className="text-lg font-bold text-white">{account._count?.admins || 0} / {account.maxAdmins}</p>
-              </div>
-              <div className="p-3 bg-gray-800/50 rounded-lg">
-                <p className="text-xs text-gray-500">Secondaires</p>
-                <p className="text-lg font-bold text-white">{account.maxSecondaryRestaurants}</p>
-              </div>
+              <div className="p-3 bg-gray-800/50 rounded-lg"><p className="text-xs text-gray-500">Restaurants</p><p className="text-lg font-bold text-white">{account._count?.restaurants || 0} / {account.maxRestaurants}</p></div>
+              <div className="p-3 bg-gray-800/50 rounded-lg"><p className="text-xs text-gray-500">Admins</p><p className="text-lg font-bold text-white">{account._count?.admins || 0} / {account.maxAdmins}</p></div>
+              <div className="p-3 bg-gray-800/50 rounded-lg"><p className="text-xs text-gray-500">Secondaires</p><p className="text-lg font-bold text-white">{account.maxSecondaryRestaurants}</p></div>
             </div>
           </div>
           {details?.restaurants && details.restaurants.length > 0 && (
@@ -637,13 +522,8 @@ function ViewAccountDialog({
               <div className="space-y-2">
                 {details.restaurants.map((r: any) => (
                   <div key={r.id} className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
-                    <div>
-                      <p className="text-sm text-white">{r.name}</p>
-                      <p className="text-xs text-gray-500">{r.slug} · {r.type}</p>
-                    </div>
-                    <Badge variant="outline" className="border-white/10 text-gray-400">
-                      {r.status}
-                    </Badge>
+                    <div><p className="text-sm text-white">{r.name}</p><p className="text-xs text-gray-500">{r.slug} · {r.type}</p></div>
+                    <Badge variant="outline" className="border-white/10 text-gray-400">{r.status}</Badge>
                   </div>
                 ))}
               </div>

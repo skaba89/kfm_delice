@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { UtensilsCrossed, Search, RefreshCw, Ban, CheckCircle2, Eye, Plus, Building2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 
 interface RestaurantData {
@@ -18,19 +18,45 @@ interface RestaurantData {
   tagline: string;
   status: string;
   plan: string;
+  storedPlan?: string;
+  effectivePlan?: string;
+  planSource?: "account" | "restaurant";
   type: string;
   phone: string;
   email: string;
   address: string;
   createdAt: string;
-  accountId: string;
+  accountId: string | null;
+  account?: { id: string; name: string; plan: string; status: string } | null;
   config: { primaryColor: string; logo: string } | null;
   _count: { orders: number; customers: number; admins: number; menuItems: number };
 }
 
+interface RestaurantStats {
+  totalRestaurants: number;
+  activeRestaurants: number;
+  trialRestaurants: number;
+  totalRevenue: number;
+  estimatedMonthlyCatalogValue?: number;
+  unpricedCustomSubscriptions?: number;
+  legacyStandaloneRestaurants?: number;
+}
+
+const EMPTY_STATS: RestaurantStats = {
+  totalRestaurants: 0,
+  activeRestaurants: 0,
+  trialRestaurants: 0,
+  totalRevenue: 0,
+  estimatedMonthlyCatalogValue: 0,
+  unpricedCustomSubscriptions: 0,
+  legacyStandaloneRestaurants: 0,
+};
+
+const PLAN_OPTIONS = ["free", "starter", "pro", "enterprise", "custom"] as const;
+
 export function PlatformRestaurants({ token }: { token: string }) {
   const [restaurants, setRestaurants] = useState<RestaurantData[]>([]);
-  const [stats, setStats] = useState({ totalRestaurants: 0, activeRestaurants: 0, trialRestaurants: 0, totalRevenue: 0 });
+  const [stats, setStats] = useState<RestaurantStats>(EMPTY_STATS);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -109,7 +135,7 @@ export function PlatformRestaurants({ token }: { token: string }) {
       });
       const data = await res.json();
       setRestaurants(data.data || []);
-      setStats(data.stats || { totalRestaurants: 0, activeRestaurants: 0, trialRestaurants: 0, totalRevenue: 0 });
+      setStats(data.stats || EMPTY_STATS);
     } catch {
       toast.error("Erreur lors du chargement des restaurants");
     } finally {
@@ -122,12 +148,13 @@ export function PlatformRestaurants({ token }: { token: string }) {
   }, [fetchRestaurants]);
 
   const filteredRestaurants = restaurants.filter((r) => {
+    const effectivePlan = r.effectivePlan || r.plan;
     const matchSearch =
       !search ||
       r.name.toLowerCase().includes(search.toLowerCase()) ||
       r.slug.toLowerCase().includes(search.toLowerCase());
     const matchStatus = statusFilter === "all" || r.status === statusFilter;
-    const matchPlan = planFilter === "all" || r.plan === planFilter;
+    const matchPlan = planFilter === "all" || effectivePlan === planFilter;
     return matchSearch && matchStatus && matchPlan;
   });
 
@@ -154,6 +181,11 @@ export function PlatformRestaurants({ token }: { token: string }) {
   };
 
   const handlePlanChange = async (restaurant: RestaurantData, newPlan: string) => {
+    if (restaurant.accountId || restaurant.planSource === "account") {
+      toast.info("Le plan est piloté par le compte SaaS. Modifiez-le depuis l’onglet Comptes.");
+      return;
+    }
+
     setUpdating(restaurant.id);
     try {
       const res = await fetch("/api/platform/restaurants", {
@@ -166,7 +198,7 @@ export function PlatformRestaurants({ token }: { token: string }) {
         toast.error(data.error || "Erreur");
         return;
       }
-      toast.success(`Plan changé vers ${newPlan}`);
+      toast.success(`Plan legacy changé vers ${newPlan}`);
       fetchRestaurants();
     } catch {
       toast.error("Erreur de connexion");
@@ -187,11 +219,13 @@ export function PlatformRestaurants({ token }: { token: string }) {
     starter: "border-blue-500/30 text-blue-400",
     pro: "border-orange-500/30 text-orange-400",
     enterprise: "border-purple-500/30 text-purple-400",
+    custom: "border-green-500/30 text-green-400",
   };
+
+  const catalogValue = stats.estimatedMonthlyCatalogValue ?? stats.totalRevenue ?? 0;
 
   return (
     <div className="space-y-6">
-      {/* Stats bar */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Card className="bg-gray-900 border-white/10">
           <CardContent className="p-4">
@@ -213,13 +247,17 @@ export function PlatformRestaurants({ token }: { token: string }) {
         </Card>
         <Card className="bg-gray-900 border-white/10">
           <CardContent className="p-4">
-            <p className="text-2xl font-bold text-orange-400">{stats.totalRevenue.toLocaleString("fr-FR")} GNF</p>
-            <p className="text-xs text-gray-500">Revenus estimés/mois</p>
+            <p className="text-2xl font-bold text-orange-400">{catalogValue.toLocaleString("fr-FR")} GNF</p>
+            <p className="text-xs text-gray-500">Valeur catalogue active/mois</p>
+            {(stats.unpricedCustomSubscriptions || 0) > 0 && (
+              <p className="text-[11px] text-amber-400 mt-1">
+                + {stats.unpricedCustomSubscriptions} contrat(s) custom non chiffré(s)
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>
 
-      {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-48">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
@@ -248,10 +286,9 @@ export function PlatformRestaurants({ token }: { token: string }) {
           </SelectTrigger>
           <SelectContent className="bg-gray-900 border-white/10">
             <SelectItem value="all">Tous plans</SelectItem>
-            <SelectItem value="free">Free</SelectItem>
-            <SelectItem value="starter">Starter</SelectItem>
-            <SelectItem value="pro">Pro</SelectItem>
-            <SelectItem value="enterprise">Enterprise</SelectItem>
+            {PLAN_OPTIONS.map((plan) => (
+              <SelectItem key={plan} value={plan} className="capitalize">{plan}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
         <Button
@@ -265,7 +302,6 @@ export function PlatformRestaurants({ token }: { token: string }) {
         </Button>
       </div>
 
-      {/* Restaurants Table */}
       <Card className="bg-gray-900 border-white/10">
         <CardContent className="p-0">
           {loading ? (
@@ -293,95 +329,84 @@ export function PlatformRestaurants({ token }: { token: string }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredRestaurants.map((r) => (
-                    <tr key={r.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
-                      <td className="p-4">
-                        <div className="flex items-center gap-2">
-                          <div
-                            className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0"
-                            style={{ backgroundColor: r.config?.primaryColor || "#ea580c" + "30", color: r.config?.primaryColor || "#ea580c" }}
-                          >
-                            {r.name?.[0]?.toUpperCase() || "R"}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="font-medium text-white truncate">{r.name || "Sans nom"}</p>
-                            <p className="text-xs text-gray-500">{r.slug}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="p-4">
-                        <Badge variant="outline" className={r.type === "principal" ? "border-orange-500/30 text-orange-400" : "border-blue-500/30 text-blue-400"}>
-                          {r.type}
-                        </Badge>
-                      </td>
-                      <td className="p-4">
-                        <Select
-                          value={r.plan}
-                          onValueChange={(v) => handlePlanChange(r, v)}
-                          disabled={updating === r.id}
-                        >
-                          <SelectTrigger className="w-28 h-8 bg-gray-800 border-white/10 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent className="bg-gray-900 border-white/10">
-                            <SelectItem value="free">Free</SelectItem>
-                            <SelectItem value="starter">Starter</SelectItem>
-                            <SelectItem value="pro">Pro</SelectItem>
-                            <SelectItem value="enterprise">Enterprise</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </td>
-                      <td className="p-4">
-                        <Badge variant="outline" className={`capitalize ${statusColors[r.status] || statusColors.active}`}>
-                          {r.status}
-                        </Badge>
-                      </td>
-                      <td className="p-4 text-center text-sm text-gray-300">{r._count?.orders || 0}</td>
-                      <td className="p-4 text-center text-sm text-gray-300">{r._count?.customers || 0}</td>
-                      <td className="p-4">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setViewing(r)}
-                            className="text-gray-400 hover:text-white hover:bg-white/5"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </Button>
-                          {r.status === "active" ? (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleStatusChange(r, "suspended")}
-                              disabled={updating === r.id}
-                              className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                  {filteredRestaurants.map((r) => {
+                    const effectivePlan = r.effectivePlan || r.plan;
+                    const accountManagedPlan = r.planSource === "account" || Boolean(r.accountId);
+                    return (
+                      <tr key={r.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                        <td className="p-4">
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0"
+                              style={{ backgroundColor: r.config?.primaryColor ? `${r.config.primaryColor}30` : "#ea580c30", color: r.config?.primaryColor || "#ea580c" }}
                             >
-                              <Ban className="w-4 h-4" />
-                            </Button>
+                              {r.name?.[0]?.toUpperCase() || "R"}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-medium text-white truncate">{r.name || "Sans nom"}</p>
+                              <p className="text-xs text-gray-500">{r.slug}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <Badge variant="outline" className={r.type === "principal" ? "border-orange-500/30 text-orange-400" : "border-blue-500/30 text-blue-400"}>
+                            {r.type}
+                          </Badge>
+                        </td>
+                        <td className="p-4">
+                          {accountManagedPlan ? (
+                            <div className="flex flex-col items-start gap-1">
+                              <Badge variant="outline" className={`capitalize ${planColors[effectivePlan] || planColors.free}`}>
+                                {effectivePlan}
+                              </Badge>
+                              <span className="text-[10px] text-gray-500">via compte SaaS</span>
+                            </div>
                           ) : (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleStatusChange(r, "active")}
+                            <Select
+                              value={effectivePlan}
+                              onValueChange={(v) => handlePlanChange(r, v)}
                               disabled={updating === r.id}
-                              className="text-green-400 hover:text-green-300 hover:bg-green-500/10"
                             >
-                              <CheckCircle2 className="w-4 h-4" />
-                            </Button>
+                              <SelectTrigger className="w-28 h-8 bg-gray-800 border-white/10 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent className="bg-gray-900 border-white/10">
+                                {PLAN_OPTIONS.filter((plan) => plan !== "custom").map((plan) => (
+                                  <SelectItem key={plan} value={plan} className="capitalize">{plan}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           )}
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setDeleteTarget(r)}
-                            className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
-                            title="Supprimer"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="p-4">
+                          <Badge variant="outline" className={`capitalize ${statusColors[r.status] || statusColors.active}`}>
+                            {r.status}
+                          </Badge>
+                        </td>
+                        <td className="p-4 text-center text-sm text-gray-300">{r._count?.orders || 0}</td>
+                        <td className="p-4 text-center text-sm text-gray-300">{r._count?.customers || 0}</td>
+                        <td className="p-4">
+                          <div className="flex items-center justify-end gap-1">
+                            <Button size="sm" variant="ghost" onClick={() => setViewing(r)} className="text-gray-400 hover:text-white hover:bg-white/5">
+                              <Eye className="w-4 h-4" />
+                            </Button>
+                            {r.status === "active" ? (
+                              <Button size="sm" variant="ghost" onClick={() => handleStatusChange(r, "suspended")} disabled={updating === r.id} className="text-red-400 hover:text-red-300 hover:bg-red-500/10">
+                                <Ban className="w-4 h-4" />
+                              </Button>
+                            ) : (
+                              <Button size="sm" variant="ghost" onClick={() => handleStatusChange(r, "active")} disabled={updating === r.id} className="text-green-400 hover:text-green-300 hover:bg-green-500/10">
+                                <CheckCircle2 className="w-4 h-4" />
+                              </Button>
+                            )}
+                            <Button size="sm" variant="ghost" onClick={() => setDeleteTarget(r)} className="text-red-400 hover:text-red-300 hover:bg-red-500/10" title="Supprimer">
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -389,7 +414,6 @@ export function PlatformRestaurants({ token }: { token: string }) {
         </CardContent>
       </Card>
 
-      {/* View Restaurant Dialog */}
       {viewing && (
         <Dialog open onOpenChange={() => setViewing(null)}>
           <DialogContent className="bg-gray-900 border-white/10 text-white max-w-lg">
@@ -398,51 +422,25 @@ export function PlatformRestaurants({ token }: { token: string }) {
             </DialogHeader>
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-xs text-gray-500 uppercase">Slug</p>
-                  <p className="text-sm text-white">{viewing.slug}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 uppercase">Type</p>
-                  <p className="text-sm text-white capitalize">{viewing.type}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 uppercase">Téléphone</p>
-                  <p className="text-sm text-white">{viewing.phone || "—"}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 uppercase">Email</p>
-                  <p className="text-sm text-white">{viewing.email || "—"}</p>
-                </div>
-                <div className="col-span-2">
-                  <p className="text-xs text-gray-500 uppercase">Adresse</p>
-                  <p className="text-sm text-white">{viewing.address || "—"}</p>
-                </div>
+                <div><p className="text-xs text-gray-500 uppercase">Slug</p><p className="text-sm text-white">{viewing.slug}</p></div>
+                <div><p className="text-xs text-gray-500 uppercase">Type</p><p className="text-sm text-white capitalize">{viewing.type}</p></div>
+                <div><p className="text-xs text-gray-500 uppercase">Plan effectif</p><p className="text-sm text-white capitalize">{viewing.effectivePlan || viewing.plan} {viewing.planSource === "account" ? "· via compte" : "· legacy"}</p></div>
+                <div><p className="text-xs text-gray-500 uppercase">Statut</p><p className="text-sm text-white capitalize">{viewing.status}</p></div>
+                <div><p className="text-xs text-gray-500 uppercase">Téléphone</p><p className="text-sm text-white">{viewing.phone || "—"}</p></div>
+                <div><p className="text-xs text-gray-500 uppercase">Email</p><p className="text-sm text-white">{viewing.email || "—"}</p></div>
+                <div className="col-span-2"><p className="text-xs text-gray-500 uppercase">Adresse</p><p className="text-sm text-white">{viewing.address || "—"}</p></div>
               </div>
               <div className="grid grid-cols-4 gap-3 pt-2">
-                <div className="p-2 bg-gray-800/50 rounded-lg text-center">
-                  <p className="text-lg font-bold text-white">{viewing._count?.orders || 0}</p>
-                  <p className="text-xs text-gray-500">Commandes</p>
-                </div>
-                <div className="p-2 bg-gray-800/50 rounded-lg text-center">
-                  <p className="text-lg font-bold text-white">{viewing._count?.customers || 0}</p>
-                  <p className="text-xs text-gray-500">Clients</p>
-                </div>
-                <div className="p-2 bg-gray-800/50 rounded-lg text-center">
-                  <p className="text-lg font-bold text-white">{viewing._count?.admins || 0}</p>
-                  <p className="text-xs text-gray-500">Admins</p>
-                </div>
-                <div className="p-2 bg-gray-800/50 rounded-lg text-center">
-                  <p className="text-lg font-bold text-white">{viewing._count?.menuItems || 0}</p>
-                  <p className="text-xs text-gray-500">Plats</p>
-                </div>
+                <div className="p-2 bg-gray-800/50 rounded-lg text-center"><p className="text-lg font-bold text-white">{viewing._count?.orders || 0}</p><p className="text-xs text-gray-500">Commandes</p></div>
+                <div className="p-2 bg-gray-800/50 rounded-lg text-center"><p className="text-lg font-bold text-white">{viewing._count?.customers || 0}</p><p className="text-xs text-gray-500">Clients</p></div>
+                <div className="p-2 bg-gray-800/50 rounded-lg text-center"><p className="text-lg font-bold text-white">{viewing._count?.admins || 0}</p><p className="text-xs text-gray-500">Admins</p></div>
+                <div className="p-2 bg-gray-800/50 rounded-lg text-center"><p className="text-lg font-bold text-white">{viewing._count?.menuItems || 0}</p><p className="text-xs text-gray-500">Plats</p></div>
               </div>
             </div>
           </DialogContent>
         </Dialog>
       )}
 
-      {/* Create Restaurant Dialog */}
       {showCreate && (
         <Dialog open onOpenChange={() => setShowCreate(false)}>
           <DialogContent className="bg-gray-900 border-white/10 text-white max-w-lg max-h-[85vh] overflow-y-auto">
@@ -453,9 +451,7 @@ export function PlatformRestaurants({ token }: { token: string }) {
               </DialogTitle>
             </DialogHeader>
             <form onSubmit={handleCreateRestaurant} className="space-y-4">
-              <div className="p-3 bg-orange-500/10 border border-orange-500/30 rounded-lg">
-                <p className="text-xs text-orange-400 font-medium">Informations Restaurant</p>
-              </div>
+              <div className="p-3 bg-orange-500/10 border border-orange-500/30 rounded-lg"><p className="text-xs text-orange-400 font-medium">Informations Restaurant</p></div>
               <div>
                 <Label className="text-gray-300">Nom du restaurant *</Label>
                 <Input required value={createForm.restaurantName} onChange={e => setCreateForm({ ...createForm, restaurantName: e.target.value })} placeholder="Ex: Le Baobab" className="bg-gray-800 border-white/10 text-white mt-1" />
@@ -466,51 +462,30 @@ export function PlatformRestaurants({ token }: { token: string }) {
                   <Input value={createForm.slug} onChange={e => setCreateForm({ ...createForm, slug: e.target.value })} placeholder="le-baobab" className="bg-gray-800 border-white/10 text-white mt-1" />
                 </div>
                 <div>
-                  <Label className="text-gray-300">Plan</Label>
+                  <Label className="text-gray-300">Plan du nouveau compte</Label>
                   <Select value={createForm.plan} onValueChange={v => setCreateForm({ ...createForm, plan: v })}>
-                    <SelectTrigger className="bg-gray-800 border-white/10 text-white mt-1">
-                      <SelectValue />
-                    </SelectTrigger>
+                    <SelectTrigger className="bg-gray-800 border-white/10 text-white mt-1"><SelectValue /></SelectTrigger>
                     <SelectContent className="bg-gray-900 border-white/10">
-                      <SelectItem value="free">Free</SelectItem>
-                      <SelectItem value="starter">Starter</SelectItem>
-                      <SelectItem value="pro">Pro</SelectItem>
-                      <SelectItem value="enterprise">Enterprise</SelectItem>
+                      {PLAN_OPTIONS.map((plan) => (
+                        <SelectItem key={plan} value={plan} className="capitalize">{plan}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-gray-300">Téléphone</Label>
-                  <Input value={createForm.phone} onChange={e => setCreateForm({ ...createForm, phone: e.target.value })} placeholder="+224 ..." className="bg-gray-800 border-white/10 text-white mt-1" />
-                </div>
-                <div>
-                  <Label className="text-gray-300">Email</Label>
-                  <Input type="email" value={createForm.email} onChange={e => setCreateForm({ ...createForm, email: e.target.value })} placeholder="contact@..." className="bg-gray-800 border-white/10 text-white mt-1" />
-                </div>
+                <div><Label className="text-gray-300">Téléphone</Label><Input value={createForm.phone} onChange={e => setCreateForm({ ...createForm, phone: e.target.value })} placeholder="+224 ..." className="bg-gray-800 border-white/10 text-white mt-1" /></div>
+                <div><Label className="text-gray-300">Email</Label><Input type="email" value={createForm.email} onChange={e => setCreateForm({ ...createForm, email: e.target.value })} placeholder="contact@..." className="bg-gray-800 border-white/10 text-white mt-1" /></div>
               </div>
-              <div>
-                <Label className="text-gray-300">Adresse</Label>
-                <Input value={createForm.address} onChange={e => setCreateForm({ ...createForm, address: e.target.value })} placeholder="Conakry, Guinée" className="bg-gray-800 border-white/10 text-white mt-1" />
-              </div>
+              <div><Label className="text-gray-300">Adresse</Label><Input value={createForm.address} onChange={e => setCreateForm({ ...createForm, address: e.target.value })} placeholder="Conakry, Guinée" className="bg-gray-800 border-white/10 text-white mt-1" /></div>
 
               <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
                 <p className="text-xs text-blue-400 font-medium">Administrateur du restaurant</p>
                 <p className="text-xs text-gray-400 mt-1">Cet utilisateur pourra se connecter au dashboard et créer d'autres utilisateurs (managers, staff, caissiers...)</p>
               </div>
-              <div>
-                <Label className="text-gray-300">Nom de l'admin *</Label>
-                <Input required value={createForm.adminName} onChange={e => setCreateForm({ ...createForm, adminName: e.target.value })} placeholder="Nom complet" className="bg-gray-800 border-white/10 text-white mt-1" />
-              </div>
-              <div>
-                <Label className="text-gray-300">Email admin *</Label>
-                <Input required type="email" value={createForm.adminEmail} onChange={e => setCreateForm({ ...createForm, adminEmail: e.target.value })} placeholder="admin@restaurant.com" className="bg-gray-800 border-white/10 text-white mt-1" />
-              </div>
-              <div>
-                <Label className="text-gray-300">Mot de passe admin * (min 6 caractères)</Label>
-                <Input required type="password" minLength={6} value={createForm.adminPassword} onChange={e => setCreateForm({ ...createForm, adminPassword: e.target.value })} placeholder="••••••••" className="bg-gray-800 border-white/10 text-white mt-1" />
-              </div>
+              <div><Label className="text-gray-300">Nom de l'admin *</Label><Input required value={createForm.adminName} onChange={e => setCreateForm({ ...createForm, adminName: e.target.value })} placeholder="Nom complet" className="bg-gray-800 border-white/10 text-white mt-1" /></div>
+              <div><Label className="text-gray-300">Email admin *</Label><Input required type="email" value={createForm.adminEmail} onChange={e => setCreateForm({ ...createForm, adminEmail: e.target.value })} placeholder="admin@restaurant.com" className="bg-gray-800 border-white/10 text-white mt-1" /></div>
+              <div><Label className="text-gray-300">Mot de passe admin * (min 6 caractères)</Label><Input required type="password" minLength={6} value={createForm.adminPassword} onChange={e => setCreateForm({ ...createForm, adminPassword: e.target.value })} placeholder="••••••••" className="bg-gray-800 border-white/10 text-white mt-1" /></div>
 
               <div className="flex justify-end gap-2 pt-4">
                 <Button type="button" variant="ghost" onClick={() => setShowCreate(false)} className="text-gray-400">Annuler</Button>
@@ -524,33 +499,18 @@ export function PlatformRestaurants({ token }: { token: string }) {
         </Dialog>
       )}
 
-      {/* Delete Confirmation Dialog */}
       {deleteTarget && (
         <Dialog open onOpenChange={() => setDeleteTarget(null)}>
           <DialogContent className="bg-gray-900 border-white/10 text-white max-w-sm">
             <DialogHeader>
-              <DialogTitle className="text-white flex items-center gap-2">
-                <Trash2 className="w-5 h-5 text-red-500" />
-                Supprimer le restaurant
-              </DialogTitle>
+              <DialogTitle className="text-white flex items-center gap-2"><Trash2 className="w-5 h-5 text-red-500" />Supprimer le restaurant</DialogTitle>
             </DialogHeader>
             <div className="space-y-3">
-              <p className="text-sm text-gray-300">
-                Êtes-vous sûr de vouloir supprimer <strong className="text-white">{deleteTarget.name}</strong> ?
-              </p>
-              <p className="text-xs text-red-400">
-                ⚠️ Toutes les données seront supprimées : commandes, clients, menu, réservations, factures, personnel.
-                Cette action est irréversible.
-              </p>
+              <p className="text-sm text-gray-300">Êtes-vous sûr de vouloir supprimer <strong className="text-white">{deleteTarget.name}</strong> ?</p>
+              <p className="text-xs text-red-400">⚠️ Toutes les données seront supprimées : commandes, clients, menu, réservations, factures, personnel. Cette action est irréversible.</p>
               <div className="flex gap-2 pt-2">
-                <Button variant="ghost" onClick={() => setDeleteTarget(null)} className="flex-1 text-gray-400">
-                  Annuler
-                </Button>
-                <Button
-                  onClick={handleDeleteRestaurant}
-                  disabled={deleteLoading}
-                  className="flex-1 bg-red-600 hover:bg-red-700 text-white"
-                >
+                <Button variant="ghost" onClick={() => setDeleteTarget(null)} className="flex-1 text-gray-400">Annuler</Button>
+                <Button onClick={handleDeleteRestaurant} disabled={deleteLoading} className="flex-1 bg-red-600 hover:bg-red-700 text-white">
                   {deleteLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4 mr-2" />}
                   Supprimer définitivement
                 </Button>
