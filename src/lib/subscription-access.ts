@@ -1,27 +1,98 @@
 import { db } from './db';
 
+export type SubscriptionAccessCode =
+  | 'RESTAURANT_UNAVAILABLE'
+  | 'ACCOUNT_UNAVAILABLE'
+  | 'ACCOUNT_TRIAL_EXPIRED'
+  | 'ACCOUNT_CONTRACT_EXPIRED';
+
 export interface SubscriptionAccessState {
   allowed: boolean;
-  code?: 'RESTAURANT_UNAVAILABLE' | 'ACCOUNT_UNAVAILABLE';
+  code?: SubscriptionAccessCode;
+}
+
+export interface SubscriptionAccessInput {
+  restaurantStatus: string | null | undefined;
+  accountStatus?: string | null;
+  trialEndsAt?: string | null;
+  contractEndDate?: string | null;
+  now?: Date;
+  contractGraceDays?: number;
 }
 
 const ACTIVE_RESTAURANT_STATUSES = new Set(['active', 'trial']);
 // over_quota means growth is blocked, not that an existing restaurant should
 // suddenly stop serving customers or lose access to its operational data.
 const ACTIVE_ACCOUNT_STATUSES = new Set(['active', 'trial', 'over_quota']);
+const MAX_CONTRACT_GRACE_DAYS = 90;
 
+function parseDateOnlyEndOfDay(value: string | null | undefined): Date | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const [year, month, day] = value.split('-').map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() + 1 !== month ||
+    parsed.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return parsed;
+}
+
+function normalizeGraceDays(value: number | string | null | undefined): number {
+  const numeric = Number(value ?? 0);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.min(MAX_CONTRACT_GRACE_DAYS, Math.max(0, Math.trunc(numeric)));
+}
+
+/**
+ * Supports both the historical `(restaurantStatus, accountStatus)` signature
+ * and the richer commercial lifecycle object. Legacy malformed/empty date
+ * strings are ignored deliberately so an old record cannot be auto-suspended
+ * by a parsing change; all new writes are validated by the platform contract
+ * endpoint.
+ */
 export function evaluateSubscriptionAccess(
-  restaurantStatus: string | null | undefined,
-  accountStatus: string | null | undefined
+  inputOrRestaurantStatus: SubscriptionAccessInput | string | null | undefined,
+  legacyAccountStatus?: string | null
 ): SubscriptionAccessState {
-  if (!restaurantStatus || !ACTIVE_RESTAURANT_STATUSES.has(restaurantStatus)) {
+  const input: SubscriptionAccessInput =
+    typeof inputOrRestaurantStatus === 'object' && inputOrRestaurantStatus !== null
+      ? inputOrRestaurantStatus
+      : {
+          restaurantStatus: inputOrRestaurantStatus,
+          accountStatus: legacyAccountStatus ?? null,
+        };
+
+  if (!input.restaurantStatus || !ACTIVE_RESTAURANT_STATUSES.has(input.restaurantStatus)) {
     return { allowed: false, code: 'RESTAURANT_UNAVAILABLE' };
   }
 
   // accountStatus=null is retained for legacy restaurants that predate the
   // Account hierarchy. New commercial accounts should always be linked.
-  if (accountStatus && !ACTIVE_ACCOUNT_STATUSES.has(accountStatus)) {
+  if (input.accountStatus && !ACTIVE_ACCOUNT_STATUSES.has(input.accountStatus)) {
     return { allowed: false, code: 'ACCOUNT_UNAVAILABLE' };
+  }
+
+  const now = input.now ?? new Date();
+
+  // Trial expiry is authoritative only while the SaaS account itself is in
+  // trial. A stale trialEndsAt on an already-active paid account must not block.
+  if (input.accountStatus === 'trial') {
+    const trialEnd = parseDateOnlyEndOfDay(input.trialEndsAt);
+    if (trialEnd && now.getTime() > trialEnd.getTime()) {
+      return { allowed: false, code: 'ACCOUNT_TRIAL_EXPIRED' };
+    }
+  }
+
+  const contractEnd = parseDateOnlyEndOfDay(input.contractEndDate);
+  if (contractEnd) {
+    const graceDays = normalizeGraceDays(input.contractGraceDays);
+    const effectiveEnd = new Date(contractEnd.getTime() + graceDays * 24 * 60 * 60 * 1000);
+    if (now.getTime() > effectiveEnd.getTime()) {
+      return { allowed: false, code: 'ACCOUNT_CONTRACT_EXPIRED' };
+    }
   }
 
   return { allowed: true };
@@ -29,10 +100,8 @@ export function evaluateSubscriptionAccess(
 
 /**
  * Authoritative access check for an authenticated restaurant-scoped session.
- * No cache is used deliberately: platform suspension/cancellation must take
- * effect on the next protected request, even if the JWT has not expired.
- * CI exercises this on the synthetic merge ref so scale-policy changes on main
- * are validated together with the commercial subscription gate.
+ * No cache is used deliberately: platform suspension/cancellation/expiry must
+ * take effect on the next protected request, even if the JWT has not expired.
  */
 export async function canAccessRestaurantSubscription(restaurantId: string): Promise<boolean> {
   try {
@@ -40,15 +109,24 @@ export async function canAccessRestaurantSubscription(restaurantId: string): Pro
       where: { id: restaurantId },
       select: {
         status: true,
-        account: { select: { status: true } },
+        account: {
+          select: {
+            status: true,
+            trialEndsAt: true,
+            contractEndDate: true,
+          },
+        },
       },
     });
 
     if (!restaurant) return false;
-    return evaluateSubscriptionAccess(
-      restaurant.status,
-      restaurant.account?.status ?? null
-    ).allowed;
+    return evaluateSubscriptionAccess({
+      restaurantStatus: restaurant.status,
+      accountStatus: restaurant.account?.status ?? null,
+      trialEndsAt: restaurant.account?.trialEndsAt ?? null,
+      contractEndDate: restaurant.account?.contractEndDate ?? null,
+      contractGraceDays: normalizeGraceDays(process.env.COMMERCIAL_CONTRACT_GRACE_DAYS),
+    }).allowed;
   } catch (error) {
     console.error('[subscription-access] Failed to verify subscription state:', error);
     return false;
