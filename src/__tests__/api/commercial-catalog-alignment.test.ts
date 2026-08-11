@@ -33,14 +33,25 @@ describe('commercial catalog alignment', () => {
     expect(text).toContain('enterpriseQuotas.maxRestaurants');
   });
 
-  it('does not advertise Starter quotes or unfinished email campaigns', () => {
+  it('advertises only the currently enforced Starter and Pro premium modules', () => {
     const text = source('src/app/pricing/page.tsx');
     expect(text).toContain('Factures clients');
     expect(text).not.toContain('Factures & devis');
     expect(text).toContain('Devis & dépenses');
+    expect(text).toContain('Gestion équipe & livreurs');
     expect(text).toContain('Analytics avancés');
     expect(text).toContain('Exports CSV/PDF');
     expect(text).not.toContain('Notifications email');
+  });
+
+  it('does not market unverified Enterprise-only capabilities as already delivered', () => {
+    const text = source('src/app/pricing/page.tsx');
+    expect(text).not.toContain('Multi-devises');
+    expect(text).not.toContain('API access');
+    expect(text).not.toContain('White label');
+    expect(text).not.toContain('SLA 99.9%');
+    expect(text).toContain('Quotas entreprise étendus');
+    expect(text).toContain('Paramétrage contractuel sur mesure');
   });
 
   it('derives account creation and plan-change quotas from the shared catalog', () => {
