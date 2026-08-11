@@ -1,26 +1,20 @@
 import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole, PERMISSION_GROUPS } from "@/lib/auth";
-import { ensureDefaultTiers, DEFAULT_TIERS } from "@/lib/loyalty-tiers";
+import { DEFAULT_TIERS } from "@/lib/loyalty-tiers";
 
-// ────────────────────────────────────────────────────────────────
-// GET /api/loyalty/tiers — list tiers for the restaurant
-//
-// Public-readable (the customer profile needs to display tiers).
-// If no tiers are configured, seed the defaults automatically.
-// ────────────────────────────────────────────────────────────────
+// GET /api/loyalty/tiers — public read for the resolved restaurant.
+// A public GET must never seed/write data. If the restaurant has no persisted
+// tier configuration yet, return the defaults as a read-only projection.
 export async function GET(request: Request) {
   try {
     await dbReady;
 
-    // Try admin auth first; if not admin, fall back to customer auth
-    // to resolve the restaurantId (both can read tiers).
     let restaurantId: string | null = null;
     const admin = await authenticateAdmin(request).catch(() => null);
     if (admin) {
       restaurantId = admin.restaurantId;
     } else {
-      // Try customer auth via the tenant header
       const { getRestaurantId } = await import("@/lib/tenant");
       restaurantId = await getRestaurantId(request);
     }
@@ -29,40 +23,38 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Restaurant non trouvé" }, { status: 404 });
     }
 
-    // Ensure default tiers exist (idempotent)
-    await ensureDefaultTiers(restaurantId);
-
     const tiers = await db.loyaltyTier.findMany({
       where: { restaurantId },
       orderBy: { minSpent: "asc" },
     });
 
-    return NextResponse.json({
-      data: tiers.map((t) => ({
-        id: t.id,
-        name: t.name,
-        label: t.label,
-        minSpent: Number(t.minSpent),
-        discountPercent: t.discountPercent,
-        freeDelivery: t.freeDelivery,
-        freeDish: t.freeDish,
-        color: t.color,
-        icon: t.icon,
-        active: t.active,
-      })),
-    });
+    const data = tiers.length > 0
+      ? tiers.map((t) => ({
+          id: t.id,
+          name: t.name,
+          label: t.label,
+          minSpent: Number(t.minSpent),
+          discountPercent: t.discountPercent,
+          freeDelivery: t.freeDelivery,
+          freeDish: t.freeDish,
+          color: t.color,
+          icon: t.icon,
+          active: t.active,
+        }))
+      : DEFAULT_TIERS.map((tier) => ({
+          id: `default:${tier.name}`,
+          ...tier,
+          active: true,
+        }));
+
+    return NextResponse.json({ data });
   } catch (error) {
     console.error("[loyalty/tiers:GET]", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
 
-// ────────────────────────────────────────────────────────────────
-// POST /api/loyalty/tiers — create or update a tier
-//
-// Admin/manager only. Used by the Settings UI to configure tiers.
-// Body: { name, label, minSpent, discountPercent, freeDelivery, freeDish, color, icon, active }
-// ────────────────────────────────────────────────────────────────
+// POST /api/loyalty/tiers — create or update a tier (admin/manager only).
 export async function POST(request: Request) {
   try {
     await dbReady;
@@ -101,7 +93,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Pourcentage de remise invalide (0-100)" }, { status: 400 });
     }
 
-    // Upsert (create or update) the tier
     const tier = await db.loyaltyTier.upsert({
       where: { restaurantId_name: { restaurantId: admin.restaurantId, name: normalizedName } },
       create: {
@@ -135,10 +126,7 @@ export async function POST(request: Request) {
   }
 }
 
-// ────────────────────────────────────────────────────────────────
-// PATCH /api/loyalty/tiers — bulk update tiers (used by the Settings UI
-// to save all tiers at once)
-// ────────────────────────────────────────────────────────────────
+// PATCH /api/loyalty/tiers — bulk update tiers (admin/manager only).
 export async function PATCH(request: Request) {
   try {
     await dbReady;
@@ -157,7 +145,6 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "Format invalide — attendu: { tiers: [...] }" }, { status: 400 });
     }
 
-    // Update each tier
     const results = [];
     for (const tier of tiers) {
       if (!tier.name || typeof tier.name !== "string") continue;
