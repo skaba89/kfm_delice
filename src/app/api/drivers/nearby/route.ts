@@ -1,6 +1,7 @@
 import { db, dbReady, bigIntToNumber } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { authenticateAdmin, hasRole } from "@/lib/auth";
+import { commercialFeatureGate } from "@/lib/commercial-feature-gate";
 import { haversineDistance, sortByDistance } from "@/lib/geo";
 
 /**
@@ -20,6 +21,8 @@ export async function GET(request: Request) {
     if (!hasRole(admin.role, ["admin", "manager", "delivery_manager"])) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
+    const featureDenied = await commercialFeatureGate(admin.restaurantId, "drivers");
+    if (featureDenied) return featureDenied;
 
     const sp = new URL(request.url).searchParams;
     const lat = parseFloat(sp.get("lat") || "0");
