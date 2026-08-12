@@ -23,6 +23,10 @@ const REQUIRED_TABLES = [
   'RefreshToken',
   'RevokedToken',
   'PaymentIdempotencyKey',
+  // SaaS commercial billing ledger
+  'PlatformSubscription',
+  'PlatformInvoice',
+  'PlatformPayment',
   // Core tables
   'Account',
   'Restaurant',
@@ -63,6 +67,18 @@ const REQUIRED_COLUMNS = {
     'code', 'description', 'discountType', 'discountValue',
     'minOrderTotal', 'maxUses', 'usedCount', 'maxUsesPerUser',
     'active', 'startsAt', 'expiresAt', 'restaurantId',
+  ],
+  PlatformSubscription: [
+    'accountId', 'plan', 'billingCycle', 'status', 'currency', 'unitAmount',
+    'currentPeriodStart', 'currentPeriodEnd', 'nextBillingAt', 'provider',
+  ],
+  PlatformInvoice: [
+    'accountId', 'subscriptionId', 'number', 'subtotal', 'tax', 'total',
+    'amountPaid', 'status', 'dueAt', 'paidAt',
+  ],
+  PlatformPayment: [
+    'accountId', 'invoiceId', 'amount', 'currency', 'method', 'provider',
+    'status', 'providerPaymentRef', 'idempotencyKey', 'paidAt',
   ],
 };
 
