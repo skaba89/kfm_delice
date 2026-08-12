@@ -92,7 +92,6 @@
     "next": "^16.2.12",
     "next-themes": "^0.4.6",
     "nodemailer": "^9.0.0",
-    "otpauth": "^9.5.1",
     "pdfkit": "^0.19.1",
     "prisma": "^6.19.3",
     "qrcode": "^1.5.4",
@@ -125,6 +124,7 @@
     "lodash": "^4.17.21"
   },
   "prisma": {
+    "schema": "prisma",
     "seed": "bunx tsx prisma/seed.ts"
   },
   "devDependencies": {
