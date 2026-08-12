@@ -13,11 +13,13 @@ import {
   serializeBillingMetadata,
 } from '@/lib/platform-billing';
 
-function invoiceAuditView(invoice: any) {
+function invoiceView(invoice: any) {
   if (!invoice) return null;
   return bigIntToNumber({
     id: invoice.id,
     accountId: invoice.accountId,
+    number: invoice.number,
+    currency: invoice.currency,
     total: invoice.total,
     amountPaid: invoice.amountPaid,
     status: invoice.status,
@@ -26,7 +28,7 @@ function invoiceAuditView(invoice: any) {
   });
 }
 
-function paymentAuditView(payment: any) {
+function paymentView(payment: any) {
   return bigIntToNumber({
     id: payment.id,
     accountId: payment.accountId,
@@ -37,7 +39,12 @@ function paymentAuditView(payment: any) {
     provider: payment.provider,
     status: payment.status,
     paidAt: payment.paidAt,
+    createdAt: payment.createdAt,
   });
+}
+
+function sameOptionalDate(left: Date | null | undefined, right: Date | null | undefined): boolean {
+  return left?.getTime() === right?.getTime();
 }
 
 export async function POST(
@@ -64,7 +71,10 @@ export async function POST(
 
     const input = parsed.data;
     const amount = parseMoneyToBigInt(input.amount);
-    const paidAt = parseOptionalIsoDate(input.paidAt, 'paidAt') ?? new Date();
+    const requestedPaidAt = parseOptionalIsoDate(input.paidAt, 'paidAt');
+    const paidAt = requestedPaidAt ?? new Date();
+    const provider = input.provider ?? 'manual';
+    const providerPaymentRef = input.providerPaymentRef ?? '';
     const metadata = serializeBillingMetadata(input.metadata);
 
     const result = await db.$transaction(async (tx) => {
@@ -72,7 +82,15 @@ export async function POST(
         where: { idempotencyKey: input.idempotencyKey },
       });
       if (existing) {
-        if (existing.accountId !== id || existing.invoiceId !== input.invoiceId || existing.amount !== amount) {
+        const sameRequest = existing.accountId === id
+          && existing.invoiceId === input.invoiceId
+          && existing.amount === amount
+          && existing.method === input.method
+          && existing.provider === provider
+          && existing.providerPaymentRef === providerPaymentRef
+          && existing.metadata === metadata
+          && (requestedPaidAt === undefined || sameOptionalDate(existing.paidAt, requestedPaidAt));
+        if (!sameRequest) {
           throw new BillingDomainError(
             'BILLING_IDEMPOTENCY_CONFLICT',
             'Cette clé d’idempotence a déjà été utilisée avec une autre opération.',
@@ -87,8 +105,14 @@ export async function POST(
       if (!invoice || invoice.accountId !== id) {
         throw new BillingDomainError('BILLING_INVOICE_NOT_FOUND', 'Facture SaaS introuvable.', 404);
       }
-      if (invoice.status === 'void') {
-        throw new BillingDomainError('BILLING_INVOICE_VOID', 'Une facture annulée ne peut pas être encaissée.', 409);
+      if (!['open', 'overdue'].includes(invoice.status)) {
+        throw new BillingDomainError(
+          invoice.status === 'void' ? 'BILLING_INVOICE_VOID' : 'BILLING_INVOICE_NOT_PAYABLE',
+          invoice.status === 'void'
+            ? 'Une facture annulée ne peut pas être encaissée.'
+            : 'Cette facture ne peut pas recevoir de nouveau paiement.',
+          409,
+        );
       }
 
       const outstanding = calculateOutstanding(invoice.total, invoice.amountPaid);
@@ -113,6 +137,22 @@ export async function POST(
         },
       });
       if (updated.count !== 1) {
+        const concurrentReplay = await tx.platformPayment.findUnique({
+          where: { idempotencyKey: input.idempotencyKey },
+        });
+        if (concurrentReplay) {
+          const sameRequest = concurrentReplay.accountId === id
+            && concurrentReplay.invoiceId === input.invoiceId
+            && concurrentReplay.amount === amount
+            && concurrentReplay.method === input.method
+            && concurrentReplay.provider === provider
+            && concurrentReplay.providerPaymentRef === providerPaymentRef
+            && concurrentReplay.metadata === metadata;
+          if (sameRequest) {
+            const replayInvoice = await tx.platformInvoice.findUnique({ where: { id: concurrentReplay.invoiceId } });
+            return { payment: concurrentReplay, invoice: replayInvoice, replay: true, beforeInvoice: replayInvoice };
+          }
+        }
         throw new BillingDomainError(
           'BILLING_CONCURRENT_PAYMENT',
           'Le solde de la facture a changé pendant l’encaissement. Rechargez la facture puis réessayez.',
@@ -127,9 +167,9 @@ export async function POST(
           amount,
           currency: invoice.currency,
           method: input.method,
-          provider: input.provider ?? 'manual',
+          provider,
           status: 'paid',
-          providerPaymentRef: input.providerPaymentRef ?? '',
+          providerPaymentRef,
           idempotencyKey: input.idempotencyKey,
           paidAt,
           metadata,
@@ -147,20 +187,20 @@ export async function POST(
         entityType: 'PlatformPayment',
         entityId: result.payment.id,
         accountId: id,
-        before: invoiceAuditView(result.beforeInvoice),
+        before: invoiceView(result.beforeInvoice),
         after: {
-          payment: paymentAuditView(result.payment),
-          invoice: invoiceAuditView(result.invoice),
+          payment: paymentView(result.payment),
+          invoice: invoiceView(result.invoice),
         },
         request,
       });
     }
 
-    return NextResponse.json(bigIntToNumber({
-      payment: result.payment,
-      invoice: result.invoice,
+    return NextResponse.json({
+      payment: paymentView(result.payment),
+      invoice: invoiceView(result.invoice),
       replay: result.replay,
-    }), { status: result.replay ? 200 : 201 });
+    }, { status: result.replay ? 200 : 201 });
   } catch (error) {
     if (error instanceof BillingDomainError) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: error.httpStatus });
