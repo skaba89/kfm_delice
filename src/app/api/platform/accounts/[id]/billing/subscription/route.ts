@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { NextResponse } from 'next/server';
 import { authenticatePlatformAdmin } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
@@ -55,8 +56,9 @@ export async function PATCH(
     });
     if (!account) return NextResponse.json({ error: 'Compte non trouvé' }, { status: 404 });
 
-    const existing = await db.platformSubscription.findUnique({
+    const existing = await db.platformSubscription.findFirst({
       where: { accountId: id },
+      orderBy: { createdAt: 'desc' },
     });
 
     const input = parsed.data;
@@ -102,7 +104,7 @@ export async function PATCH(
       );
     }
 
-    const updateData = {
+    const data = {
       plan,
       billingCycle,
       status: input.status ?? existing?.status ?? (account.status === 'trial' ? 'trialing' : 'active'),
@@ -117,23 +119,38 @@ export async function PATCH(
       ...(input.providerSubscriptionRef !== undefined && { providerSubscriptionRef: input.providerSubscriptionRef }),
     };
 
-    const subscription = await db.platformSubscription.upsert({
-      where: { accountId: id },
-      update: updateData,
-      create: {
-        accountId: id,
-        ...updateData,
-      },
-    });
+    let subscription;
+    let before = existing;
+    let created = false;
+
+    if (existing) {
+      subscription = await db.platformSubscription.update({ where: { id: existing.id }, data });
+    } else {
+      try {
+        subscription = await db.platformSubscription.create({ data: { accountId: id, ...data } });
+        created = true;
+      } catch (error) {
+        if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') {
+          throw error;
+        }
+        const raced = await db.platformSubscription.findFirst({
+          where: { accountId: id },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (!raced) throw error;
+        before = raced;
+        subscription = await db.platformSubscription.update({ where: { id: raced.id }, data });
+      }
+    }
 
     await logAudit({
       actorId: admin.id,
       actorType: 'platform_admin',
-      action: existing ? 'platform_subscription_change' : 'platform_subscription_create',
+      action: created ? 'platform_subscription_create' : 'platform_subscription_change',
       entityType: 'PlatformSubscription',
       entityId: subscription.id,
       accountId: id,
-      before: subscriptionView(existing),
+      before: subscriptionView(before),
       after: subscriptionView(subscription),
       request,
     });
