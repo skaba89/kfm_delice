@@ -13,6 +13,7 @@ import { PlatformAuditLogs } from "@/components/platform/PlatformAuditLogs";
 import { PlatformOverview } from "@/components/platform/PlatformOverview";
 import { PlatformTwoFactor } from "@/components/platform/PlatformTwoFactor";
 import { PlatformBilling } from "@/components/platform/PlatformBilling";
+import { PlatformBillingOperations } from "@/components/platform/PlatformBillingOperations";
 
 interface PlatformUser {
   id: string;
@@ -183,7 +184,10 @@ export default function PlatformPage() {
             <PlatformAccounts token={user.token} />
           </TabsContent>
           <TabsContent value="billing">
-            <PlatformBilling token={user.token} canWrite={user.role === "super_admin"} />
+            <div className="space-y-6">
+              <PlatformBillingOperations token={user.token} />
+              <PlatformBilling token={user.token} canWrite={user.role === "super_admin"} />
+            </div>
           </TabsContent>
           <TabsContent value="restaurants">
             <PlatformRestaurants token={user.token} />
