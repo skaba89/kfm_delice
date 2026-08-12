@@ -7,6 +7,10 @@ import {
   BillingDomainError,
   generatePlatformInvoiceNumber,
 } from '@/lib/platform-billing';
+import {
+  runPlatformBillingDunning,
+  type BillingDunningResult,
+} from '@/lib/platform-billing-dunning';
 
 const ZERO = BigInt(0);
 const DEFAULT_DUE_DAYS = 7;
@@ -35,12 +39,19 @@ export interface BillingCycleResult {
   subscriptionsRecovered: number;
   cappedSubscriptions: number;
   skipped: BillingCycleSkip[];
+  dunning?: BillingDunningResult;
+  dunningError?: string;
 }
 
 function clampInteger(value: unknown, fallback: number, min: number, max: number): number {
   const parsed = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(max, Math.max(min, Math.trunc(parsed)));
+}
+
+function safeOperationalError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error ?? 'Erreur dunning inconnue');
+  return raw.replace(/[\r\n]+/g, ' ').slice(0, 300);
 }
 
 export function getBillingDueDays(value = process.env.BILLING_DUE_DAYS): number {
@@ -321,6 +332,14 @@ export async function runPlatformBillingCycle(options: {
     || result.subscriptionsRecovered > 0
   ) {
     invalidateTenantCache();
+  }
+
+  // Dunning is intentionally best-effort. A provider/network outage must never
+  // rollback or fail invoice generation and subscription reconciliation.
+  try {
+    result.dunning = await runPlatformBillingDunning({ now });
+  } catch (error) {
+    result.dunningError = safeOperationalError(error);
   }
 
   return result;
