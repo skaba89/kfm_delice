@@ -2,11 +2,17 @@
  * Tenant Resolution — Multi-tenant SaaS utility
  *
  * Resolves the current restaurant from header/path/subdomain/query while
- * enforcing both restaurant and SaaS-account lifecycle centrally.
+ * enforcing restaurant, SaaS-account and opt-in billing lifecycle centrally.
  */
 
 import { db } from './db';
-import { evaluateSubscriptionAccess } from './subscription-access';
+import {
+  evaluateSubscriptionAccess,
+  getBillingAccessGraceDays,
+  isBillingAccessEnforcementEnabled,
+  loadBillingAccessSnapshot,
+  type BillingAccessSnapshot,
+} from './subscription-access';
 import {
   getPlanFeatures,
   normalizeCommercialPlanValue,
@@ -23,9 +29,12 @@ export interface TenantContext {
   plan: CommercialPlan;
   status: string;
   restaurantTrialEndsAt?: string | null;
+  accountId?: string | null;
   accountStatus?: string | null;
   accountTrialEndsAt?: string | null;
   accountContractEndDate?: string | null;
+  billingStatus?: string | null;
+  billingOverdueSince?: string | null;
 }
 
 const tenantCache = new Map<string, { data: TenantContext; expiresAt: number }>();
@@ -64,7 +73,13 @@ export function extractSlug(request: Request): string | null {
 
 export function isTenantActive(tenant: Pick<
   TenantContext,
-  'status' | 'restaurantTrialEndsAt' | 'accountStatus' | 'accountTrialEndsAt' | 'accountContractEndDate'
+  | 'status'
+  | 'restaurantTrialEndsAt'
+  | 'accountStatus'
+  | 'accountTrialEndsAt'
+  | 'accountContractEndDate'
+  | 'billingStatus'
+  | 'billingOverdueSince'
 >): boolean {
   const hasAccount = Boolean(tenant.accountStatus);
   return evaluateSubscriptionAccess({
@@ -75,25 +90,33 @@ export function isTenantActive(tenant: Pick<
       : tenant.restaurantTrialEndsAt ?? null,
     contractEndDate: tenant.accountContractEndDate ?? null,
     contractGraceDays: contractGraceDays(),
+    billingStatus: tenant.billingStatus ?? null,
+    billingOverdueSince: tenant.billingOverdueSince ?? null,
+    billingGraceDays: getBillingAccessGraceDays(),
+    billingEnforcementEnabled: isBillingAccessEnforcementEnabled(),
   }).allowed;
 }
 
-function toContext(restaurant: {
-  id: string;
-  slug: string;
-  name: string;
-  currency: string;
-  locale: string;
-  plan: string;
-  status: string;
-  trialEndsAt?: string | null;
-  account?: {
-    plan?: string | null;
+function toContext(
+  restaurant: {
+    id: string;
+    slug: string;
+    name: string;
+    currency: string;
+    locale: string;
+    plan: string;
     status: string;
-    trialEndsAt: string | null;
-    contractEndDate: string | null;
-  } | null;
-}): TenantContext {
+    trialEndsAt?: string | null;
+    account?: {
+      id: string;
+      plan?: string | null;
+      status: string;
+      trialEndsAt: string | null;
+      contractEndDate: string | null;
+    } | null;
+  },
+  billing: BillingAccessSnapshot,
+): TenantContext {
   const plan = normalizeCommercialPlanValue(restaurant.account?.plan)
     ?? normalizeCommercialPlanValue(restaurant.plan)
     ?? 'free';
@@ -107,10 +130,20 @@ function toContext(restaurant: {
     plan,
     status: restaurant.status,
     restaurantTrialEndsAt: restaurant.trialEndsAt ?? null,
+    accountId: restaurant.account?.id ?? null,
     accountStatus: restaurant.account?.status ?? null,
     accountTrialEndsAt: restaurant.account?.trialEndsAt ?? null,
     accountContractEndDate: restaurant.account?.contractEndDate ?? null,
+    billingStatus: billing.billingStatus,
+    billingOverdueSince: billing.billingOverdueSince?.toISOString() ?? null,
   };
+}
+
+async function contextFromRestaurant(restaurant: Parameters<typeof toContext>[0]): Promise<TenantContext> {
+  const billing = restaurant.account
+    ? await loadBillingAccessSnapshot(restaurant.account.id)
+    : { billingStatus: null, billingOverdueSince: null };
+  return toContext(restaurant, billing);
 }
 
 export async function resolveTenant(slug: string): Promise<TenantContext | null> {
@@ -132,6 +165,7 @@ export async function resolveTenant(slug: string): Promise<TenantContext | null>
       trialEndsAt: true,
       account: {
         select: {
+          id: true,
           plan: true,
           status: true,
           trialEndsAt: true,
@@ -142,7 +176,7 @@ export async function resolveTenant(slug: string): Promise<TenantContext | null>
   });
 
   if (!restaurant) return null;
-  const context = toContext(restaurant);
+  const context = await contextFromRestaurant(restaurant);
   if (!isTenantActive(context)) {
     tenantCache.delete(slug);
     return null;
@@ -172,6 +206,7 @@ export async function resolveDefaultTenant(): Promise<TenantContext | null> {
       trialEndsAt: true,
       account: {
         select: {
+          id: true,
           plan: true,
           status: true,
           trialEndsAt: true,
@@ -182,7 +217,7 @@ export async function resolveDefaultTenant(): Promise<TenantContext | null> {
   });
 
   if (!restaurant) return null;
-  const context = toContext(restaurant);
+  const context = await contextFromRestaurant(restaurant);
   if (!isTenantActive(context)) return null;
   defaultTenantCache = { data: context, expiresAt: Date.now() + CACHE_TTL };
   return context;
