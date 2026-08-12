@@ -105,26 +105,46 @@ if (distributedScale && !distributedRateLimitReady) {
   warnings.push('Distributed rate limiting is not configured — safe only for a single application instance');
 }
 
-// Public self-service registration is no longer intrinsically unsafe, but it is
-// an Internet-facing account-creation capability. Enabling it in production
-// requires distributed abuse protection and a tightly controlled trial policy.
+const PUBLIC_APP_URL = process.env.PUBLIC_APP_URL || '';
+const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+const SMTP_HOST = process.env.SMTP_HOST || '';
+const SMTP_USER = process.env.SMTP_USER || '';
+const SMTP_PASS = process.env.SMTP_PASS || '';
+const realPlatformEmailReady = Boolean(RESEND_API_KEY || (SMTP_HOST && SMTP_USER && SMTP_PASS));
+
+// Public self-service registration is Internet-facing and creates identities.
+// It is allowed in production only when abuse controls, real email ownership
+// verification, HTTPS callback URLs and a tightly bounded trial policy exist.
 const publicRegistrationEnabled = process.env.ENABLE_PUBLIC_RESTAURANT_REGISTRATION === 'true';
 if (publicRegistrationEnabled) {
   if (!distributedRateLimitReady) {
     violations.push('ENABLE_PUBLIC_RESTAURANT_REGISTRATION=true requires Upstash distributed rate limiting');
   }
+  if (!realPlatformEmailReady) {
+    violations.push('ENABLE_PUBLIC_RESTAURANT_REGISTRATION=true requires a real email provider (Resend or authenticated SMTP)');
+  }
+  if (!PUBLIC_APP_URL || !PUBLIC_APP_URL.startsWith('https://')) {
+    violations.push('ENABLE_PUBLIC_RESTAURANT_REGISTRATION=true requires HTTPS PUBLIC_APP_URL for verification links');
+  }
+
   const trialPlan = (process.env.PUBLIC_REGISTRATION_TRIAL_PLAN || 'starter').toLowerCase();
   if (!['starter', 'pro'].includes(trialPlan)) {
     violations.push('PUBLIC_REGISTRATION_TRIAL_PLAN must be starter or pro when public registration is enabled');
   }
+
   const rawTrialDays = process.env.PUBLIC_REGISTRATION_TRIAL_DAYS || '14';
   const trialDays = Number(rawTrialDays);
   if (!Number.isInteger(trialDays) || trialDays < 1 || trialDays > 30) {
     violations.push('PUBLIC_REGISTRATION_TRIAL_DAYS must be an integer between 1 and 30');
   }
+
+  const rawVerificationTtl = process.env.PUBLIC_REGISTRATION_VERIFICATION_TTL_MINUTES || '60';
+  const verificationTtl = Number(rawVerificationTtl);
+  if (!Number.isInteger(verificationTtl) || verificationTtl < 10 || verificationTtl > 1440) {
+    violations.push('PUBLIC_REGISTRATION_VERIFICATION_TTL_MINUTES must be an integer between 10 and 1440');
+  }
 }
 
-const PUBLIC_APP_URL = process.env.PUBLIC_APP_URL || '';
 if (!PUBLIC_APP_URL) {
   if (nationalScale) violations.push('PUBLIC_APP_URL is required for national scale');
   else warnings.push('PUBLIC_APP_URL is not set');

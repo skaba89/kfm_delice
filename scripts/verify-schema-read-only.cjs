@@ -28,6 +28,8 @@ const REQUIRED_TABLES = [
   'PlatformInvoice',
   'PlatformPayment',
   'PlatformBillingNotice',
+  // Pending self-service onboarding (must exist before public registration can run)
+  'PublicRegistrationIntent',
   // Core tables
   'Account',
   'Restaurant',
@@ -84,6 +86,9 @@ const REQUIRED_COLUMNS = {
   PlatformBillingNotice: [
     'accountId', 'invoiceId', 'stage', 'channel', 'recipient', 'status',
     'provider', 'idempotencyKey', 'errorMessage', 'attemptedAt', 'sentAt',
+  ],
+  PublicRegistrationIntent: [
+    'ownerEmail', 'tokenHash', 'payload', 'passwordHash', 'status', 'expiresAt',
   ],
 };
 
