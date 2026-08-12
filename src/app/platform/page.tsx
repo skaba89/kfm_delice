@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Shield, LogOut, RefreshCw, UtensilsCrossed, ScrollText, LayoutDashboard, Lock, Building2, CreditCard } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
@@ -107,7 +106,7 @@ export default function PlatformPage() {
                   <Shield className="w-8 h-8 text-white" />
                 </div>
                 <h1 className="text-2xl font-bold text-white">Platform Admin</h1>
-                <p className="text-gray-400 text-sm mt-1">KFM Delice SaaS — Super Admin</p>
+                <p className="text-gray-400 text-sm mt-1">KFM Delice SaaS — Administration plateforme</p>
               </div>
               <form onSubmit={handleLogin} className="space-y-4">
                 {loginError && (
@@ -184,7 +183,7 @@ export default function PlatformPage() {
             <PlatformAccounts token={user.token} />
           </TabsContent>
           <TabsContent value="billing">
-            <PlatformBilling token={user.token} />
+            <PlatformBilling token={user.token} canWrite={user.role === "super_admin"} />
           </TabsContent>
           <TabsContent value="restaurants">
             <PlatformRestaurants token={user.token} />
