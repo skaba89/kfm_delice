@@ -1,178 +1,253 @@
-import { db, dbReady } from "@/lib/db";
-import { NextResponse } from "next/server";
-import { hashPassword, generateToken } from "@/lib/auth";
-import { rateLimit } from "@/lib/rate-limit";
-import { generateSlug, ensureUniqueSlug } from "@/lib/tenant";
-import { z } from "zod";
+import { Prisma } from '@prisma/client';
+import { db, dbReady, bigIntToNumber } from '@/lib/db';
+import { NextResponse } from 'next/server';
+import { hashPassword, generateToken } from '@/lib/auth';
+import { logAudit } from '@/lib/audit';
+import { validatePassword } from '@/lib/password-policy';
+import { rateLimit } from '@/lib/rate-limit';
+import { generateSlug, ensureUniqueSlug } from '@/lib/tenant';
+import {
+  getPlanQuotaDefaults,
+  type CommercialPlan,
+} from '@/lib/commercial-plan-catalog';
+import { z } from 'zod';
 
 // ────────────────────────────────────────────────────────────────
-// Restaurant Registration / Onboarding API
-// Creates a new restaurant + admin account + default config
+// Restaurant Registration / Account-first SaaS onboarding API
+// Public registration remains disabled by default. If explicitly enabled,
+// the server — never the client — chooses the trial plan and creates the
+// complete Account + principal Restaurant + Admin + Config hierarchy atomically.
 // ────────────────────────────────────────────────────────────────
+
+const PUBLIC_TRIAL_PLANS = new Set<CommercialPlan>(['free', 'starter', 'pro']);
+const DEFAULT_PUBLIC_TRIAL_PLAN: CommercialPlan = 'starter';
+const DEFAULT_PUBLIC_TRIAL_DAYS = 14;
+const MAX_PUBLIC_TRIAL_DAYS = 60;
 
 const registerRestaurantSchema = z.object({
-  // Restaurant info
-  restaurantName: z.string().min(2, "Nom du restaurant requis (min 2 caractères)"),
-  slug: z.string().min(2, "Slug requis").regex(/^[a-z0-9-]+$/, "Slug: lettres minuscules, chiffres et tirets uniquement").optional(),
-  tagline: z.string().optional(),
-  phone: z.string().min(1, "Téléphone du restaurant requis"),
-  whatsapp: z.string().optional(),
-  email: z.string().email("Email du restaurant invalide").optional(),
-  address: z.string().optional(),
-  currency: z.string().default("GNF"),
-  locale: z.string().default("fr"),
+  restaurantName: z.string().trim().min(2, 'Nom du restaurant requis (min 2 caractères)').max(120),
+  slug: z.string().trim().min(2, 'Slug requis').max(50)
+    .regex(/^[a-z0-9-]+$/, 'Slug: lettres minuscules, chiffres et tirets uniquement')
+    .optional(),
+  tagline: z.string().trim().max(180).optional(),
+  phone: z.string().trim().min(1, 'Téléphone du restaurant requis').max(40),
+  whatsapp: z.string().trim().max(40).optional(),
+  email: z.string().trim().email('Email du restaurant invalide').max(320).optional(),
+  address: z.string().trim().max(500).optional(),
+  currency: z.string().trim().regex(/^[A-Z]{3}$/, 'Devise invalide').default('GNF'),
+  locale: z.string().trim().regex(/^[a-z]{2}(?:-[A-Z]{2})?$/, 'Locale invalide').default('fr'),
 
-  // Owner/Admin info
-  ownerName: z.string().min(2, "Nom du propriétaire requis"),
-  ownerEmail: z.string().email("Email du propriétaire invalide"),
-  ownerPassword: z.string().min(6, "Mot de passe requis (min 6 caractères)"),
-  ownerPhone: z.string().optional(),
+  ownerName: z.string().trim().min(2, 'Nom du propriétaire requis').max(120),
+  ownerEmail: z.string().trim().email('Email du propriétaire invalide').max(320),
+  ownerPassword: z.string().min(6, 'Mot de passe requis').max(128),
+  ownerPhone: z.string().trim().max(40).optional(),
+}).strict();
 
-  // Plan
-  plan: z.enum(["free", "starter", "pro", "enterprise"]).default("free"),
-});
+function getPublicRegistrationTrialPlan(): CommercialPlan {
+  const configured = (process.env.PUBLIC_REGISTRATION_TRIAL_PLAN || DEFAULT_PUBLIC_TRIAL_PLAN).trim().toLowerCase();
+  if (!PUBLIC_TRIAL_PLANS.has(configured as CommercialPlan)) {
+    throw new Error(
+      'PUBLIC_REGISTRATION_TRIAL_PLAN must be one of: free, starter, pro. Enterprise/custom are not permitted for public signup.',
+    );
+  }
+  return configured as CommercialPlan;
+}
+
+function getPublicRegistrationTrialDays(): number {
+  const raw = process.env.PUBLIC_REGISTRATION_TRIAL_DAYS;
+  if (!raw) return DEFAULT_PUBLIC_TRIAL_DAYS;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > MAX_PUBLIC_TRIAL_DAYS) {
+    throw new Error(`PUBLIC_REGISTRATION_TRIAL_DAYS must be an integer between 1 and ${MAX_PUBLIC_TRIAL_DAYS}.`);
+  }
+  return parsed;
+}
 
 export async function POST(request: Request) {
-  // ── Gate: public restaurant registration is disabled by default ──
-  // In the future SaaS architecture, only the platform super-admin will
-  // create restaurants. For now, this gate prevents uncontrolled public
-  // creation of restaurants + admin accounts.
-  // To enable for demo: set ENABLE_PUBLIC_RESTAURANT_REGISTRATION=true
-  if (process.env.ENABLE_PUBLIC_RESTAURANT_REGISTRATION !== "true") {
+  if (process.env.ENABLE_PUBLIC_RESTAURANT_REGISTRATION !== 'true') {
     return NextResponse.json(
       { error: "Inscription restaurant désactivée. Contactez l'équipe KFM Delice." },
-      { status: 403 }
+      { status: 403 },
     );
   }
 
-  // Rate limiting
-  const clientIp = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "unknown";
-  const { allowed } = await rateLimit(clientIp, 3, 60000); // 3 registrations per minute
+  const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+    || request.headers.get('x-real-ip')
+    || 'unknown';
+  const { allowed } = await rateLimit(clientIp, 3, 60_000);
   if (!allowed) {
     return NextResponse.json(
       { error: "Trop de tentatives d'inscription. Réessayez dans une minute." },
-      { status: 429 }
+      { status: 429 },
     );
   }
 
   try {
     await dbReady;
-    const body = await request.json();
-    const validation = registerRestaurantSchema.safeParse(body);
+    const validation = registerRestaurantSchema.safeParse(await request.json());
     if (!validation.success) {
-      const firstError = validation.error.issues[0]?.message || "Données invalides";
-      return NextResponse.json({ error: firstError }, { status: 400 });
-    }
-
-    const data = validation.data;
-
-    // Generate or validate slug
-    const baseSlug = data.slug || generateSlug(data.restaurantName);
-    const slug = await ensureUniqueSlug(baseSlug);
-
-    // Check if owner email is already used as admin
-    const existingAdmin = await db.admin.findFirst({ where: { email: data.ownerEmail } });
-    if (existingAdmin) {
       return NextResponse.json(
-        { error: "Un compte existe déjà avec cet email. Connectez-vous ou utilisez un autre email." },
-        { status: 400 }
+        {
+          error: validation.error.issues[0]?.message || 'Données invalides',
+          code: 'PUBLIC_REGISTRATION_VALIDATION_ERROR',
+        },
+        { status: 400 },
       );
     }
 
-    // Hash the owner password
+    const data = validation.data;
+    const passwordCheck = validatePassword(data.ownerPassword);
+    if (!passwordCheck.valid) {
+      return NextResponse.json(
+        { error: passwordCheck.errors[0], code: 'PUBLIC_REGISTRATION_PASSWORD_POLICY' },
+        { status: 400 },
+      );
+    }
+
+    const trialPlan = getPublicRegistrationTrialPlan();
+    const trialDays = getPublicRegistrationTrialDays();
+    const quotaDefaults = getPlanQuotaDefaults(trialPlan);
+
+    const existingAdmin = await db.admin.findFirst({
+      where: { email: data.ownerEmail },
+      select: { id: true },
+    });
+    if (existingAdmin) {
+      return NextResponse.json(
+        {
+          error: 'Un compte existe déjà avec cet email. Connectez-vous ou utilisez un autre email.',
+          code: 'PUBLIC_REGISTRATION_EMAIL_EXISTS',
+        },
+        { status: 409 },
+      );
+    }
+
+    const baseSlug = data.slug || generateSlug(data.restaurantName);
+    const slug = await ensureUniqueSlug(baseSlug);
     const hashedPassword = await hashPassword(data.ownerPassword);
+    const trialEndsAt = new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000).toISOString();
 
-    // Calculate trial end date (14 days from now)
-    const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
-
-    // Create restaurant + admin + config in a transaction
     const result = await db.$transaction(async (tx) => {
-      // 1. Create restaurant
+      const account = await tx.account.create({
+        data: {
+          name: data.restaurantName,
+          ownerName: data.ownerName,
+          ownerEmail: data.ownerEmail,
+          ownerPhone: data.ownerPhone || '',
+          status: 'trial',
+          plan: trialPlan,
+          maxRestaurants: quotaDefaults.maxRestaurants,
+          maxSecondaryRestaurants: quotaDefaults.maxSecondaryRestaurants,
+          maxAdmins: quotaDefaults.maxAdmins,
+          maxUsers: quotaDefaults.maxUsers,
+          trialEndsAt,
+        },
+      });
+
       const restaurant = await tx.restaurant.create({
         data: {
           name: data.restaurantName,
           slug,
-          tagline: data.tagline || "",
+          tagline: data.tagline || '',
           phone: data.phone,
           whatsapp: data.whatsapp || data.phone,
-          email: data.email || "",
-          address: data.address || "",
-          hours: "Lun-Dim : 11h00 - 23h00",
+          email: data.email || '',
+          address: data.address || '',
+          hours: 'Lun-Dim : 11h00 - 23h00',
           currency: data.currency,
           locale: data.locale,
-          plan: data.plan,
-          status: "trial",
+          // Account.plan is authoritative; this is only its compatibility shadow.
+          plan: trialPlan,
+          status: 'trial',
           trialEndsAt,
           ownerEmail: data.ownerEmail,
           ownerName: data.ownerName,
-          ownerPhone: data.ownerPhone || "",
+          ownerPhone: data.ownerPhone || '',
+          accountId: account.id,
+          type: 'principal',
         },
       });
 
-      // 2. Create admin account for the owner
       const admin = await tx.admin.create({
         data: {
           email: data.ownerEmail,
           password: hashedPassword,
           name: data.ownerName,
-          role: "admin",
-          status: "active",
+          role: 'admin',
+          status: 'active',
           restaurantId: restaurant.id,
+          accountId: account.id,
+          canCreateRestaurant: quotaDefaults.maxSecondaryRestaurants > 0,
+          restaurantCreationLimit: quotaDefaults.maxSecondaryRestaurants,
+          restaurantsCreatedCount: 0,
         },
       });
 
-      // 3. Create default restaurant config
       await tx.restaurantConfig.create({
         data: {
           restaurantId: restaurant.id,
-          primaryColor: "#ea580c",
-          accentColor: "#f97316",
+          primaryColor: '#ea580c',
+          accentColor: '#f97316',
           menuCategories: JSON.stringify([
-            { id: "entrees", name: "Entrées" },
-            { id: "plats", name: "Plats Principaux" },
-            { id: "desserts", name: "Desserts" },
-            { id: "boissons", name: "Boissons" },
+            { id: 'entrees', name: 'Entrées' },
+            { id: 'plats', name: 'Plats Principaux' },
+            { id: 'desserts', name: 'Desserts' },
+            { id: 'boissons', name: 'Boissons' },
           ]),
-          features: JSON.stringify({
-            delivery: true,
-            reservations: true,
-            reviews: true,
-            loyalty: data.plan !== "free",
-            pos: true,
-            invoices: data.plan !== "free",
-            quotes: data.plan === "pro" || data.plan === "enterprise",
-            expenses: data.plan === "pro" || data.plan === "enterprise",
-            staff: data.plan === "pro" || data.plan === "enterprise",
-            drivers: data.plan === "pro" || data.plan === "enterprise",
-          }),
+          // Feature entitlements are resolved from Account.plan by the central
+          // commercial catalog. Do not persist a second pricing matrix here.
+          features: '{}',
           openingHours: JSON.stringify({
             open: 11,
             close: 23,
-            timezone: "Africa/Conakry",
+            timezone: 'Africa/Conakry',
           }),
         },
       });
 
-      return { restaurant, admin };
+      return { account, restaurant, admin };
     });
 
-    // Generate JWT token for the new admin
+    await logAudit({
+      actorId: result.admin.id,
+      actorType: 'self_service_admin',
+      action: 'public_registration',
+      entityType: 'Account',
+      entityId: result.account.id,
+      accountId: result.account.id,
+      restaurantId: result.restaurant.id,
+      after: {
+        plan: trialPlan,
+        status: 'trial',
+        trialDays,
+        restaurantId: result.restaurant.id,
+        adminId: result.admin.id,
+      },
+      request,
+    });
+
     const token = generateToken({
       id: result.admin.id,
       email: result.admin.email,
       role: result.admin.role,
-      type: "admin",
+      type: 'admin',
       restaurantId: result.restaurant.id,
       restaurantSlug: result.restaurant.slug,
     });
 
-    return NextResponse.json({
+    return NextResponse.json(bigIntToNumber({
       success: true,
+      account: {
+        id: result.account.id,
+        plan: result.account.plan,
+        status: result.account.status,
+        trialEndsAt: result.account.trialEndsAt,
+      },
       restaurant: {
         id: result.restaurant.id,
         name: result.restaurant.name,
         slug: result.restaurant.slug,
-        plan: result.restaurant.plan,
+        plan: result.account.plan,
         status: result.restaurant.status,
         trialEndsAt: result.restaurant.trialEndsAt,
       },
@@ -183,13 +258,21 @@ export async function POST(request: Request) {
         role: result.admin.role,
       },
       token,
-    }, { status: 201 });
-
+    }), { status: 201 });
   } catch (error) {
-    console.error("Restaurant registration error:", error);
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return NextResponse.json(
+        {
+          error: 'Un compte utilise déjà cet email ou ce slug. Rechargez la page puis réessayez.',
+          code: 'PUBLIC_REGISTRATION_CONFLICT',
+        },
+        { status: 409 },
+      );
+    }
+    console.error('[register-restaurant POST]', error);
     return NextResponse.json(
-      { error: "Erreur lors de la création du restaurant. Veuillez réessayer." },
-      { status: 500 }
+      { error: 'Erreur lors de la création du restaurant. Veuillez réessayer.' },
+      { status: 500 },
     );
   }
 }
