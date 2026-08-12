@@ -73,9 +73,9 @@ echo "[render-start] ✓ Production safety check passed."
 # ── Step 2: Switch schema to the correct provider ──
 echo "[render-start] Step 2: Switching schema to $PROVIDER..."
 if [ "$PROVIDER" = "postgres" ]; then
-  cp prisma/schema.postgres.prisma prisma/schema.prisma
+  cp prisma/templates/schema.postgres.template prisma/schema.prisma
 elif [ "$PROVIDER" = "sqlite" ]; then
-  cp prisma/schema.sqlite.prisma prisma/schema.prisma
+  cp prisma/templates/schema.sqlite.template prisma/schema.prisma
   mkdir -p data
 fi
 

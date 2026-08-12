@@ -125,6 +125,7 @@
     "lodash": "^4.17.21"
   },
   "prisma": {
+    "schema": "prisma",
     "seed": "bunx tsx prisma/seed.ts"
   },
   "devDependencies": {
