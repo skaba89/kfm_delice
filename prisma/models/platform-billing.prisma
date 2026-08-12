@@ -1,0 +1,81 @@
+// ───────────────────────────────────────────────────────────────────
+// Platform billing ledger — SaaS revenue, separate from restaurant payments
+// Loaded together with prisma/schema.prisma through Prisma multi-file schema.
+// Amounts use BigInt on both SQLite and PostgreSQL to preserve GNF headroom.
+// ───────────────────────────────────────────────────────────────────
+
+model PlatformSubscription {
+  id                      String   @id @default(cuid())
+  accountId               String
+  plan                    String
+  billingCycle            String   @default("monthly") // monthly, annual
+  status                  String   @default("active") // trialing, active, past_due, paused, cancelled
+  currency                String   @default("GNF")
+  unitAmount              BigInt   @default(0)
+  currentPeriodStart      DateTime?
+  currentPeriodEnd        DateTime?
+  nextBillingAt           DateTime?
+  cancelAtPeriodEnd       Boolean  @default(false)
+  provider                String   @default("manual")
+  providerCustomerRef     String   @default("")
+  providerSubscriptionRef String   @default("")
+  invoices                PlatformInvoice[]
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([accountId, status])
+  @@index([accountId, createdAt])
+  @@index([nextBillingAt])
+}
+
+model PlatformInvoice {
+  id                 String                @id @default(cuid())
+  accountId          String
+  subscriptionId     String?
+  subscription       PlatformSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  number             String                @unique
+  periodStart        DateTime?
+  periodEnd          DateTime?
+  currency           String                @default("GNF")
+  subtotal           BigInt
+  tax                BigInt                @default(0)
+  total              BigInt
+  amountPaid         BigInt                @default(0)
+  status             String                @default("open") // open, paid, overdue, void
+  dueAt              DateTime
+  paidAt             DateTime?
+  voidedAt           DateTime?
+  providerInvoiceRef String                @default("")
+  notes              String                @default("")
+  payments           PlatformPayment[]
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  @@index([accountId, status])
+  @@index([accountId, createdAt])
+  @@index([subscriptionId])
+  @@index([dueAt])
+}
+
+model PlatformPayment {
+  id                 String          @id @default(cuid())
+  accountId          String
+  invoiceId          String
+  invoice            PlatformInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  amount             BigInt
+  currency           String          @default("GNF")
+  method             String          @default("manual") // manual, cash, bank_transfer, mobile_money, card, external
+  provider           String          @default("manual")
+  status             String          @default("paid") // paid, failed, refunded
+  providerPaymentRef String          @default("")
+  idempotencyKey     String          @unique
+  paidAt             DateTime?
+  failedReason       String          @default("")
+  metadata           String          @default("{}")
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  @@index([accountId, status])
+  @@index([accountId, createdAt])
+  @@index([invoiceId])
+}
