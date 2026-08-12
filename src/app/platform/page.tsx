@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Shield, LogOut, RefreshCw, UtensilsCrossed, ScrollText, LayoutDashboard, Lock, Building2 } from "lucide-react";
+import { Shield, LogOut, RefreshCw, UtensilsCrossed, ScrollText, LayoutDashboard, Lock, Building2, CreditCard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,6 +13,7 @@ import { PlatformRestaurants } from "@/components/platform/PlatformRestaurants";
 import { PlatformAuditLogs } from "@/components/platform/PlatformAuditLogs";
 import { PlatformOverview } from "@/components/platform/PlatformOverview";
 import { PlatformTwoFactor } from "@/components/platform/PlatformTwoFactor";
+import { PlatformBilling } from "@/components/platform/PlatformBilling";
 
 interface PlatformUser {
   id: string;
@@ -162,6 +163,9 @@ export default function PlatformPage() {
             <TabsTrigger value="accounts" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-orange-500 data-[state=active]:to-red-600 data-[state=active]:text-white text-gray-400 rounded-lg">
               <Building2 className="w-4 h-4 mr-2" /> Comptes
             </TabsTrigger>
+            <TabsTrigger value="billing" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-orange-500 data-[state=active]:to-red-600 data-[state=active]:text-white text-gray-400 rounded-lg">
+              <CreditCard className="w-4 h-4 mr-2" /> Facturation
+            </TabsTrigger>
             <TabsTrigger value="restaurants" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-orange-500 data-[state=active]:to-red-600 data-[state=active]:text-white text-gray-400 rounded-lg">
               <UtensilsCrossed className="w-4 h-4 mr-2" /> Restaurants
             </TabsTrigger>
@@ -178,6 +182,9 @@ export default function PlatformPage() {
           </TabsContent>
           <TabsContent value="accounts">
             <PlatformAccounts token={user.token} />
+          </TabsContent>
+          <TabsContent value="billing">
+            <PlatformBilling token={user.token} />
           </TabsContent>
           <TabsContent value="restaurants">
             <PlatformRestaurants token={user.token} />
