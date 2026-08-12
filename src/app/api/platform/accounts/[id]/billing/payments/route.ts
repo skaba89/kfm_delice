@@ -47,6 +47,29 @@ function sameOptionalDate(left: Date | null | undefined, right: Date | null | un
   return left?.getTime() === right?.getTime();
 }
 
+function paymentReplayMatches(
+  existing: any,
+  expected: {
+    accountId: string;
+    invoiceId: string;
+    amount: bigint;
+    method: string;
+    provider: string;
+    providerPaymentRef: string;
+    metadata: string;
+    requestedPaidAt: Date | null | undefined;
+  },
+): boolean {
+  return existing.accountId === expected.accountId
+    && existing.invoiceId === expected.invoiceId
+    && existing.amount === expected.amount
+    && (existing.method ?? expected.method) === expected.method
+    && (existing.provider ?? expected.provider) === expected.provider
+    && (existing.providerPaymentRef ?? expected.providerPaymentRef) === expected.providerPaymentRef
+    && (existing.metadata ?? expected.metadata) === expected.metadata
+    && (expected.requestedPaidAt === undefined || sameOptionalDate(existing.paidAt, expected.requestedPaidAt));
+}
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -76,21 +99,23 @@ export async function POST(
     const provider = input.provider ?? 'manual';
     const providerPaymentRef = input.providerPaymentRef ?? '';
     const metadata = serializeBillingMetadata(input.metadata);
+    const replayExpectation = {
+      accountId: id,
+      invoiceId: input.invoiceId,
+      amount,
+      method: input.method,
+      provider,
+      providerPaymentRef,
+      metadata,
+      requestedPaidAt,
+    };
 
     const result = await db.$transaction(async (tx) => {
       const existing = await tx.platformPayment.findUnique({
         where: { idempotencyKey: input.idempotencyKey },
       });
       if (existing) {
-        const sameRequest = existing.accountId === id
-          && existing.invoiceId === input.invoiceId
-          && existing.amount === amount
-          && existing.method === input.method
-          && existing.provider === provider
-          && existing.providerPaymentRef === providerPaymentRef
-          && existing.metadata === metadata
-          && (requestedPaidAt === undefined || sameOptionalDate(existing.paidAt, requestedPaidAt));
-        if (!sameRequest) {
+        if (!paymentReplayMatches(existing, replayExpectation)) {
           throw new BillingDomainError(
             'BILLING_IDEMPOTENCY_CONFLICT',
             'Cette clé d’idempotence a déjà été utilisée avec une autre opération.',
@@ -140,18 +165,9 @@ export async function POST(
         const concurrentReplay = await tx.platformPayment.findUnique({
           where: { idempotencyKey: input.idempotencyKey },
         });
-        if (concurrentReplay) {
-          const sameRequest = concurrentReplay.accountId === id
-            && concurrentReplay.invoiceId === input.invoiceId
-            && concurrentReplay.amount === amount
-            && concurrentReplay.method === input.method
-            && concurrentReplay.provider === provider
-            && concurrentReplay.providerPaymentRef === providerPaymentRef
-            && concurrentReplay.metadata === metadata;
-          if (sameRequest) {
-            const replayInvoice = await tx.platformInvoice.findUnique({ where: { id: concurrentReplay.invoiceId } });
-            return { payment: concurrentReplay, invoice: replayInvoice, replay: true, beforeInvoice: replayInvoice };
-          }
+        if (concurrentReplay && paymentReplayMatches(concurrentReplay, replayExpectation)) {
+          const replayInvoice = await tx.platformInvoice.findUnique({ where: { id: concurrentReplay.invoiceId } });
+          return { payment: concurrentReplay, invoice: replayInvoice, replay: true, beforeInvoice: replayInvoice };
         }
         throw new BillingDomainError(
           'BILLING_CONCURRENT_PAYMENT',
