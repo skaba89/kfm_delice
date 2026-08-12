@@ -22,6 +22,7 @@ const positiveMoneyInputSchema = z.union([
 ]);
 
 const optionalIsoDateSchema = z.string().trim().max(40).nullable().optional();
+const idempotencyKeySchema = z.string().trim().min(8).max(128);
 
 export const subscriptionPatchSchema = z.object({
   billingCycle: billingCycleSchema.optional(),
@@ -38,6 +39,7 @@ export const subscriptionPatchSchema = z.object({
 }).strict();
 
 export const invoiceCreateSchema = z.object({
+  idempotencyKey: idempotencyKeySchema,
   periodStart: optionalIsoDateSchema,
   periodEnd: optionalIsoDateSchema,
   dueAt: z.string().trim().min(1).max(40),
@@ -52,7 +54,7 @@ export const paymentCreateSchema = z.object({
   method: paymentMethodSchema,
   provider: z.string().trim().min(1).max(50).optional(),
   providerPaymentRef: z.string().trim().max(200).optional(),
-  idempotencyKey: z.string().trim().min(8).max(128),
+  idempotencyKey: idempotencyKeySchema,
   paidAt: optionalIsoDateSchema,
   metadata: z.record(z.string(), z.unknown()).optional(),
 }).strict();
