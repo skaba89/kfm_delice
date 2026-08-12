@@ -8,24 +8,26 @@
 #   bash scripts/switch-schema.sh status      # show current provider
 #
 # Behavior:
-#   • Copies the matching schema.<provider>.prisma over schema.prisma
-#   • Re-runs `prisma generate` so the client picks up the right engine
-#   • Does NOT touch the database itself — use `prisma migrate dev"
-#     (PostgreSQL) or `prisma db push` (SQLite) separately
+#   • Copies the matching provider template over prisma/schema.prisma
+#   • Keeps domain models (for example platform billing) in prisma/models/*.prisma
+#   • Re-runs `prisma generate` so the client picks up the active provider
+#   • Does NOT touch the database itself
 # ───────────────────────────────────────────────────────────────────
 set -e
 
 cd "$(dirname "$0")/.."
 
 PRISMA_DIR="prisma"
+TEMPLATE_DIR="$PRISMA_DIR/templates"
 TARGET="${1:-}"
 
 if [ -z "$TARGET" ] || [ "$TARGET" = "status" ]; then
-  # Extract provider from the datasource block (not the generator block)
   PROVIDER=$(awk '/^datasource /{flag=1; next} flag && /provider/{gsub(/.*provider[\t ]*=[\t ]*"/,""); gsub(/".*/,""); print; exit}' "$PRISMA_DIR/schema.prisma")
   echo "Current Prisma provider: $PROVIDER"
-  echo "Available schemas:"
-  ls -1 "$PRISMA_DIR"/schema.*.prisma 2>/dev/null | sed 's/^/  - /'
+  echo "Available provider templates:"
+  ls -1 "$TEMPLATE_DIR"/schema.*.template 2>/dev/null | sed 's/^/  - /'
+  echo "Domain schema files:"
+  find "$PRISMA_DIR/models" -maxdepth 1 -type f -name '*.prisma' -print 2>/dev/null | sort | sed 's/^/  - /'
   exit 0
 fi
 
@@ -34,7 +36,7 @@ if [ "$TARGET" != "sqlite" ] && [ "$TARGET" != "postgres" ]; then
   exit 1
 fi
 
-SOURCE="$PRISMA_DIR/schema.$TARGET.prisma"
+SOURCE="$TEMPLATE_DIR/schema.$TARGET.template"
 
 if [ ! -f "$SOURCE" ]; then
   echo "Error: $SOURCE not found."
@@ -44,8 +46,7 @@ fi
 echo "[switch-schema] Switching to $TARGET..."
 cp "$SOURCE" "$PRISMA_DIR/schema.prisma"
 
-# Auto-detect from DATABASE_URL if not explicitly provided
-if [ -n "$DATABASE_URL" ]; then
+if [ -n "${DATABASE_URL:-}" ]; then
   case "$DATABASE_URL" in
     postgresql://*|postgres://*)
       if [ "$TARGET" = "sqlite" ]; then
