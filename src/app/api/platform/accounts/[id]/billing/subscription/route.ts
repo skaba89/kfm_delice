@@ -10,10 +10,11 @@ import {
   subscriptionPatchSchema,
 } from '@/lib/platform-billing';
 
-function subscriptionAuditView(subscription: any) {
+function subscriptionView(subscription: any) {
   if (!subscription) return null;
   return bigIntToNumber({
     id: subscription.id,
+    accountId: subscription.accountId,
     plan: subscription.plan,
     billingCycle: subscription.billingCycle,
     status: subscription.status,
@@ -24,6 +25,8 @@ function subscriptionAuditView(subscription: any) {
     nextBillingAt: subscription.nextBillingAt,
     cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
     provider: subscription.provider,
+    createdAt: subscription.createdAt,
+    updatedAt: subscription.updatedAt,
   });
 }
 
@@ -52,9 +55,8 @@ export async function PATCH(
     });
     if (!account) return NextResponse.json({ error: 'Compte non trouvé' }, { status: 404 });
 
-    const existing = await db.platformSubscription.findFirst({
+    const existing = await db.platformSubscription.findUnique({
       where: { accountId: id },
-      orderBy: { createdAt: 'desc' },
     });
 
     const input = parsed.data;
@@ -100,7 +102,7 @@ export async function PATCH(
       );
     }
 
-    const data = {
+    const updateData = {
       plan,
       billingCycle,
       status: input.status ?? existing?.status ?? (account.status === 'trial' ? 'trialing' : 'active'),
@@ -115,9 +117,14 @@ export async function PATCH(
       ...(input.providerSubscriptionRef !== undefined && { providerSubscriptionRef: input.providerSubscriptionRef }),
     };
 
-    const subscription = existing
-      ? await db.platformSubscription.update({ where: { id: existing.id }, data })
-      : await db.platformSubscription.create({ data: { accountId: id, ...data } });
+    const subscription = await db.platformSubscription.upsert({
+      where: { accountId: id },
+      update: updateData,
+      create: {
+        accountId: id,
+        ...updateData,
+      },
+    });
 
     await logAudit({
       actorId: admin.id,
@@ -126,12 +133,12 @@ export async function PATCH(
       entityType: 'PlatformSubscription',
       entityId: subscription.id,
       accountId: id,
-      before: subscriptionAuditView(existing),
-      after: subscriptionAuditView(subscription),
+      before: subscriptionView(existing),
+      after: subscriptionView(subscription),
       request,
     });
 
-    return NextResponse.json(bigIntToNumber(subscription));
+    return NextResponse.json(subscriptionView(subscription));
   } catch (error) {
     if (error instanceof BillingDomainError) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: error.httpStatus });
