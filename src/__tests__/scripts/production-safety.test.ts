@@ -29,6 +29,8 @@ function runSafety(overrides: Record<string, string | undefined>) {
     ALLOW_PRISMA_DB_PUSH_FALLBACK: 'false',
     ALLOW_LOGIN_AUTO_SEED: 'false',
     ENABLE_PUBLIC_RESTAURANT_REGISTRATION: 'false',
+    PUBLIC_REGISTRATION_TRIAL_PLAN: 'starter',
+    PUBLIC_REGISTRATION_TRIAL_DAYS: '14',
     NEXT_PUBLIC_SHOW_DEMO_CREDS: 'false',
     ...overrides,
   };
@@ -87,5 +89,49 @@ describe('production safety guard', () => {
     });
     expect(result.status).toBe(0);
     expect(result.output).toContain('All production safety checks passed');
+  });
+
+  it('rejects public registration without distributed abuse protection', () => {
+    const result = runSafety({ ENABLE_PUBLIC_RESTAURANT_REGISTRATION: 'true' });
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('requires Upstash distributed rate limiting');
+  });
+
+  it('accepts a controlled public Starter trial when Upstash is configured', () => {
+    const result = runSafety({
+      ENABLE_PUBLIC_RESTAURANT_REGISTRATION: 'true',
+      PUBLIC_REGISTRATION_TRIAL_PLAN: 'starter',
+      PUBLIC_REGISTRATION_TRIAL_DAYS: '14',
+      UPSTASH_REDIS_REST_URL: 'https://example.upstash.io',
+      UPSTASH_REDIS_REST_TOKEN: 'token',
+    });
+    expect(result.status).toBe(0);
+    expect(result.output).toContain('All production safety checks passed');
+  });
+
+  it('rejects enterprise or custom as a public trial plan', () => {
+    for (const plan of ['enterprise', 'custom']) {
+      const result = runSafety({
+        ENABLE_PUBLIC_RESTAURANT_REGISTRATION: 'true',
+        PUBLIC_REGISTRATION_TRIAL_PLAN: plan,
+        UPSTASH_REDIS_REST_URL: 'https://example.upstash.io',
+        UPSTASH_REDIS_REST_TOKEN: 'token',
+      });
+      expect(result.status).toBe(1);
+      expect(result.output).toContain('PUBLIC_REGISTRATION_TRIAL_PLAN must be starter or pro');
+    }
+  });
+
+  it('rejects out-of-range or non-integer public trial durations', () => {
+    for (const days of ['0', '31', '14.5', 'abc']) {
+      const result = runSafety({
+        ENABLE_PUBLIC_RESTAURANT_REGISTRATION: 'true',
+        PUBLIC_REGISTRATION_TRIAL_DAYS: days,
+        UPSTASH_REDIS_REST_URL: 'https://example.upstash.io',
+        UPSTASH_REDIS_REST_TOKEN: 'token',
+      });
+      expect(result.status).toBe(1);
+      expect(result.output).toContain('PUBLIC_REGISTRATION_TRIAL_DAYS must be an integer between 1 and 30');
+    }
   });
 });
