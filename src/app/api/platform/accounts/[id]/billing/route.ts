@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { authenticatePlatformAdmin } from '@/lib/auth';
 import { bigIntToNumber, db, dbReady } from '@/lib/db';
 
+const ZERO = BigInt(0);
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -96,9 +98,9 @@ export async function GET(
       }),
     ]);
 
-    const openTotal = outstandingAgg._sum.total ?? 0n;
-    const openPaid = outstandingAgg._sum.amountPaid ?? 0n;
-    const outstanding = openTotal > openPaid ? openTotal - openPaid : 0n;
+    const openTotal = outstandingAgg._sum.total ?? ZERO;
+    const openPaid = outstandingAgg._sum.amountPaid ?? ZERO;
+    const outstanding = openTotal > openPaid ? openTotal - openPaid : ZERO;
     const invoiceViews = invoices.map((invoice) => ({
       ...invoice,
       status: invoice.status === 'open' && invoice.dueAt < now ? 'overdue' : invoice.status,
@@ -111,7 +113,7 @@ export async function GET(
       metrics: {
         outstanding,
         overdueCount,
-        totalCollected: paidAgg._sum.amount ?? 0n,
+        totalCollected: paidAgg._sum.amount ?? ZERO,
       },
     }));
   } catch (error) {
