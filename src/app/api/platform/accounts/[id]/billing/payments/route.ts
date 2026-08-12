@@ -3,6 +3,7 @@ import { authenticatePlatformAdmin } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
 import { bigIntToNumber, db, dbReady } from '@/lib/db';
 import {
+  assertBillingWriteRole,
   BillingDomainError,
   assertPaymentFitsOutstanding,
   calculateOutstanding,
@@ -12,6 +13,33 @@ import {
   serializeBillingMetadata,
 } from '@/lib/platform-billing';
 
+function invoiceAuditView(invoice: any) {
+  if (!invoice) return null;
+  return bigIntToNumber({
+    id: invoice.id,
+    accountId: invoice.accountId,
+    total: invoice.total,
+    amountPaid: invoice.amountPaid,
+    status: invoice.status,
+    dueAt: invoice.dueAt,
+    paidAt: invoice.paidAt,
+  });
+}
+
+function paymentAuditView(payment: any) {
+  return bigIntToNumber({
+    id: payment.id,
+    accountId: payment.accountId,
+    invoiceId: payment.invoiceId,
+    amount: payment.amount,
+    currency: payment.currency,
+    method: payment.method,
+    provider: payment.provider,
+    status: payment.status,
+    paidAt: payment.paidAt,
+  });
+}
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -20,6 +48,7 @@ export async function POST(
     await dbReady;
     const admin = await authenticatePlatformAdmin(request);
     if (!admin) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
+    assertBillingWriteRole(admin);
 
     const { id } = await params;
     const parsed = paymentCreateSchema.safeParse(await request.json());
@@ -118,8 +147,11 @@ export async function POST(
         entityType: 'PlatformPayment',
         entityId: result.payment.id,
         accountId: id,
-        before: bigIntToNumber(result.beforeInvoice),
-        after: bigIntToNumber({ payment: result.payment, invoice: result.invoice }),
+        before: invoiceAuditView(result.beforeInvoice),
+        after: {
+          payment: paymentAuditView(result.payment),
+          invoice: invoiceAuditView(result.invoice),
+        },
         request,
       });
     }
