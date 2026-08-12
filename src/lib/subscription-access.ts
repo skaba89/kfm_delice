@@ -5,7 +5,9 @@ export type SubscriptionAccessCode =
   | 'RESTAURANT_TRIAL_EXPIRED'
   | 'ACCOUNT_UNAVAILABLE'
   | 'ACCOUNT_TRIAL_EXPIRED'
-  | 'ACCOUNT_CONTRACT_EXPIRED';
+  | 'ACCOUNT_CONTRACT_EXPIRED'
+  | 'ACCOUNT_BILLING_PAST_DUE'
+  | 'ACCOUNT_BILLING_UNAVAILABLE';
 
 export interface SubscriptionAccessState {
   allowed: boolean;
@@ -17,13 +19,24 @@ export interface SubscriptionAccessInput {
   accountStatus?: string | null;
   trialEndsAt?: string | null;
   contractEndDate?: string | null;
+  billingStatus?: string | null;
+  billingOverdueSince?: Date | string | null;
+  billingGraceDays?: number;
+  billingEnforcementEnabled?: boolean;
   now?: Date;
   contractGraceDays?: number;
+}
+
+export interface BillingAccessSnapshot {
+  billingStatus: string | null;
+  billingOverdueSince: Date | null;
 }
 
 const ACTIVE_RESTAURANT_STATUSES = new Set(['active', 'trial']);
 const ACTIVE_ACCOUNT_STATUSES = new Set(['active', 'trial', 'over_quota']);
 const MAX_CONTRACT_GRACE_DAYS = 90;
+const DEFAULT_BILLING_GRACE_DAYS = 7;
+const MAX_BILLING_GRACE_DAYS = 90;
 
 /**
  * Lifecycle dates exist in two historical shapes:
@@ -64,12 +77,57 @@ function normalizeGraceDays(value: number | string | null | undefined): number {
   return Math.min(MAX_CONTRACT_GRACE_DAYS, Math.max(0, Math.trunc(numeric)));
 }
 
+export function getBillingAccessGraceDays(
+  value: number | string | null | undefined = process.env.BILLING_ACCESS_GRACE_DAYS,
+): number {
+  const numeric = Number(value ?? DEFAULT_BILLING_GRACE_DAYS);
+  if (!Number.isFinite(numeric)) return DEFAULT_BILLING_GRACE_DAYS;
+  return Math.min(MAX_BILLING_GRACE_DAYS, Math.max(0, Math.trunc(numeric)));
+}
+
+export function isBillingAccessEnforcementEnabled(
+  value: string | boolean | null | undefined = process.env.BILLING_ACCESS_ENFORCEMENT,
+): boolean {
+  if (typeof value === 'boolean') return value;
+  return String(value ?? '').trim().toLowerCase() === 'true';
+}
+
+function parseBillingInstant(value: Date | string | null | undefined): Date | null {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export async function loadBillingAccessSnapshot(accountId: string): Promise<BillingAccessSnapshot> {
+  if (!isBillingAccessEnforcementEnabled()) {
+    return { billingStatus: null, billingOverdueSince: null };
+  }
+
+  const [subscription, oldestOverdue] = await Promise.all([
+    db.platformSubscription.findUnique({
+      where: { accountId },
+      select: { status: true },
+    }),
+    db.platformInvoice.findFirst({
+      where: { accountId, status: 'overdue' },
+      orderBy: { dueAt: 'asc' },
+      select: { dueAt: true },
+    }),
+  ]);
+
+  return {
+    billingStatus: subscription?.status ?? null,
+    billingOverdueSince: oldestOverdue?.dueAt ?? null,
+  };
+}
+
 /**
  * Supports both the historical `(restaurantStatus, accountStatus)` signature
  * and the richer commercial lifecycle object. When an Account exists, its
- * trial/contract lifecycle is authoritative. Legacy standalone restaurants
- * without Account hierarchy use Restaurant.status + Restaurant.trialEndsAt.
- * Malformed/empty date strings remain non-blocking for backward compatibility.
+ * trial/contract lifecycle is authoritative. Billing enforcement is deliberately
+ * opt-in so rollout cannot unexpectedly cut existing tenants; when enabled,
+ * past-due access remains available during a bounded grace window.
  */
 export function evaluateSubscriptionAccess(
   inputOrRestaurantStatus: SubscriptionAccessInput | string | null | undefined,
@@ -115,6 +173,25 @@ export function evaluateSubscriptionAccess(
     }
   }
 
+  if (input.billingEnforcementEnabled) {
+    if (input.billingStatus === 'paused' || input.billingStatus === 'cancelled') {
+      return { allowed: false, code: 'ACCOUNT_BILLING_UNAVAILABLE' };
+    }
+
+    if (input.billingStatus === 'past_due') {
+      const overdueSince = parseBillingInstant(input.billingOverdueSince);
+      // Never cut access from status alone: require a concrete overdue invoice
+      // timestamp so stale/manual status values cannot create an outage.
+      if (overdueSince) {
+        const graceDays = getBillingAccessGraceDays(input.billingGraceDays);
+        const graceEnd = overdueSince.getTime() + graceDays * 24 * 60 * 60 * 1000;
+        if (now.getTime() > graceEnd) {
+          return { allowed: false, code: 'ACCOUNT_BILLING_PAST_DUE' };
+        }
+      }
+    }
+  }
+
   return { allowed: true };
 }
 
@@ -127,6 +204,7 @@ export async function canAccessRestaurantSubscription(restaurantId: string): Pro
         trialEndsAt: true,
         account: {
           select: {
+            id: true,
             status: true,
             trialEndsAt: true,
             contractEndDate: true,
@@ -137,6 +215,10 @@ export async function canAccessRestaurantSubscription(restaurantId: string): Pro
 
     if (!restaurant) return false;
     const hasAccount = Boolean(restaurant.account);
+    const billing = restaurant.account
+      ? await loadBillingAccessSnapshot(restaurant.account.id)
+      : { billingStatus: null, billingOverdueSince: null };
+
     return evaluateSubscriptionAccess({
       restaurantStatus: restaurant.status,
       accountStatus: restaurant.account?.status ?? null,
@@ -145,6 +227,10 @@ export async function canAccessRestaurantSubscription(restaurantId: string): Pro
         : restaurant.trialEndsAt ?? null,
       contractEndDate: restaurant.account?.contractEndDate ?? null,
       contractGraceDays: normalizeGraceDays(process.env.COMMERCIAL_CONTRACT_GRACE_DAYS),
+      billingStatus: billing.billingStatus,
+      billingOverdueSince: billing.billingOverdueSince,
+      billingGraceDays: getBillingAccessGraceDays(),
+      billingEnforcementEnabled: isBillingAccessEnforcementEnabled(),
     }).allowed;
   } catch (error) {
     console.error('[subscription-access] Failed to verify subscription state:', error);

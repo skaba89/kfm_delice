@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { db, dbReady } from '@/lib/db';
+import { invalidateTenantCache } from '@/lib/tenant';
 import {
   assertAccountCanIssueInvoice,
   assertSubscriptionCanIssueInvoice,
@@ -31,6 +32,7 @@ export interface BillingCycleResult {
   subscriptionsCancelled: number;
   invoicesMarkedOverdue: number;
   subscriptionsMarkedPastDue: number;
+  subscriptionsRecovered: number;
   cappedSubscriptions: number;
   skipped: BillingCycleSkip[];
 }
@@ -110,7 +112,7 @@ function shouldCancelAtBoundary(subscription: {
   );
 }
 
-async function markOverdueAndPastDue(now: Date) {
+async function reconcileOverdueSubscriptions(now: Date) {
   const overdue = await db.platformInvoice.updateMany({
     where: {
       status: 'open',
@@ -124,20 +126,31 @@ async function markOverdueAndPastDue(now: Date) {
     select: { accountId: true },
   });
   const accountIds = [...new Set(overdueInvoices.map((invoice) => invoice.accountId))];
-  if (accountIds.length === 0) {
-    return { invoicesMarkedOverdue: overdue.count, subscriptionsMarkedPastDue: 0 };
-  }
 
-  const pastDue = await db.platformSubscription.updateMany({
+  const pastDue = accountIds.length > 0
+    ? await db.platformSubscription.updateMany({
+        where: {
+          accountId: { in: accountIds },
+          status: 'active',
+        },
+        data: { status: 'past_due' },
+      })
+    : { count: 0 };
+
+  // Defensive recovery: payment flows recover immediately, but this also heals
+  // historical/stale past_due rows after manual invoice settlement or old data.
+  const recovered = await db.platformSubscription.updateMany({
     where: {
-      accountId: { in: accountIds },
-      status: 'active',
+      status: 'past_due',
+      ...(accountIds.length > 0 ? { accountId: { notIn: accountIds } } : {}),
     },
-    data: { status: 'past_due' },
+    data: { status: 'active' },
   });
+
   return {
     invoicesMarkedOverdue: overdue.count,
     subscriptionsMarkedPastDue: pastDue.count,
+    subscriptionsRecovered: recovered.count,
   };
 }
 
@@ -170,6 +183,7 @@ export async function runPlatformBillingCycle(options: {
     subscriptionsCancelled: 0,
     invoicesMarkedOverdue: 0,
     subscriptionsMarkedPastDue: 0,
+    subscriptionsRecovered: 0,
     cappedSubscriptions: 0,
     skipped: [],
   };
@@ -296,8 +310,18 @@ export async function runPlatformBillingCycle(options: {
     }
   }
 
-  const overdue = await markOverdueAndPastDue(now);
-  result.invoicesMarkedOverdue = overdue.invoicesMarkedOverdue;
-  result.subscriptionsMarkedPastDue = overdue.subscriptionsMarkedPastDue;
+  const reconciliation = await reconcileOverdueSubscriptions(now);
+  result.invoicesMarkedOverdue = reconciliation.invoicesMarkedOverdue;
+  result.subscriptionsMarkedPastDue = reconciliation.subscriptionsMarkedPastDue;
+  result.subscriptionsRecovered = reconciliation.subscriptionsRecovered;
+
+  if (
+    result.subscriptionsCancelled > 0
+    || result.subscriptionsMarkedPastDue > 0
+    || result.subscriptionsRecovered > 0
+  ) {
+    invalidateTenantCache();
+  }
+
   return result;
 }

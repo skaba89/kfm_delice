@@ -3,15 +3,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   authenticatePlatformAdmin: vi.fn(),
   logAudit: vi.fn(),
+  invalidateTenantCache: vi.fn(),
   accountFindUnique: vi.fn(),
   subscriptionFindFirst: vi.fn(),
+  subscriptionFindUnique: vi.fn(),
   subscriptionCreate: vi.fn(),
   subscriptionUpdate: vi.fn(),
+  subscriptionUpdateMany: vi.fn(),
   paymentFindUnique: vi.fn(),
   paymentCreate: vi.fn(),
   invoiceFindUnique: vi.fn(),
   invoiceUpdateMany: vi.fn(),
   invoiceCreate: vi.fn(),
+  invoiceCount: vi.fn(),
   transaction: vi.fn(),
 }));
 
@@ -34,6 +38,10 @@ vi.mock('@/lib/audit', () => ({
   logAudit: mocks.logAudit,
 }));
 
+vi.mock('@/lib/tenant', () => ({
+  invalidateTenantCache: mocks.invalidateTenantCache,
+}));
+
 vi.mock('@/lib/db', () => ({
   dbReady: Promise.resolve(),
   bigIntToNumber,
@@ -41,8 +49,10 @@ vi.mock('@/lib/db', () => ({
     account: { findUnique: mocks.accountFindUnique },
     platformSubscription: {
       findFirst: mocks.subscriptionFindFirst,
+      findUnique: mocks.subscriptionFindUnique,
       create: mocks.subscriptionCreate,
       update: mocks.subscriptionUpdate,
+      updateMany: mocks.subscriptionUpdateMany,
     },
     platformPayment: {
       findUnique: mocks.paymentFindUnique,
@@ -52,6 +62,7 @@ vi.mock('@/lib/db', () => ({
       findUnique: mocks.invoiceFindUnique,
       updateMany: mocks.invoiceUpdateMany,
       create: mocks.invoiceCreate,
+      count: mocks.invoiceCount,
     },
     $transaction: mocks.transaction,
   },
@@ -79,7 +90,10 @@ describe('platform SaaS billing API contract', () => {
     mocks.logAudit.mockResolvedValue(undefined);
     mocks.accountFindUnique.mockResolvedValue({ id: 'account-1', plan: 'starter', status: 'active' });
     mocks.subscriptionFindFirst.mockResolvedValue(null);
+    mocks.subscriptionFindUnique.mockResolvedValue(null);
+    mocks.subscriptionUpdateMany.mockResolvedValue({ count: 0 });
     mocks.invoiceFindUnique.mockResolvedValue(null);
+    mocks.invoiceCount.mockResolvedValue(0);
     mocks.subscriptionCreate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
       id: 'subscription-1',
       createdAt: new Date('2026-08-12T00:00:00Z'),
@@ -107,6 +121,11 @@ describe('platform SaaS billing API contract', () => {
       platformInvoice: {
         findUnique: mocks.invoiceFindUnique,
         updateMany: mocks.invoiceUpdateMany,
+        count: mocks.invoiceCount,
+      },
+      platformSubscription: {
+        findUnique: mocks.subscriptionFindUnique,
+        updateMany: mocks.subscriptionUpdateMany,
       },
     }));
   });
@@ -304,6 +323,7 @@ describe('platform SaaS billing API contract', () => {
 
     expect(response.status).toBe(201);
     expect(body.replay).toBe(false);
+    expect(body.subscriptionRecovered).toBe(false);
     expect(mocks.invoiceUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ id: 'invoice-1', amountPaid: 40_000n, status: 'open' }),
       data: expect.objectContaining({ amountPaid: 100_000n, status: 'paid' }),
@@ -315,7 +335,52 @@ describe('platform SaaS billing API contract', () => {
     }));
   });
 
-  it('replays an identical payment idempotency key without a second write or audit', async () => {
+  it('restores a past-due subscription immediately after the last overdue invoice is paid', async () => {
+    mocks.paymentFindUnique.mockResolvedValue(null);
+    mocks.subscriptionFindUnique.mockResolvedValue({ id: 'subscription-1', status: 'past_due' });
+    mocks.subscriptionUpdateMany.mockResolvedValue({ count: 1 });
+    mocks.invoiceCount.mockResolvedValue(0);
+    mocks.invoiceFindUnique
+      .mockResolvedValueOnce({
+        id: 'invoice-1', accountId: 'account-1', currency: 'GNF', total: 100_000n,
+        amountPaid: 40_000n, status: 'overdue',
+      })
+      .mockResolvedValueOnce({
+        id: 'invoice-1', accountId: 'account-1', currency: 'GNF', total: 100_000n,
+        amountPaid: 100_000n, status: 'paid',
+      });
+    mocks.invoiceUpdateMany.mockResolvedValue({ count: 1 });
+    mocks.paymentCreate.mockResolvedValue({
+      id: 'payment-1', accountId: 'account-1', invoiceId: 'invoice-1',
+      amount: 60_000n, currency: 'GNF', status: 'paid', idempotencyKey: 'payment-key-recovery',
+    });
+
+    const response = await recordPayment(
+      request('/api/platform/accounts/account-1/billing/payments', {
+        invoiceId: 'invoice-1',
+        amount: 60000,
+        method: 'bank_transfer',
+        idempotencyKey: 'payment-key-recovery',
+      }, 'POST'),
+      context,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(body.subscriptionRecovered).toBe(true);
+    expect(mocks.subscriptionUpdateMany).toHaveBeenCalledWith({
+      where: { accountId: 'account-1', status: 'past_due' },
+      data: { status: 'active' },
+    });
+    expect(mocks.invalidateTenantCache).toHaveBeenCalledOnce();
+    expect(mocks.logAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'platform_subscription_recovered',
+      entityId: 'subscription-1',
+      accountId: 'account-1',
+    }));
+  });
+
+  it('replays an identical payment idempotency key without a second payment write', async () => {
     mocks.paymentFindUnique.mockResolvedValue({
       id: 'payment-1', accountId: 'account-1', invoiceId: 'invoice-1',
       amount: 60_000n, currency: 'GNF', status: 'paid', idempotencyKey: 'payment-key-0001',

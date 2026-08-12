@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   invoiceCreate: vi.fn(),
   invoiceUpdateMany: vi.fn(),
   invoiceFindMany: vi.fn(),
+  invalidateTenantCache: vi.fn(),
 }));
 
 vi.mock('@/lib/db', () => ({
@@ -27,6 +28,10 @@ vi.mock('@/lib/db', () => ({
       findMany: mocks.invoiceFindMany,
     },
   },
+}));
+
+vi.mock('@/lib/tenant', () => ({
+  invalidateTenantCache: mocks.invalidateTenantCache,
 }));
 
 import {
@@ -145,6 +150,7 @@ describe('platform billing cycle automation', () => {
       where: { id: 'subscription-1' },
       data: { status: 'cancelled', nextBillingAt: null },
     });
+    expect(mocks.invalidateTenantCache).toHaveBeenCalledOnce();
   });
 
   it('never bills a subscription whose stored plan is stale versus Account.plan', async () => {
@@ -170,12 +176,15 @@ describe('platform billing cycle automation', () => {
       { accountId: 'account-1' },
       { accountId: 'account-2' },
     ]);
-    mocks.subscriptionUpdateMany.mockResolvedValue({ count: 2 });
+    mocks.subscriptionUpdateMany
+      .mockResolvedValueOnce({ count: 2 })
+      .mockResolvedValueOnce({ count: 0 });
 
     const result = await runPlatformBillingCycle({ now: new Date('2026-08-12T00:00:00.000Z') });
 
     expect(result.invoicesMarkedOverdue).toBe(2);
     expect(result.subscriptionsMarkedPastDue).toBe(2);
+    expect(result.subscriptionsRecovered).toBe(0);
     expect(mocks.subscriptionUpdateMany).toHaveBeenCalledWith({
       where: {
         accountId: { in: ['account-1', 'account-2'] },
@@ -183,6 +192,23 @@ describe('platform billing cycle automation', () => {
       },
       data: { status: 'past_due' },
     });
+    expect(mocks.invalidateTenantCache).toHaveBeenCalledOnce();
+  });
+
+  it('recovers stale past_due subscriptions when no overdue invoice remains', async () => {
+    mocks.subscriptionFindMany.mockResolvedValue([]);
+    mocks.invoiceFindMany.mockResolvedValue([]);
+    mocks.subscriptionUpdateMany.mockResolvedValueOnce({ count: 3 });
+
+    const result = await runPlatformBillingCycle({ now: new Date('2026-08-12T00:00:00.000Z') });
+
+    expect(result.subscriptionsMarkedPastDue).toBe(0);
+    expect(result.subscriptionsRecovered).toBe(3);
+    expect(mocks.subscriptionUpdateMany).toHaveBeenCalledWith({
+      where: { status: 'past_due' },
+      data: { status: 'active' },
+    });
+    expect(mocks.invalidateTenantCache).toHaveBeenCalledOnce();
   });
 
   it('caps catch-up work and leaves remaining periods for a later execution', async () => {
