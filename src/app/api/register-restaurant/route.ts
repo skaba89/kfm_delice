@@ -7,6 +7,7 @@ import { validatePassword } from '@/lib/password-policy';
 import { rateLimit } from '@/lib/rate-limit';
 import { generateSlug, ensureUniqueSlug } from '@/lib/tenant';
 import {
+  getPlanMonthlyPriceGnf,
   getPlanQuotaDefaults,
   type CommercialPlan,
 } from '@/lib/commercial-plan-catalog';
@@ -16,13 +17,21 @@ import { z } from 'zod';
 // Restaurant Registration / Account-first SaaS onboarding API
 // Public registration remains disabled by default. If explicitly enabled,
 // the server — never the client — chooses the trial plan and creates the
-// complete Account + principal Restaurant + Admin + Config hierarchy atomically.
+// complete Account + principal Restaurant + Admin + Config + Billing hierarchy
+// atomically. No automatic invoicing/charge is scheduled during the trial.
 // ────────────────────────────────────────────────────────────────
 
 const PUBLIC_TRIAL_PLANS = new Set<CommercialPlan>(['free', 'starter', 'pro']);
 const DEFAULT_PUBLIC_TRIAL_PLAN: CommercialPlan = 'starter';
 const DEFAULT_PUBLIC_TRIAL_DAYS = 14;
 const MAX_PUBLIC_TRIAL_DAYS = 60;
+
+class PublicRegistrationConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PublicRegistrationConfigurationError';
+  }
+}
 
 const registerRestaurantSchema = z.object({
   restaurantName: z.string().trim().min(2, 'Nom du restaurant requis (min 2 caractères)').max(120),
@@ -46,8 +55,8 @@ const registerRestaurantSchema = z.object({
 function getPublicRegistrationTrialPlan(): CommercialPlan {
   const configured = (process.env.PUBLIC_REGISTRATION_TRIAL_PLAN || DEFAULT_PUBLIC_TRIAL_PLAN).trim().toLowerCase();
   if (!PUBLIC_TRIAL_PLANS.has(configured as CommercialPlan)) {
-    throw new Error(
-      'PUBLIC_REGISTRATION_TRIAL_PLAN must be one of: free, starter, pro. Enterprise/custom are not permitted for public signup.',
+    throw new PublicRegistrationConfigurationError(
+      'PUBLIC_REGISTRATION_TRIAL_PLAN doit être free, starter ou pro. Enterprise/custom sont interdits pour une inscription publique.',
     );
   }
   return configured as CommercialPlan;
@@ -58,7 +67,9 @@ function getPublicRegistrationTrialDays(): number {
   if (!raw) return DEFAULT_PUBLIC_TRIAL_DAYS;
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed < 1 || parsed > MAX_PUBLIC_TRIAL_DAYS) {
-    throw new Error(`PUBLIC_REGISTRATION_TRIAL_DAYS must be an integer between 1 and ${MAX_PUBLIC_TRIAL_DAYS}.`);
+    throw new PublicRegistrationConfigurationError(
+      `PUBLIC_REGISTRATION_TRIAL_DAYS doit être un entier entre 1 et ${MAX_PUBLIC_TRIAL_DAYS}.`,
+    );
   }
   return parsed;
 }
@@ -107,6 +118,12 @@ export async function POST(request: Request) {
     const trialPlan = getPublicRegistrationTrialPlan();
     const trialDays = getPublicRegistrationTrialDays();
     const quotaDefaults = getPlanQuotaDefaults(trialPlan);
+    const monthlyPrice = getPlanMonthlyPriceGnf(trialPlan);
+    if (monthlyPrice === null) {
+      throw new PublicRegistrationConfigurationError(
+        'Le plan public sélectionné ne possède pas de tarif catalogue exploitable.',
+      );
+    }
 
     const existingAdmin = await db.admin.findFirst({
       where: { email: data.ownerEmail },
@@ -125,7 +142,9 @@ export async function POST(request: Request) {
     const baseSlug = data.slug || generateSlug(data.restaurantName);
     const slug = await ensureUniqueSlug(baseSlug);
     const hashedPassword = await hashPassword(data.ownerPassword);
-    const trialEndsAt = new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000).toISOString();
+    const trialStartedAt = new Date();
+    const trialEndDate = new Date(trialStartedAt.getTime() + trialDays * 24 * 60 * 60 * 1000);
+    const trialEndsAt = trialEndDate.toISOString();
 
     const result = await db.$transaction(async (tx) => {
       const account = await tx.account.create({
@@ -205,7 +224,24 @@ export async function POST(request: Request) {
         },
       });
 
-      return { account, restaurant, admin };
+      const subscription = await tx.platformSubscription.create({
+        data: {
+          accountId: account.id,
+          plan: trialPlan,
+          billingCycle: 'monthly',
+          status: 'trialing',
+          currency: 'GNF',
+          unitAmount: BigInt(monthlyPrice),
+          currentPeriodStart: trialStartedAt,
+          currentPeriodEnd: trialEndDate,
+          // Deliberately null: public signup grants an evaluation period but does
+          // not constitute consent to automatic recurring billing or collection.
+          nextBillingAt: null,
+          provider: 'manual',
+        },
+      });
+
+      return { account, restaurant, admin, subscription };
     });
 
     await logAudit({
@@ -222,6 +258,8 @@ export async function POST(request: Request) {
         trialDays,
         restaurantId: result.restaurant.id,
         adminId: result.admin.id,
+        subscriptionId: result.subscription.id,
+        subscriptionStatus: result.subscription.status,
       },
       request,
     });
@@ -251,6 +289,14 @@ export async function POST(request: Request) {
         status: result.restaurant.status,
         trialEndsAt: result.restaurant.trialEndsAt,
       },
+      subscription: {
+        id: result.subscription.id,
+        plan: result.subscription.plan,
+        status: result.subscription.status,
+        billingCycle: result.subscription.billingCycle,
+        unitAmount: result.subscription.unitAmount,
+        nextBillingAt: result.subscription.nextBillingAt,
+      },
       admin: {
         id: result.admin.id,
         email: result.admin.email,
@@ -260,6 +306,16 @@ export async function POST(request: Request) {
       token,
     }), { status: 201 });
   } catch (error) {
+    if (error instanceof PublicRegistrationConfigurationError) {
+      console.error('[register-restaurant configuration]', error.message);
+      return NextResponse.json(
+        {
+          error: 'Configuration de l’inscription publique invalide. Contactez l’équipe KFM Delice.',
+          code: 'PUBLIC_REGISTRATION_CONFIGURATION_ERROR',
+        },
+        { status: 503 },
+      );
+    }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       return NextResponse.json(
         {
