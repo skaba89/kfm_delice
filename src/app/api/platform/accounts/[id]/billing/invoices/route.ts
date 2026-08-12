@@ -20,7 +20,7 @@ function sameDate(left: Date | null, right: Date | null): boolean {
   return left?.getTime() === right?.getTime();
 }
 
-function invoiceAuditView(invoice: any) {
+function invoiceView(invoice: any) {
   return bigIntToNumber({
     id: invoice.id,
     accountId: invoice.accountId,
@@ -36,6 +36,8 @@ function invoiceAuditView(invoice: any) {
     status: invoice.status,
     dueAt: invoice.dueAt,
     paidAt: invoice.paidAt,
+    createdAt: invoice.createdAt,
+    updatedAt: invoice.updatedAt,
   });
 }
 
@@ -122,7 +124,7 @@ export async function POST(
     });
     if (existing) {
       assertInvoiceReplayMatches(existing, expectedReplay);
-      return NextResponse.json(bigIntToNumber({ ...existing, replay: true }));
+      return NextResponse.json({ ...invoiceView(existing) as object, replay: true });
     }
 
     assertAccountCanIssueInvoice(account.status);
@@ -177,7 +179,7 @@ export async function POST(
         });
         if (replay) {
           assertInvoiceReplayMatches(replay, expectedReplay);
-          return NextResponse.json(bigIntToNumber({ ...replay, replay: true }));
+          return NextResponse.json({ ...invoiceView(replay) as object, replay: true });
         }
       }
       throw error;
@@ -190,11 +192,11 @@ export async function POST(
       entityType: 'PlatformInvoice',
       entityId: invoice.id,
       accountId: id,
-      after: invoiceAuditView(invoice),
+      after: invoiceView(invoice),
       request,
     });
 
-    return NextResponse.json(bigIntToNumber({ ...invoice, replay: false }), { status: 201 });
+    return NextResponse.json({ ...invoiceView(invoice) as object, replay: false }, { status: 201 });
   } catch (error) {
     if (error instanceof BillingDomainError) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: error.httpStatus });
