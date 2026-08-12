@@ -1,22 +1,30 @@
 /**
- * Mission 10: Prisma schema consistency test
+ * Mission 10: Prisma provider-template consistency test
  *
- * Validates that the PostgreSQL and SQLite schemas are consistent:
- *   - Same model names
+ * Validates that the PostgreSQL and SQLite provider templates are consistent:
+ *   - Same legacy/core model names
  *   - Same field names (excluding type differences like BigInt vs Int)
  *   - Same relations
  *   - Same unique constraints
  *
- * This catches drift between the two schemas that would cause
- * runtime errors when switching providers.
+ * Shared domain models (for example Platform Billing) now live separately in
+ * prisma/models/*.prisma and are loaded with the active prisma/schema.prisma.
+ * This test therefore compares the two provider templates, while dedicated
+ * domain schema tests validate the shared model files.
  */
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
-const SQLITE_SCHEMA = readFileSync(join(process.cwd(), 'prisma/schema.sqlite.prisma'), 'utf-8');
-const POSTGRES_SCHEMA = readFileSync(join(process.cwd(), 'prisma/schema.postgres.prisma'), 'utf-8');
+const SQLITE_SCHEMA = readFileSync(
+  join(process.cwd(), 'prisma/templates/schema.sqlite.template'),
+  'utf-8',
+);
+const POSTGRES_SCHEMA = readFileSync(
+  join(process.cwd(), 'prisma/templates/schema.postgres.template'),
+  'utf-8',
+);
 
 function extractModelNames(schema: string): string[] {
   const matches = schema.matchAll(/^model\s+(\w+)\s*\{/gm);
@@ -31,25 +39,21 @@ function extractModelFields(schema: string, modelName: string): string[] {
   const fields: string[] = [];
   for (const line of body.split('\n')) {
     const trimmed = line.trim();
-    // Skip comments, directives, relations
     if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('@@') || trimmed.startsWith('}')) continue;
-    // Match field declarations: fieldName Type ...
     const fieldMatch = trimmed.match(/^(\w+)\s+/);
-    if (fieldMatch) {
-      fields.push(fieldMatch[1]);
-    }
+    if (fieldMatch) fields.push(fieldMatch[1]);
   }
   return fields.sort();
 }
 
-describe('Mission 5: Prisma schema consistency (SQLite vs PostgreSQL)', () => {
-  it('should have the same model names in both schemas', () => {
+describe('Mission 5: Prisma provider consistency (SQLite vs PostgreSQL)', () => {
+  it('should have the same core model names in both provider templates', () => {
     const sqliteModels = extractModelNames(SQLITE_SCHEMA);
     const postgresModels = extractModelNames(POSTGRES_SCHEMA);
     expect(sqliteModels).toEqual(postgresModels);
   });
 
-  it('should have all 7 new Mission models', () => {
+  it('should have all 7 Mission models in both provider templates', () => {
     const models = extractModelNames(SQLITE_SCHEMA);
     const requiredNewModels = [
       'OrderItem',
@@ -60,9 +64,7 @@ describe('Mission 5: Prisma schema consistency (SQLite vs PostgreSQL)', () => {
       'RefreshToken',
       'RevokedToken',
     ];
-    for (const model of requiredNewModels) {
-      expect(models).toContain(model);
-    }
+    for (const model of requiredNewModels) expect(models).toContain(model);
   });
 
   it('should have tokenVersion on Admin in both schemas', () => {
@@ -82,17 +84,13 @@ describe('Mission 5: Prisma schema consistency (SQLite vs PostgreSQL)', () => {
   it('should have session security fields on PlatformAdmin in both schemas', () => {
     const sqliteFields = extractModelFields(SQLITE_SCHEMA, 'PlatformAdmin');
     const postgresFields = extractModelFields(POSTGRES_SCHEMA, 'PlatformAdmin');
-    expect(sqliteFields).toContain('tokenVersion');
-    expect(sqliteFields).toContain('mustChangePassword');
-    expect(sqliteFields).toContain('loginAttempts');
-    expect(sqliteFields).toContain('lockedUntil');
-    expect(postgresFields).toContain('tokenVersion');
-    expect(postgresFields).toContain('mustChangePassword');
-    expect(postgresFields).toContain('loginAttempts');
-    expect(postgresFields).toContain('lockedUntil');
+    for (const field of ['tokenVersion', 'mustChangePassword', 'loginAttempts', 'lockedUntil']) {
+      expect(sqliteFields).toContain(field);
+      expect(postgresFields).toContain(field);
+    }
   });
 
-  it('should have orderItems relation on Order in both schemas', () => {
+  it('should have orderItems and idempotencyKey relations on Order in both schemas', () => {
     const sqliteOrderFields = extractModelFields(SQLITE_SCHEMA, 'Order');
     const postgresOrderFields = extractModelFields(POSTGRES_SCHEMA, 'Order');
     expect(sqliteOrderFields).toContain('orderItems');
@@ -108,23 +106,15 @@ describe('Mission 5: Prisma schema consistency (SQLite vs PostgreSQL)', () => {
     expect(postgresFields).toContain('favorites');
   });
 
-  it('should have the same unique constraints on IdempotencyKey', () => {
-    expect(SQLITE_SCHEMA).toContain('@@unique([restaurantId, key])');
-    expect(POSTGRES_SCHEMA).toContain('@@unique([restaurantId, key])');
-  });
-
-  it('should have the same unique constraints on CustomerFavorite', () => {
-    expect(SQLITE_SCHEMA).toContain('@@unique([customerId, menuItemId])');
-    expect(POSTGRES_SCHEMA).toContain('@@unique([customerId, menuItemId])');
-  });
-
-  it('should have the same unique constraints on WebhookEvent', () => {
-    expect(SQLITE_SCHEMA).toContain('@@unique([provider, providerEventId])');
-    expect(POSTGRES_SCHEMA).toContain('@@unique([provider, providerEventId])');
-  });
-
-  it('should have the same unique constraints on PromotionRedemption', () => {
-    expect(SQLITE_SCHEMA).toContain('@@unique([orderId])');
-    expect(POSTGRES_SCHEMA).toContain('@@unique([orderId])');
+  it('should keep the same important unique constraints', () => {
+    for (const constraint of [
+      '@@unique([restaurantId, key])',
+      '@@unique([customerId, menuItemId])',
+      '@@unique([provider, providerEventId])',
+      '@@unique([orderId])',
+    ]) {
+      expect(SQLITE_SCHEMA).toContain(constraint);
+      expect(POSTGRES_SCHEMA).toContain(constraint);
+    }
   });
 });
