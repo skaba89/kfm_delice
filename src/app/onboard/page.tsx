@@ -1,92 +1,59 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import { getPlanMonthlyPriceGnf, type CommercialPlan } from "@/lib/commercial-plan-catalog";
 import {
-  ChefHat,
-  Mail,
-  Lock,
-  User,
-  Phone,
-  MapPin,
-  Globe,
   ArrowRight,
-  Loader2,
   Check,
+  ChefHat,
+  Loader2,
+  Lock,
+  Mail,
+  MapPin,
+  Phone,
+  ShieldCheck,
   Sparkles,
+  User,
 } from "lucide-react";
 
-const PLANS = [
-  {
-    id: "free",
-    name: "Gratuit",
-    price: "0 GNF",
-    period: "/mois",
-    description: "Pour démarrer votre activité",
-    features: [
-      "Menu digital",
-      "Commandes en ligne",
-      "Réservations",
-      "Avis clients",
-      "Point de vente (POS)",
-      "1 utilisateur admin",
-    ],
-  },
-  {
-    id: "starter",
-    name: "Starter",
-    price: "50 000 GNF",
-    period: "/mois",
-    description: "Pour les restaurants en croissance",
-    features: [
-      "Tout du plan Gratuit",
-      "Programme fidélité",
-      "Factures",
-      "Jusqu'à 3 utilisateurs",
-      "Support prioritaire",
-    ],
-  },
-  {
-    id: "pro",
-    name: "Pro",
-    price: "150 000 GNF",
-    period: "/mois",
-    description: "Pour les restaurants établis",
-    popular: true,
-    features: [
-      "Tout du plan Starter",
-      "Devis & dépenses",
-      "Gestion du personnel",
-      "Gestion livreurs",
-      "Jusqu'à 10 utilisateurs",
-      "Analytics avancés",
-    ],
-  },
-  {
-    id: "enterprise",
-    name: "Entreprise",
-    price: "Sur mesure",
-    period: "",
-    description: "Pour les chaînes & franchises",
-    features: [
-      "Tout du plan Pro",
-      "Domaine personnalisé",
-      "Accès API",
-      "Marque blanche",
-      "Utilisateurs illimités",
-      "Support dédié",
-    ],
-  },
-];
+interface PublicRegistrationSettings {
+  enabled: boolean;
+  trialPlan: "starter" | "pro";
+  trialDays: number;
+}
+
+const PLAN_LABELS: Record<"starter" | "pro", string> = {
+  starter: "Starter",
+  pro: "Pro",
+};
+
+const TRIAL_FEATURES: Record<"starter" | "pro", string[]> = {
+  starter: [
+    "Menu digital et commandes en ligne",
+    "Réservations et avis clients",
+    "Point de vente (POS)",
+    "Programme fidélité",
+    "Factures",
+  ],
+  pro: [
+    "Tout le plan Starter",
+    "Devis et dépenses",
+    "Gestion du personnel et des livreurs",
+    "Analytics avancés",
+    "Exports",
+  ],
+};
 
 export default function OnboardPage() {
   const router = useRouter();
   const { loginAdmin } = useAuth();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [settingsLoading, setSettingsLoading] = useState(true);
+  const [settings, setSettings] = useState<PublicRegistrationSettings | null>(null);
   const [error, setError] = useState("");
-  const [selectedPlan, setSelectedPlan] = useState("free");
   const [form, setForm] = useState({
     restaurantName: "",
     phone: "",
@@ -100,16 +67,44 @@ export default function OnboardPage() {
     currency: "GNF",
   });
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/register-restaurant", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("registration settings unavailable");
+        return response.json() as Promise<PublicRegistrationSettings>;
+      })
+      .then((data) => {
+        if (!cancelled) setSettings(data);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Impossible de charger la configuration d'inscription.");
+      })
+      .finally(() => {
+        if (!cancelled) setSettingsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const trialPrice = useMemo(() => {
+    if (!settings) return null;
+    return getPlanMonthlyPriceGnf(settings.trialPlan as CommercialPlan);
+  }, [settings]);
+
+  const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    setForm((previous) => ({ ...previous, [event.target.name]: event.target.value }));
   };
 
   const handleSubmit = async () => {
+    if (!settings?.enabled) return;
     setLoading(true);
     setError("");
 
     try {
-      const res = await fetch("/api/register-restaurant", {
+      const response = await fetch("/api/register-restaurant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -123,18 +118,15 @@ export default function OnboardPage() {
           ownerPassword: form.ownerPassword,
           ownerPhone: form.ownerPhone,
           currency: form.currency,
-          plan: selectedPlan,
         }),
       });
 
-      const data = await res.json();
-
-      if (!res.ok) {
+      const data = await response.json();
+      if (!response.ok) {
         setError(data.error || "Erreur lors de l'inscription");
         return;
       }
 
-      // Log in the new admin
       loginAdmin({
         token: data.token,
         id: data.admin.id,
@@ -142,8 +134,6 @@ export default function OnboardPage() {
         name: data.admin.name,
         role: data.admin.role,
       });
-
-      // Redirect to admin dashboard
       router.push("/admin");
     } catch {
       setError("Erreur de connexion. Veuillez réessayer.");
@@ -152,14 +142,21 @@ export default function OnboardPage() {
     }
   };
 
+  if (settingsLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-amber-50 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-orange-600 animate-spin" />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-amber-50">
-      {/* Header */}
       <header className="border-b bg-white/80 backdrop-blur-sm sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <ChefHat className="w-8 h-8 text-orange-600" />
-            <span className="text-xl font-bold text-gray-900">RestaurantPro</span>
+            <span className="text-xl font-bold text-gray-900">KFM Delice</span>
           </div>
           <p className="text-sm text-gray-500">
             Déjà inscrit ?{" "}
@@ -171,329 +168,235 @@ export default function OnboardPage() {
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-12">
-        {/* Progress */}
-        <div className="flex items-center justify-center gap-4 mb-12">
-          {[1, 2, 3].map((s) => (
-            <div key={s} className="flex items-center gap-2">
-              <div
-                className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
-                  step >= s
-                    ? "bg-orange-600 text-white"
-                    : "bg-gray-200 text-gray-500"
-                }`}
-              >
-                {step > s ? <Check className="w-5 h-5" /> : s}
-              </div>
-              <span className={`text-sm ${step >= s ? "text-orange-600 font-medium" : "text-gray-400"}`}>
-                {s === 1 ? "Restaurant" : s === 2 ? "Compte" : "Forfait"}
-              </span>
-              {s < 3 && <div className={`w-16 h-0.5 ${step > s ? "bg-orange-600" : "bg-gray-200"}`} />}
-            </div>
-          ))}
-        </div>
-
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-center">
-            {error}
-          </div>
-        )}
-
-        {/* Step 1: Restaurant Info */}
-        {step === 1 && (
-          <div className="max-w-lg mx-auto">
-            <h2 className="text-2xl font-bold text-gray-900 mb-2 text-center">
-              Créez votre restaurant
-            </h2>
-            <p className="text-gray-500 text-center mb-8">
-              Commencez par renseigner les informations de votre restaurant
+        {!settings?.enabled ? (
+          <div className="max-w-xl mx-auto bg-white border border-orange-100 rounded-2xl shadow-sm p-8 text-center">
+            <ShieldCheck className="w-12 h-12 text-orange-600 mx-auto mb-4" />
+            <h1 className="text-2xl font-bold text-gray-900">Inscriptions sur invitation</h1>
+            <p className="mt-3 text-gray-600">
+              L'inscription publique n'est pas ouverte pour le moment. Contactez l'équipe KFM Delice pour créer votre compte restaurant.
             </p>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Nom du restaurant *
-                </label>
-                <div className="relative">
-                  <ChefHat className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input
-                    type="text"
-                    name="restaurantName"
-                    value={form.restaurantName}
-                    onChange={handleChange}
-                    className="w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                    placeholder="Mon Restaurant"
-                    required
-                  />
+            <a
+              href="/contact"
+              className="inline-flex mt-6 px-5 py-3 bg-orange-600 text-white rounded-lg font-medium hover:bg-orange-700"
+            >
+              Contacter KFM Delice
+            </a>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-center gap-3 sm:gap-4 mb-12">
+              {[1, 2, 3].map((item) => (
+                <div key={item} className="flex items-center gap-2">
+                  <div
+                    className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
+                      step >= item ? "bg-orange-600 text-white" : "bg-gray-200 text-gray-500"
+                    }`}
+                  >
+                    {step > item ? <Check className="w-5 h-5" /> : item}
+                  </div>
+                  <span className={`hidden sm:inline text-sm ${step >= item ? "text-orange-600 font-medium" : "text-gray-400"}`}>
+                    {item === 1 ? "Restaurant" : item === 2 ? "Compte" : "Essai"}
+                  </span>
+                  {item < 3 && <div className={`w-8 sm:w-16 h-0.5 ${step > item ? "bg-orange-600" : "bg-gray-200"}`} />}
+                </div>
+              ))}
+            </div>
+
+            {error && (
+              <div className="max-w-2xl mx-auto mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-center">
+                {error}
+              </div>
+            )}
+
+            {step === 1 && (
+              <div className="max-w-lg mx-auto">
+                <h2 className="text-2xl font-bold text-gray-900 mb-2 text-center">Créez votre restaurant</h2>
+                <p className="text-gray-500 text-center mb-8">Renseignez les informations principales de votre établissement.</p>
+                <div className="space-y-4">
+                  <Field label="Nom du restaurant *" icon={<ChefHat className="w-5 h-5" />}>
+                    <input name="restaurantName" value={form.restaurantName} onChange={handleChange} maxLength={120} className="field-input pl-10" placeholder="Mon Restaurant" required />
+                  </Field>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Field label="Téléphone *" icon={<Phone className="w-5 h-5" />}>
+                      <input type="tel" name="phone" value={form.phone} onChange={handleChange} maxLength={40} className="field-input pl-10" placeholder="+224 622 00 00 00" required />
+                    </Field>
+                    <Field label="WhatsApp">
+                      <input type="tel" name="whatsapp" value={form.whatsapp} onChange={handleChange} maxLength={40} className="field-input" placeholder="Même que téléphone" />
+                    </Field>
+                  </div>
+                  <Field label="Email du restaurant" icon={<Mail className="w-5 h-5" />}>
+                    <input type="email" name="email" value={form.email} onChange={handleChange} maxLength={254} className="field-input pl-10" placeholder="contact@monrestaurant.com" />
+                  </Field>
+                  <Field label="Adresse" icon={<MapPin className="w-5 h-5" />}>
+                    <input name="address" value={form.address} onChange={handleChange} maxLength={300} className="field-input pl-10" placeholder="Conakry, Guinée" />
+                  </Field>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Devise du restaurant</label>
+                    <select name="currency" value={form.currency} onChange={handleChange} className="field-input">
+                      <option value="GNF">GNF - Franc guinéen</option>
+                      <option value="XOF">XOF - Franc CFA</option>
+                      <option value="EUR">EUR - Euro</option>
+                      <option value="USD">USD - Dollar américain</option>
+                    </select>
+                  </div>
+                  <button onClick={() => setStep(2)} disabled={!form.restaurantName.trim() || !form.phone.trim()} className="primary-button w-full">
+                    Continuer <ArrowRight className="w-5 h-5" />
+                  </button>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Téléphone *
-                  </label>
-                  <div className="relative">
-                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                    <input
-                      type="tel"
-                      name="phone"
-                      value={form.phone}
-                      onChange={handleChange}
-                      className="w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                      placeholder="+224 622 00 00 00"
-                      required
-                    />
+            )}
+
+            {step === 2 && (
+              <div className="max-w-lg mx-auto">
+                <h2 className="text-2xl font-bold text-gray-900 mb-2 text-center">Votre compte administrateur</h2>
+                <p className="text-gray-500 text-center mb-8">Ce compte sera propriétaire du compte SaaS et du restaurant principal.</p>
+                <div className="space-y-4">
+                  <Field label="Votre nom complet *" icon={<User className="w-5 h-5" />}>
+                    <input name="ownerName" value={form.ownerName} onChange={handleChange} maxLength={120} className="field-input pl-10" placeholder="Amadou Diallo" required />
+                  </Field>
+                  <Field label="Votre email *" icon={<Mail className="w-5 h-5" />}>
+                    <input type="email" name="ownerEmail" value={form.ownerEmail} onChange={handleChange} maxLength={254} className="field-input pl-10" placeholder="amadou@email.com" required />
+                  </Field>
+                  <Field label="Mot de passe *" icon={<Lock className="w-5 h-5" />}>
+                    <input type="password" name="ownerPassword" value={form.ownerPassword} onChange={handleChange} maxLength={128} minLength={12} className="field-input pl-10" placeholder="12 caractères minimum" required />
+                  </Field>
+                  <p className="text-xs text-gray-500 -mt-2">
+                    Utilisez au moins 12 caractères avec majuscule, minuscule, chiffre et caractère spécial.
+                  </p>
+                  <Field label="Votre téléphone" icon={<Phone className="w-5 h-5" />}>
+                    <input type="tel" name="ownerPhone" value={form.ownerPhone} onChange={handleChange} maxLength={40} className="field-input pl-10" placeholder="+224 622 00 00 00" />
+                  </Field>
+                  <div className="flex gap-4">
+                    <button onClick={() => setStep(1)} className="secondary-button flex-1">Retour</button>
+                    <button
+                      onClick={() => setStep(3)}
+                      disabled={!form.ownerName.trim() || !form.ownerEmail.trim() || form.ownerPassword.length < 12}
+                      className="primary-button flex-1"
+                    >
+                      Continuer <ArrowRight className="w-5 h-5" />
+                    </button>
                   </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    WhatsApp
-                  </label>
-                  <input
-                    type="tel"
-                    name="whatsapp"
-                    value={form.whatsapp}
-                    onChange={handleChange}
-                    className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                    placeholder="Même que téléphone"
-                  />
-                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Email du restaurant
-                </label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input
-                    type="email"
-                    name="email"
-                    value={form.email}
-                    onChange={handleChange}
-                    className="w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                    placeholder="contact@monrestaurant.com"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Adresse
-                </label>
-                <div className="relative">
-                  <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input
-                    type="text"
-                    name="address"
-                    value={form.address}
-                    onChange={handleChange}
-                    className="w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                    placeholder="Conakry, Guinée"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Devise
-                </label>
-                <select
-                  name="currency"
-                  value={form.currency}
-                  onChange={handleChange}
-                  className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                >
-                  <option value="GNF">GNF - Franc guinéen</option>
-                  <option value="XOF">XOF - Franc CFA</option>
-                  <option value="EUR">EUR - Euro</option>
-                  <option value="USD">USD - Dollar américain</option>
-                </select>
-              </div>
-              <button
-                onClick={() => setStep(2)}
-                disabled={!form.restaurantName || !form.phone}
-                className="w-full py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Continuer <ArrowRight className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-        )}
+            )}
 
-        {/* Step 2: Owner Account */}
-        {step === 2 && (
-          <div className="max-w-lg mx-auto">
-            <h2 className="text-2xl font-bold text-gray-900 mb-2 text-center">
-              Votre compte administrateur
-            </h2>
-            <p className="text-gray-500 text-center mb-8">
-              Créez votre compte pour gérer votre restaurant
-            </p>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Votre nom complet *
-                </label>
-                <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input
-                    type="text"
-                    name="ownerName"
-                    value={form.ownerName}
-                    onChange={handleChange}
-                    className="w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                    placeholder="Amadou Diallo"
-                    required
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Votre email *
-                </label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input
-                    type="email"
-                    name="ownerEmail"
-                    value={form.ownerEmail}
-                    onChange={handleChange}
-                    className="w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                    placeholder="amadou@email.com"
-                    required
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Mot de passe * (min 6 caractères)
-                </label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input
-                    type="password"
-                    name="ownerPassword"
-                    value={form.ownerPassword}
-                    onChange={handleChange}
-                    className="w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                    placeholder="••••••"
-                    required
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Votre téléphone
-                </label>
-                <div className="relative">
-                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input
-                    type="tel"
-                    name="ownerPhone"
-                    value={form.ownerPhone}
-                    onChange={handleChange}
-                    className="w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                    placeholder="+224 622 00 00 00"
-                  />
-                </div>
-              </div>
-              <div className="flex gap-4">
-                <button
-                  onClick={() => setStep(1)}
-                  className="flex-1 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
-                >
-                  Retour
-                </button>
-                <button
-                  onClick={() => setStep(3)}
-                  disabled={!form.ownerName || !form.ownerEmail || !form.ownerPassword || form.ownerPassword.length < 6}
-                  className="flex-1 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Continuer <ArrowRight className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+            {step === 3 && settings && (
+              <div className="max-w-2xl mx-auto">
+                <h2 className="text-2xl font-bold text-gray-900 mb-2 text-center">Votre essai KFM Delice</h2>
+                <p className="text-gray-500 text-center mb-8">
+                  Le forfait d'essai est défini par KFM Delice et ne peut pas être modifié depuis le navigateur.
+                </p>
 
-        {/* Step 3: Plan Selection */}
-        {step === 3 && (
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-2 text-center">
-              Choisissez votre forfait
-            </h2>
-            <p className="text-gray-500 text-center mb-8">
-              14 jours d&apos;essai gratuit pour tous les forfaits
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-              {PLANS.map((plan) => (
-                <button
-                  key={plan.id}
-                  onClick={() => setSelectedPlan(plan.id)}
-                  className={`relative p-6 rounded-xl border-2 text-left transition-all ${
-                    selectedPlan === plan.id
-                      ? "border-orange-600 bg-orange-50 shadow-lg"
-                      : "border-gray-200 bg-white hover:border-orange-300"
-                  }`}
-                >
-                  {plan.popular && (
-                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-orange-600 text-white text-xs font-bold rounded-full flex items-center gap-1">
-                      <Sparkles className="w-3 h-3" /> Populaire
+                <div className="bg-white rounded-2xl border-2 border-orange-200 shadow-lg p-7">
+                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                    <div>
+                      <div className="inline-flex items-center gap-2 px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-sm font-semibold">
+                        <Sparkles className="w-4 h-4" /> {settings.trialDays} jours d'essai
+                      </div>
+                      <h3 className="text-2xl font-bold text-gray-900 mt-4">Plan {PLAN_LABELS[settings.trialPlan]}</h3>
+                      <p className="text-gray-500 mt-1">Accès contrôlé pendant la période d'essai.</p>
                     </div>
-                  )}
-                  <h3 className="text-lg font-bold text-gray-900">{plan.name}</h3>
-                  <div className="mt-2">
-                    <span className="text-2xl font-bold text-orange-600">{plan.price}</span>
-                    <span className="text-gray-400 text-sm">{plan.period}</span>
+                    {trialPrice !== null && (
+                      <div className="sm:text-right">
+                        <p className="text-xs uppercase tracking-wide text-gray-400">Tarif catalogue après activation</p>
+                        <p className="text-2xl font-bold text-orange-600">{Number(trialPrice).toLocaleString("fr-FR")} GNF</p>
+                        <p className="text-sm text-gray-400">/ mois</p>
+                      </div>
+                    )}
                   </div>
-                  <p className="text-sm text-gray-500 mt-2">{plan.description}</p>
-                  <ul className="mt-4 space-y-2">
-                    {plan.features.map((f) => (
-                      <li key={f} className="flex items-center gap-2 text-sm text-gray-700">
-                        <Check className="w-4 h-4 text-green-500 flex-shrink-0" /> {f}
+
+                  <ul className="grid sm:grid-cols-2 gap-3 mt-6">
+                    {TRIAL_FEATURES[settings.trialPlan].map((feature) => (
+                      <li key={feature} className="flex items-start gap-2 text-sm text-gray-700">
+                        <Check className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" /> {feature}
                       </li>
                     ))}
                   </ul>
-                  {selectedPlan === plan.id && (
-                    <div className="mt-4 text-center">
-                      <span className="inline-block px-4 py-1 bg-orange-600 text-white text-sm font-medium rounded-full">
-                        Sélectionné
-                      </span>
-                    </div>
-                  )}
-                </button>
-              ))}
-            </div>
-            <div className="flex gap-4 max-w-lg mx-auto">
-              <button
-                onClick={() => setStep(2)}
-                className="flex-1 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
-              >
-                Retour
-              </button>
-              <button
-                onClick={handleSubmit}
-                disabled={loading}
-                className="flex-1 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-medium flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin" /> Création...
-                  </>
-                ) : (
-                  <>
-                    Créer mon restaurant <Sparkles className="w-5 h-5" />
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
+
+                  <div className="mt-6 rounded-xl bg-green-50 border border-green-200 p-4 text-sm text-green-800">
+                    <strong>Aucune facturation automatique pendant l'essai.</strong> À son terme, le compte doit être converti explicitement avant toute facturation payante.
+                  </div>
+                </div>
+
+                <div className="flex gap-4 mt-6">
+                  <button onClick={() => setStep(2)} className="secondary-button flex-1">Retour</button>
+                  <button onClick={handleSubmit} disabled={loading} className="primary-button flex-1">
+                    {loading ? <><Loader2 className="w-5 h-5 animate-spin" /> Création...</> : <><ShieldCheck className="w-5 h-5" /> Démarrer mon essai</>}
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </main>
 
-      {/* Footer */}
       <footer className="border-t bg-white mt-16 py-8">
         <div className="max-w-7xl mx-auto px-4 text-center text-sm text-gray-500">
-          <p>RestaurantPro — Plateforme SaaS de gestion pour restaurants</p>
-          <p className="mt-1">Essai gratuit 14 jours • Annulation à tout moment</p>
+          <p>KFM Delice — Plateforme SaaS de gestion pour restaurants</p>
+          {settings?.enabled && <p className="mt-1">Essai contrôlé {settings.trialDays} jours • Activation payante explicite</p>}
         </div>
       </footer>
+
+      <style jsx>{`
+        :global(.field-input) {
+          width: 100%;
+          padding-top: 0.75rem;
+          padding-bottom: 0.75rem;
+          padding-right: 1rem;
+          border: 1px solid rgb(209 213 219);
+          border-radius: 0.5rem;
+          background: white;
+        }
+        :global(.field-input:focus) {
+          outline: none;
+          border-color: rgb(249 115 22);
+          box-shadow: 0 0 0 2px rgb(249 115 22 / 0.2);
+        }
+        :global(.primary-button) {
+          min-height: 3rem;
+          padding: 0.75rem 1rem;
+          border-radius: 0.5rem;
+          background: rgb(234 88 12);
+          color: white;
+          font-weight: 500;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.5rem;
+        }
+        :global(.primary-button:hover:not(:disabled)) { background: rgb(194 65 12); }
+        :global(.primary-button:disabled) { opacity: 0.5; cursor: not-allowed; }
+        :global(.secondary-button) {
+          min-height: 3rem;
+          padding: 0.75rem 1rem;
+          border: 1px solid rgb(209 213 219);
+          border-radius: 0.5rem;
+          color: rgb(55 65 81);
+          background: white;
+          font-weight: 500;
+        }
+        :global(.secondary-button:hover) { background: rgb(249 250 251); }
+      `}</style>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  icon,
+  children,
+}: {
+  label: string;
+  icon?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+      <div className="relative">
+        {icon && <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">{icon}</span>}
+        {children}
+      </div>
     </div>
   );
 }
