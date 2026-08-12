@@ -44,6 +44,25 @@ export async function PATCH(
       throw new BillingDomainError('BILLING_INVALID_CYCLE', 'Cycle de facturation invalide.');
     }
 
+    if (account.plan !== 'custom' && input.customUnitAmount !== undefined) {
+      throw new BillingDomainError(
+        'BILLING_STANDARD_PRICE_AUTHORITATIVE',
+        'Le prix d’un plan standard est défini par le catalogue et ne peut pas être remplacé dans cette API.',
+      );
+    }
+    if (
+      account.plan === 'custom'
+      && existing
+      && input.billingCycle !== undefined
+      && input.billingCycle !== existing.billingCycle
+      && input.customUnitAmount === undefined
+    ) {
+      throw new BillingDomainError(
+        'BILLING_CUSTOM_AMOUNT_REQUIRED',
+        'Un nouveau montant contractuel est requis lors d’un changement de cycle du plan custom.',
+      );
+    }
+
     const { plan, unitAmount } = deriveSubscriptionUnitAmount({
       plan: account.plan,
       billingCycle,
