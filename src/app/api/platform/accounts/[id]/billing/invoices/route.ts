@@ -16,6 +16,8 @@ import {
   validateBillingPeriod,
 } from '@/lib/platform-billing';
 
+const ZERO = BigInt(0);
+
 function sameDate(left: Date | null, right: Date | null): boolean {
   return left?.getTime() === right?.getTime();
 }
@@ -39,6 +41,14 @@ function invoiceView(invoice: any) {
     createdAt: invoice.createdAt,
     updatedAt: invoice.updatedAt,
   });
+}
+
+function invoiceResponse(invoice: any, replay: boolean) {
+  const view = invoiceView(invoice);
+  return {
+    ...(view as Record<string, unknown>),
+    replay,
+  };
 }
 
 function assertInvoiceReplayMatches(
@@ -108,7 +118,7 @@ export async function POST(
     const periodEnd = parseOptionalIsoDate(input.periodEnd, 'periodEnd') ?? null;
     validateBillingPeriod(periodStart, periodEnd);
     const dueAt = parseRequiredIsoDate(input.dueAt, 'dueAt');
-    const tax = input.tax === undefined ? 0n : parseMoneyToBigInt(input.tax);
+    const tax = input.tax === undefined ? ZERO : parseMoneyToBigInt(input.tax);
     const expectedReplay = {
       accountId: id,
       periodStart,
@@ -124,7 +134,7 @@ export async function POST(
     });
     if (existing) {
       assertInvoiceReplayMatches(existing, expectedReplay);
-      return NextResponse.json({ ...invoiceView(existing) as object, replay: true });
+      return NextResponse.json(invoiceResponse(existing, true));
     }
 
     assertAccountCanIssueInvoice(account.status);
@@ -165,7 +175,7 @@ export async function POST(
           subtotal,
           tax,
           total,
-          amountPaid: 0n,
+          amountPaid: ZERO,
           status: 'open',
           dueAt,
           providerInvoiceRef: input.providerInvoiceRef ?? '',
@@ -179,7 +189,7 @@ export async function POST(
         });
         if (replay) {
           assertInvoiceReplayMatches(replay, expectedReplay);
-          return NextResponse.json({ ...invoiceView(replay) as object, replay: true });
+          return NextResponse.json(invoiceResponse(replay, true));
         }
       }
       throw error;
@@ -196,7 +206,7 @@ export async function POST(
       request,
     });
 
-    return NextResponse.json({ ...invoiceView(invoice) as object, replay: false }, { status: 201 });
+    return NextResponse.json(invoiceResponse(invoice, false), { status: 201 });
   } catch (error) {
     if (error instanceof BillingDomainError) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: error.httpStatus });
