@@ -59,14 +59,16 @@ export async function GET(request: Request) {
         _sum: { total: true, amountPaid: true },
         _count: { id: true },
       }),
+      // One row per overdue Account gives an exact global account count while
+      // still transferring far less data than all overdue invoices. Ranking is
+      // performed after outstanding is derived (total - amountPaid), not by
+      // gross invoice total which could mis-rank partially paid accounts.
       db.platformInvoice.groupBy({
         by: ['accountId'],
         where: { status: 'overdue' },
         _sum: { total: true, amountPaid: true },
         _count: { _all: true },
         _min: { dueAt: true },
-        orderBy: { _sum: { total: 'desc' } },
-        take: 25,
       }),
       db.platformInvoice.aggregate({
         where: {
