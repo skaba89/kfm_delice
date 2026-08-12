@@ -73,7 +73,7 @@ const REQUIRED_COLUMNS = {
     'currentPeriodStart', 'currentPeriodEnd', 'nextBillingAt', 'provider',
   ],
   PlatformInvoice: [
-    'accountId', 'subscriptionId', 'number', 'subtotal', 'tax', 'total',
+    'accountId', 'subscriptionId', 'number', 'idempotencyKey', 'subtotal', 'tax', 'total',
     'amountPaid', 'status', 'dueAt', 'paidAt',
   ],
   PlatformPayment: [
