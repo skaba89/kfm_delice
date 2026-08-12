@@ -67,7 +67,7 @@ function toIsoEndOfDay(date: string) {
   return date ? `${date}T23:59:59.000Z` : "";
 }
 
-export function PlatformBilling({ token }: { token: string }) {
+export function PlatformBilling({ token, canWrite }: { token: string; canWrite: boolean }) {
   const [accounts, setAccounts] = useState<PlatformAccountSummary[]>([]);
   const [accountId, setAccountId] = useState("");
   const [snapshot, setSnapshot] = useState<BillingSnapshot | null>(null);
@@ -113,6 +113,7 @@ export function PlatformBilling({ token }: { token: string }) {
       setBillingCycle(body.subscription.billingCycle === "annual" ? "annual" : "monthly");
       setSubscriptionStatus(body.subscription.status || "active");
       if (body.account?.plan === "custom") setCustomAmount(String(body.subscription.unitAmount || ""));
+      else setCustomAmount("");
     } else {
       setBillingCycle("monthly");
       setSubscriptionStatus(body.account?.status === "trial" ? "trialing" : "active");
@@ -143,8 +144,22 @@ export function PlatformBilling({ token }: { token: string }) {
       .finally(() => setLoading(false));
   }, [accountId, fetchBilling]);
 
+  const handleBillingCycleChange = (value: string) => {
+    const nextCycle = value === "annual" ? "annual" : "monthly";
+    if (
+      selectedAccount?.plan === "custom"
+      && snapshot?.subscription
+      && nextCycle !== snapshot.subscription.billingCycle
+    ) {
+      // Force the operator to consciously enter the negotiated amount for the
+      // new cycle instead of silently reusing a monthly amount as annual.
+      setCustomAmount("");
+    }
+    setBillingCycle(nextCycle);
+  };
+
   const saveSubscription = async () => {
-    if (!accountId || !selectedAccount) return;
+    if (!canWrite || !accountId || !selectedAccount) return;
     if (selectedAccount.plan === "custom" && !customAmount.trim()) {
       toast.error("Le plan custom exige un montant contractuel explicite.");
       return;
@@ -176,6 +191,7 @@ export function PlatformBilling({ token }: { token: string }) {
   };
 
   const issueInvoice = async () => {
+    if (!canWrite) return;
     if (!accountId || !invoiceDueDate) {
       toast.error("Renseignez la date d’échéance de la facture.");
       return;
@@ -206,6 +222,7 @@ export function PlatformBilling({ token }: { token: string }) {
   };
 
   const recordPayment = async (invoice: BillingInvoice) => {
+    if (!canWrite) return;
     const amount = paymentAmounts[invoice.id]?.trim() || "";
     if (!amount || Number(amount) <= 0) {
       toast.error("Renseignez un montant de paiement positif.");
@@ -241,6 +258,12 @@ export function PlatformBilling({ token }: { token: string }) {
 
   return (
     <div className="space-y-6">
+      {!canWrite && (
+        <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-300">
+          Lecture seule : les opérations de facturation sont réservées aux super administrateurs plateforme.
+        </div>
+      )}
+
       <div className="flex flex-wrap items-end gap-3">
         <div className="min-w-72 flex-1">
           <Label className="text-gray-300">Compte à facturer</Label>
@@ -263,48 +286,191 @@ export function PlatformBilling({ token }: { token: string }) {
       </div>
 
       {loading ? (
-        <Card className="bg-gray-900 border-white/10"><CardContent className="p-8 text-center text-gray-500"><RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2" />Chargement...</CardContent></Card>
+        <Card className="bg-gray-900 border-white/10">
+          <CardContent className="p-8 text-center text-gray-500">
+            <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2" />Chargement...
+          </CardContent>
+        </Card>
       ) : !selectedAccount ? (
-        <Card className="bg-gray-900 border-white/10"><CardContent className="p-8 text-center text-gray-500">Aucun compte disponible.</CardContent></Card>
+        <Card className="bg-gray-900 border-white/10">
+          <CardContent className="p-8 text-center text-gray-500">Aucun compte disponible.</CardContent>
+        </Card>
       ) : (
         <>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Card className="bg-gray-900 border-white/10"><CardContent className="p-5"><p className="text-xs uppercase text-gray-500">Encours</p><p className="text-2xl font-bold text-white mt-1">{formatGnf(snapshot?.metrics.outstanding)}</p></CardContent></Card>
-            <Card className="bg-gray-900 border-white/10"><CardContent className="p-5"><p className="text-xs uppercase text-gray-500">Factures échues</p><p className="text-2xl font-bold text-white mt-1">{snapshot?.metrics.overdueCount || 0}</p></CardContent></Card>
-            <Card className="bg-gray-900 border-white/10"><CardContent className="p-5"><p className="text-xs uppercase text-gray-500">Total encaissé</p><p className="text-2xl font-bold text-white mt-1">{formatGnf(snapshot?.metrics.totalCollected)}</p></CardContent></Card>
+            <Card className="bg-gray-900 border-white/10">
+              <CardContent className="p-5">
+                <p className="text-xs uppercase text-gray-500">Encours</p>
+                <p className="text-2xl font-bold text-white mt-1">{formatGnf(snapshot?.metrics.outstanding)}</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-gray-900 border-white/10">
+              <CardContent className="p-5">
+                <p className="text-xs uppercase text-gray-500">Factures échues</p>
+                <p className="text-2xl font-bold text-white mt-1">{snapshot?.metrics.overdueCount || 0}</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-gray-900 border-white/10">
+              <CardContent className="p-5">
+                <p className="text-xs uppercase text-gray-500">Total encaissé</p>
+                <p className="text-2xl font-bold text-white mt-1">{formatGnf(snapshot?.metrics.totalCollected)}</p>
+              </CardContent>
+            </Card>
           </div>
 
           <Card className="bg-gray-900 border-white/10">
             <CardContent className="p-5 space-y-4">
               <div className="flex items-center justify-between gap-3">
-                <div><p className="font-semibold text-white">Abonnement SaaS</p><p className="text-xs text-gray-500">Le plan commercial vient du compte. Aucun prélèvement automatique n’est activé par cet écran.</p></div>
+                <div>
+                  <p className="font-semibold text-white">Abonnement SaaS</p>
+                  <p className="text-xs text-gray-500">Le plan commercial vient du compte. Aucun prélèvement automatique n’est activé par cet écran.</p>
+                </div>
                 <Badge variant="outline" className="capitalize border-orange-500/30 text-orange-400">{selectedAccount.plan}</Badge>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                <div><Label className="text-gray-300">Cycle</Label><Select value={billingCycle} onValueChange={(value) => setBillingCycle(value as "monthly" | "annual")}><SelectTrigger className="mt-1 bg-gray-800 border-white/10 text-white"><SelectValue /></SelectTrigger><SelectContent className="bg-gray-900 border-white/10"><SelectItem value="monthly">Mensuel</SelectItem><SelectItem value="annual">Annuel</SelectItem></SelectContent></Select></div>
-                <div><Label className="text-gray-300">Statut billing</Label><Select value={subscriptionStatus} onValueChange={setSubscriptionStatus}><SelectTrigger className="mt-1 bg-gray-800 border-white/10 text-white"><SelectValue /></SelectTrigger><SelectContent className="bg-gray-900 border-white/10"><SelectItem value="trialing">Essai</SelectItem><SelectItem value="active">Actif</SelectItem><SelectItem value="past_due">Impayé</SelectItem><SelectItem value="paused">En pause</SelectItem><SelectItem value="cancelled">Annulé</SelectItem></SelectContent></Select></div>
-                {selectedAccount.plan === "custom" && <div><Label className="text-gray-300">Montant contractuel GNF</Label><Input inputMode="numeric" value={customAmount} onChange={(event) => setCustomAmount(event.target.value.replace(/\D/g, ""))} className="mt-1 bg-gray-800 border-white/10 text-white" /></div>}
-                <div className="flex items-end"><Button onClick={saveSubscription} disabled={savingSubscription} className="w-full bg-gradient-to-r from-orange-500 to-red-600 text-white">{savingSubscription ? <RefreshCw className="w-4 h-4 animate-spin mr-2" /> : <CreditCard className="w-4 h-4 mr-2" />}Enregistrer</Button></div>
-              </div>
-              {snapshot?.subscription && <div className="text-sm text-gray-400 flex flex-wrap gap-x-6 gap-y-1"><span>Montant du cycle : <strong className="text-white">{formatGnf(snapshot.subscription.unitAmount)}</strong></span><span>Provider : <strong className="text-white">{snapshot.subscription.provider}</strong></span><span>Statut : <strong className="text-white">{snapshot.subscription.status}</strong></span></div>}
+
+              {canWrite && (
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                  <div>
+                    <Label className="text-gray-300">Cycle</Label>
+                    <Select value={billingCycle} onValueChange={handleBillingCycleChange}>
+                      <SelectTrigger className="mt-1 bg-gray-800 border-white/10 text-white"><SelectValue /></SelectTrigger>
+                      <SelectContent className="bg-gray-900 border-white/10">
+                        <SelectItem value="monthly">Mensuel</SelectItem>
+                        <SelectItem value="annual">Annuel</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-gray-300">Statut billing</Label>
+                    <Select value={subscriptionStatus} onValueChange={setSubscriptionStatus}>
+                      <SelectTrigger className="mt-1 bg-gray-800 border-white/10 text-white"><SelectValue /></SelectTrigger>
+                      <SelectContent className="bg-gray-900 border-white/10">
+                        <SelectItem value="trialing">Essai</SelectItem>
+                        <SelectItem value="active">Actif</SelectItem>
+                        <SelectItem value="past_due">Impayé</SelectItem>
+                        <SelectItem value="paused">En pause</SelectItem>
+                        <SelectItem value="cancelled">Annulé</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {selectedAccount.plan === "custom" && (
+                    <div>
+                      <Label className="text-gray-300">Montant contractuel GNF</Label>
+                      <Input inputMode="numeric" value={customAmount} onChange={(event) => setCustomAmount(event.target.value.replace(/\D/g, ""))} className="mt-1 bg-gray-800 border-white/10 text-white" />
+                    </div>
+                  )}
+                  <div className="flex items-end">
+                    <Button onClick={saveSubscription} disabled={savingSubscription} className="w-full bg-gradient-to-r from-orange-500 to-red-600 text-white">
+                      {savingSubscription ? <RefreshCw className="w-4 h-4 animate-spin mr-2" /> : <CreditCard className="w-4 h-4 mr-2" />}
+                      Enregistrer
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {snapshot?.subscription ? (
+                <div className="text-sm text-gray-400 flex flex-wrap gap-x-6 gap-y-1">
+                  <span>Cycle : <strong className="text-white">{snapshot.subscription.billingCycle === "annual" ? "Annuel" : "Mensuel"}</strong></span>
+                  <span>Montant : <strong className="text-white">{formatGnf(snapshot.subscription.unitAmount)}</strong></span>
+                  <span>Provider : <strong className="text-white">{snapshot.subscription.provider}</strong></span>
+                  <span>Statut : <strong className="text-white">{snapshot.subscription.status}</strong></span>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">Aucun abonnement de facturation configuré.</p>
+              )}
             </CardContent>
           </Card>
 
-          <Card className="bg-gray-900 border-white/10">
-            <CardContent className="p-5 space-y-4">
-              <div className="flex items-center gap-2"><FilePlus2 className="w-5 h-5 text-orange-400" /><div><p className="font-semibold text-white">Émettre une facture</p><p className="text-xs text-gray-500">Le montant est copié depuis l’abonnement stocké côté serveur.</p></div></div>
-              <div className="flex flex-wrap items-end gap-3"><div><Label className="text-gray-300">Date d’échéance</Label><Input type="date" value={invoiceDueDate} onChange={(event) => setInvoiceDueDate(event.target.value)} className="mt-1 bg-gray-800 border-white/10 text-white" /></div><Button onClick={issueInvoice} disabled={issuingInvoice || !snapshot?.subscription} className="bg-white text-gray-950 hover:bg-gray-200">{issuingInvoice ? <RefreshCw className="w-4 h-4 animate-spin mr-2" /> : <ReceiptText className="w-4 h-4 mr-2" />}Créer la facture</Button></div>
-            </CardContent>
-          </Card>
+          {canWrite && (
+            <Card className="bg-gray-900 border-white/10">
+              <CardContent className="p-5 space-y-4">
+                <div className="flex items-center gap-2">
+                  <FilePlus2 className="w-5 h-5 text-orange-400" />
+                  <div>
+                    <p className="font-semibold text-white">Émettre une facture</p>
+                    <p className="text-xs text-gray-500">Le montant est copié depuis l’abonnement stocké côté serveur.</p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-end gap-3">
+                  <div>
+                    <Label className="text-gray-300">Date d’échéance</Label>
+                    <Input type="date" value={invoiceDueDate} onChange={(event) => setInvoiceDueDate(event.target.value)} className="mt-1 bg-gray-800 border-white/10 text-white" />
+                  </div>
+                  <Button onClick={issueInvoice} disabled={issuingInvoice || !snapshot?.subscription} className="bg-white text-gray-950 hover:bg-gray-200">
+                    {issuingInvoice ? <RefreshCw className="w-4 h-4 animate-spin mr-2" /> : <ReceiptText className="w-4 h-4 mr-2" />}
+                    Créer la facture
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           <Card className="bg-gray-900 border-white/10">
             <CardContent className="p-0">
-              <div className="p-5 border-b border-white/10"><div className="flex items-center gap-2"><WalletCards className="w-5 h-5 text-orange-400" /><p className="font-semibold text-white">Factures et encaissements</p></div></div>
-              {!snapshot?.invoices.length ? <div className="p-8 text-center text-gray-500">Aucune facture SaaS.</div> : <div className="divide-y divide-white/5">{snapshot.invoices.map((invoice) => {
-                const remaining = Math.max(0, invoice.total - invoice.amountPaid);
-                const payable = invoice.status !== "paid" && invoice.status !== "void" && remaining > 0;
-                return <div key={invoice.id} className="p-5 space-y-3"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-medium text-white">{invoice.number}</p><p className="text-xs text-gray-500">Échéance {new Date(invoice.dueAt).toLocaleDateString("fr-FR")} · créée {new Date(invoice.createdAt).toLocaleDateString("fr-FR")}</p></div><div className="text-right"><Badge variant="outline" className="capitalize border-white/10 text-gray-300">{invoice.status}</Badge><p className="text-sm text-white mt-1">{formatGnf(invoice.amountPaid)} / {formatGnf(invoice.total)}</p><p className="text-xs text-gray-500">Reste {formatGnf(remaining)}</p></div></div>{payable && <div className="grid grid-cols-1 md:grid-cols-[1fr_220px_auto] gap-2 items-end"><div><Label className="text-xs text-gray-400">Montant encaissé</Label><Input inputMode="numeric" value={paymentAmounts[invoice.id] || ""} onChange={(event) => setPaymentAmounts((current) => ({ ...current, [invoice.id]: event.target.value.replace(/\D/g, "" ) }))} className="mt-1 bg-gray-800 border-white/10 text-white" placeholder={String(remaining)} /></div><div><Label className="text-xs text-gray-400">Méthode</Label><Select value={paymentMethods[invoice.id] || "bank_transfer"} onValueChange={(value) => setPaymentMethods((current) => ({ ...current, [invoice.id]: value }))}><SelectTrigger className="mt-1 bg-gray-800 border-white/10 text-white"><SelectValue /></SelectTrigger><SelectContent className="bg-gray-900 border-white/10"><SelectItem value="bank_transfer">Virement</SelectItem><SelectItem value="cash">Espèces</SelectItem><SelectItem value="mobile_money">Mobile Money</SelectItem><SelectItem value="card">Carte (preuve externe)</SelectItem><SelectItem value="external">Autre externe</SelectItem></SelectContent></Select></div><Button onClick={() => recordPayment(invoice)} disabled={payingInvoiceId === invoice.id} className="bg-green-600 hover:bg-green-700 text-white">{payingInvoiceId === invoice.id ? <RefreshCw className="w-4 h-4 animate-spin mr-2" /> : <CreditCard className="w-4 h-4 mr-2" />}Enregistrer paiement</Button></div>}</div>;
-              })}</div>}
+              <div className="p-5 border-b border-white/10">
+                <div className="flex items-center gap-2">
+                  <WalletCards className="w-5 h-5 text-orange-400" />
+                  <p className="font-semibold text-white">Factures et encaissements</p>
+                </div>
+              </div>
+              {!snapshot?.invoices.length ? (
+                <div className="p-8 text-center text-gray-500">Aucune facture SaaS.</div>
+              ) : (
+                <div className="divide-y divide-white/5">
+                  {snapshot.invoices.map((invoice) => {
+                    const remaining = Math.max(0, invoice.total - invoice.amountPaid);
+                    const payable = invoice.status !== "paid" && invoice.status !== "void" && remaining > 0;
+                    return (
+                      <div key={invoice.id} className="p-5 space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <p className="font-medium text-white">{invoice.number}</p>
+                            <p className="text-xs text-gray-500">
+                              Échéance {new Date(invoice.dueAt).toLocaleDateString("fr-FR")} · créée {new Date(invoice.createdAt).toLocaleDateString("fr-FR")}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <Badge variant="outline" className="capitalize border-white/10 text-gray-300">{invoice.status}</Badge>
+                            <p className="text-sm text-white mt-1">{formatGnf(invoice.amountPaid)} / {formatGnf(invoice.total)}</p>
+                            <p className="text-xs text-gray-500">Reste {formatGnf(remaining)}</p>
+                          </div>
+                        </div>
+                        {canWrite && payable && (
+                          <div className="grid grid-cols-1 md:grid-cols-[1fr_220px_auto] gap-2 items-end">
+                            <div>
+                              <Label className="text-xs text-gray-400">Montant encaissé</Label>
+                              <Input
+                                inputMode="numeric"
+                                value={paymentAmounts[invoice.id] || ""}
+                                onChange={(event) => setPaymentAmounts((current) => ({ ...current, [invoice.id]: event.target.value.replace(/\D/g, "") }))}
+                                className="mt-1 bg-gray-800 border-white/10 text-white"
+                                placeholder={String(remaining)}
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs text-gray-400">Méthode</Label>
+                              <Select value={paymentMethods[invoice.id] || "bank_transfer"} onValueChange={(value) => setPaymentMethods((current) => ({ ...current, [invoice.id]: value }))}>
+                                <SelectTrigger className="mt-1 bg-gray-800 border-white/10 text-white"><SelectValue /></SelectTrigger>
+                                <SelectContent className="bg-gray-900 border-white/10">
+                                  <SelectItem value="bank_transfer">Virement</SelectItem>
+                                  <SelectItem value="cash">Espèces</SelectItem>
+                                  <SelectItem value="mobile_money">Mobile Money</SelectItem>
+                                  <SelectItem value="card">Carte (preuve externe)</SelectItem>
+                                  <SelectItem value="external">Autre externe</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <Button onClick={() => recordPayment(invoice)} disabled={payingInvoiceId === invoice.id} className="bg-green-600 hover:bg-green-700 text-white">
+                              {payingInvoiceId === invoice.id ? <RefreshCw className="w-4 h-4 animate-spin mr-2" /> : <CreditCard className="w-4 h-4 mr-2" />}
+                              Enregistrer paiement
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </CardContent>
           </Card>
         </>
