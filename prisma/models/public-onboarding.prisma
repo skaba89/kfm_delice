@@ -1,0 +1,20 @@
+// ───────────────────────────────────────────────────────────────────
+// Public self-service onboarding intent
+// Keeps unverified signups out of Account/Restaurant/Admin until the owner
+// proves access to the submitted email address.
+// ───────────────────────────────────────────────────────────────────
+
+model PublicRegistrationIntent {
+  id           String   @id @default(cuid())
+  ownerEmail   String   @unique
+  tokenHash    String   @unique
+  payload      String
+  passwordHash String
+  status       String   @default("pending") // pending, processing
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([status, expiresAt])
+  @@index([expiresAt])
+}

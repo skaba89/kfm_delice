@@ -21,6 +21,10 @@ function runSafety(overrides: Record<string, string | undefined>) {
     SENTRY_DSN: '',
     UPSTASH_REDIS_REST_URL: '',
     UPSTASH_REDIS_REST_TOKEN: '',
+    RESEND_API_KEY: '',
+    SMTP_HOST: '',
+    SMTP_USER: '',
+    SMTP_PASS: '',
     // CI jobs may deliberately enable bootstrap helpers. Production-safety
     // tests must start from a clean production policy and opt into each
     // violation explicitly so their result is independent from job env vars.
@@ -31,6 +35,7 @@ function runSafety(overrides: Record<string, string | undefined>) {
     ENABLE_PUBLIC_RESTAURANT_REGISTRATION: 'false',
     PUBLIC_REGISTRATION_TRIAL_PLAN: 'starter',
     PUBLIC_REGISTRATION_TRIAL_DAYS: '14',
+    PUBLIC_REGISTRATION_VERIFICATION_TTL_MINUTES: '60',
     NEXT_PUBLIC_SHOW_DEMO_CREDS: 'false',
     ...overrides,
   };
@@ -44,6 +49,13 @@ function runSafety(overrides: Record<string, string | undefined>) {
     output: `${result.stdout || ''}${result.stderr || ''}`,
   };
 }
+
+const publicRegistrationInfra = {
+  ENABLE_PUBLIC_RESTAURANT_REGISTRATION: 'true',
+  UPSTASH_REDIS_REST_URL: 'https://example.upstash.io',
+  UPSTASH_REDIS_REST_TOKEN: 'token',
+  RESEND_API_KEY: 'provider-enabled-for-test',
+};
 
 describe('production safety guard', () => {
   it('rejects the process-local websocket server in production', () => {
@@ -92,30 +104,61 @@ describe('production safety guard', () => {
   });
 
   it('rejects public registration without distributed abuse protection', () => {
-    const result = runSafety({ ENABLE_PUBLIC_RESTAURANT_REGISTRATION: 'true' });
+    const result = runSafety({
+      ENABLE_PUBLIC_RESTAURANT_REGISTRATION: 'true',
+      RESEND_API_KEY: 'provider-enabled-for-test',
+    });
     expect(result.status).toBe(1);
     expect(result.output).toContain('requires Upstash distributed rate limiting');
   });
 
-  it('accepts a controlled public Starter trial when Upstash is configured', () => {
+  it('rejects public registration without a real verification email provider', () => {
     const result = runSafety({
       ENABLE_PUBLIC_RESTAURANT_REGISTRATION: 'true',
-      PUBLIC_REGISTRATION_TRIAL_PLAN: 'starter',
-      PUBLIC_REGISTRATION_TRIAL_DAYS: '14',
       UPSTASH_REDIS_REST_URL: 'https://example.upstash.io',
       UPSTASH_REDIS_REST_TOKEN: 'token',
+    });
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('requires a real email provider');
+  });
+
+  it('rejects public registration without an HTTPS verification base URL', () => {
+    const result = runSafety({
+      ...publicRegistrationInfra,
+      PUBLIC_APP_URL: '',
+    });
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('requires HTTPS PUBLIC_APP_URL for verification links');
+  });
+
+  it('accepts a controlled Starter trial with Upstash, HTTPS and Resend', () => {
+    const result = runSafety({
+      ...publicRegistrationInfra,
+      PUBLIC_REGISTRATION_TRIAL_PLAN: 'starter',
+      PUBLIC_REGISTRATION_TRIAL_DAYS: '14',
+      PUBLIC_REGISTRATION_VERIFICATION_TTL_MINUTES: '60',
     });
     expect(result.status).toBe(0);
     expect(result.output).toContain('All production safety checks passed');
   });
 
+  it('accepts authenticated SMTP instead of Resend for verification delivery', () => {
+    const result = runSafety({
+      ENABLE_PUBLIC_RESTAURANT_REGISTRATION: 'true',
+      UPSTASH_REDIS_REST_URL: 'https://example.upstash.io',
+      UPSTASH_REDIS_REST_TOKEN: 'token',
+      SMTP_HOST: 'smtp.example.test',
+      SMTP_USER: 'mailer',
+      SMTP_PASS: 'test-value',
+    });
+    expect(result.status).toBe(0);
+  });
+
   it('rejects enterprise or custom as a public trial plan', () => {
     for (const plan of ['enterprise', 'custom']) {
       const result = runSafety({
-        ENABLE_PUBLIC_RESTAURANT_REGISTRATION: 'true',
+        ...publicRegistrationInfra,
         PUBLIC_REGISTRATION_TRIAL_PLAN: plan,
-        UPSTASH_REDIS_REST_URL: 'https://example.upstash.io',
-        UPSTASH_REDIS_REST_TOKEN: 'token',
       });
       expect(result.status).toBe(1);
       expect(result.output).toContain('PUBLIC_REGISTRATION_TRIAL_PLAN must be starter or pro');
@@ -125,13 +168,22 @@ describe('production safety guard', () => {
   it('rejects out-of-range or non-integer public trial durations', () => {
     for (const days of ['0', '31', '14.5', 'abc']) {
       const result = runSafety({
-        ENABLE_PUBLIC_RESTAURANT_REGISTRATION: 'true',
+        ...publicRegistrationInfra,
         PUBLIC_REGISTRATION_TRIAL_DAYS: days,
-        UPSTASH_REDIS_REST_URL: 'https://example.upstash.io',
-        UPSTASH_REDIS_REST_TOKEN: 'token',
       });
       expect(result.status).toBe(1);
       expect(result.output).toContain('PUBLIC_REGISTRATION_TRIAL_DAYS must be an integer between 1 and 30');
+    }
+  });
+
+  it('rejects unsafe verification link TTLs', () => {
+    for (const minutes of ['9', '1441', '60.5', 'abc']) {
+      const result = runSafety({
+        ...publicRegistrationInfra,
+        PUBLIC_REGISTRATION_VERIFICATION_TTL_MINUTES: minutes,
+      });
+      expect(result.status).toBe(1);
+      expect(result.output).toContain('PUBLIC_REGISTRATION_VERIFICATION_TTL_MINUTES must be an integer between 10 and 1440');
     }
   });
 });
