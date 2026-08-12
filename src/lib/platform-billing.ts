@@ -23,6 +23,7 @@ const positiveMoneyInputSchema = z.union([
 
 const optionalIsoDateSchema = z.string().trim().max(40).nullable().optional();
 const idempotencyKeySchema = z.string().trim().min(8).max(128);
+const MAX_SAFE_MONEY = BigInt(Number.MAX_SAFE_INTEGER);
 
 export const subscriptionPatchSchema = z.object({
   billingCycle: billingCycleSchema.optional(),
@@ -70,18 +71,42 @@ export class BillingDomainError extends Error {
   }
 }
 
+export function assertBillingWriteRole(admin: { role?: string | null }): void {
+  if (admin.role !== 'super_admin') {
+    throw new BillingDomainError(
+      'BILLING_ROLE_FORBIDDEN',
+      'Seul un super administrateur plateforme peut modifier la facturation.',
+      403,
+    );
+  }
+}
+
 export function parseMoneyToBigInt(value: string | number | bigint): bigint {
-  if (typeof value === 'bigint') return value;
-  if (typeof value === 'number') {
+  let parsed: bigint;
+  if (typeof value === 'bigint') {
+    parsed = value;
+  } else if (typeof value === 'number') {
     if (!Number.isSafeInteger(value) || value < 0) {
       throw new BillingDomainError('BILLING_INVALID_AMOUNT', 'Montant invalide.');
     }
-    return BigInt(value);
+    parsed = BigInt(value);
+  } else {
+    if (!/^\d{1,18}$/.test(value.trim())) {
+      throw new BillingDomainError('BILLING_INVALID_AMOUNT', 'Montant invalide.');
+    }
+    parsed = BigInt(value.trim());
   }
-  if (!/^\d{1,18}$/.test(value.trim())) {
+
+  if (parsed < 0n) {
     throw new BillingDomainError('BILLING_INVALID_AMOUNT', 'Montant invalide.');
   }
-  return BigInt(value.trim());
+  if (parsed > MAX_SAFE_MONEY) {
+    throw new BillingDomainError(
+      'BILLING_AMOUNT_TOO_LARGE',
+      'Le montant dépasse la limite sérialisable sans perte de précision.',
+    );
+  }
+  return parsed;
 }
 
 export function parseRequiredIsoDate(value: string, field: string): Date {
@@ -139,6 +164,66 @@ export function deriveSubscriptionUnitAmount(params: {
     plan,
     unitAmount: params.billingCycle === 'annual' ? monthlyAmount * 12n : monthlyAmount,
   };
+}
+
+export function assertAccountCanIssueInvoice(status: string): void {
+  if (!['active', 'over_quota'].includes(status)) {
+    throw new BillingDomainError(
+      'BILLING_ACCOUNT_NOT_BILLABLE',
+      'Le compte doit être actif avant d’émettre une nouvelle facture SaaS.',
+      409,
+    );
+  }
+}
+
+export function assertSubscriptionCanIssueInvoice(subscription: {
+  plan: string;
+  billingCycle: string;
+  status: string;
+  unitAmount: bigint;
+}, accountPlan: string): void {
+  if (!['active', 'past_due'].includes(subscription.status)) {
+    throw new BillingDomainError(
+      'BILLING_SUBSCRIPTION_NOT_BILLABLE',
+      'Cet abonnement ne peut pas être facturé dans son état actuel.',
+      409,
+    );
+  }
+  if (subscription.billingCycle !== 'monthly' && subscription.billingCycle !== 'annual') {
+    throw new BillingDomainError('BILLING_INVALID_CYCLE', 'Cycle de facturation invalide.', 409);
+  }
+
+  const normalizedAccountPlan = normalizeCommercialPlanValue(accountPlan);
+  const normalizedSubscriptionPlan = normalizeCommercialPlanValue(subscription.plan);
+  if (!normalizedAccountPlan || normalizedAccountPlan !== normalizedSubscriptionPlan) {
+    throw new BillingDomainError(
+      'BILLING_SUBSCRIPTION_PLAN_STALE',
+      'L’abonnement de facturation doit être resynchronisé avec le plan du compte.',
+      409,
+    );
+  }
+
+  if (normalizedAccountPlan !== 'custom') {
+    const expected = deriveSubscriptionUnitAmount({
+      plan: normalizedAccountPlan,
+      billingCycle: subscription.billingCycle,
+    }).unitAmount;
+    if (subscription.unitAmount !== expected) {
+      throw new BillingDomainError(
+        'BILLING_SUBSCRIPTION_PRICE_STALE',
+        'Le montant de l’abonnement ne correspond plus au catalogue courant.',
+        409,
+      );
+    }
+  }
+
+  if (subscription.unitAmount <= 0n) {
+    throw new BillingDomainError(
+      'BILLING_ZERO_AMOUNT',
+      'Aucune facture payante ne peut être émise avec un montant nul.',
+      409,
+    );
+  }
 }
 
 export function calculateOutstanding(total: bigint, amountPaid: bigint): bigint {
