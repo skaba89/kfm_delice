@@ -6,7 +6,7 @@
 
 model PlatformSubscription {
   id                      String   @id @default(cuid())
-  accountId               String
+  accountId               String   @unique
   plan                    String
   billingCycle            String   @default("monthly") // monthly, annual
   status                  String   @default("active") // trialing, active, past_due, paused, cancelled
