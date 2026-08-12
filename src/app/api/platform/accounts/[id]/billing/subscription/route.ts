@@ -3,11 +3,29 @@ import { authenticatePlatformAdmin } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
 import { bigIntToNumber, db, dbReady } from '@/lib/db';
 import {
+  assertBillingWriteRole,
   BillingDomainError,
   deriveSubscriptionUnitAmount,
   parseOptionalIsoDate,
   subscriptionPatchSchema,
 } from '@/lib/platform-billing';
+
+function subscriptionAuditView(subscription: any) {
+  if (!subscription) return null;
+  return bigIntToNumber({
+    id: subscription.id,
+    plan: subscription.plan,
+    billingCycle: subscription.billingCycle,
+    status: subscription.status,
+    currency: subscription.currency,
+    unitAmount: subscription.unitAmount,
+    currentPeriodStart: subscription.currentPeriodStart,
+    currentPeriodEnd: subscription.currentPeriodEnd,
+    nextBillingAt: subscription.nextBillingAt,
+    cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+    provider: subscription.provider,
+  });
+}
 
 export async function PATCH(
   request: Request,
@@ -17,6 +35,7 @@ export async function PATCH(
     await dbReady;
     const admin = await authenticatePlatformAdmin(request);
     if (!admin) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
+    assertBillingWriteRole(admin);
 
     const { id } = await params;
     const parsed = subscriptionPatchSchema.safeParse(await request.json());
@@ -96,7 +115,6 @@ export async function PATCH(
       ...(input.providerSubscriptionRef !== undefined && { providerSubscriptionRef: input.providerSubscriptionRef }),
     };
 
-    const before = existing ? bigIntToNumber(existing) : null;
     const subscription = existing
       ? await db.platformSubscription.update({ where: { id: existing.id }, data })
       : await db.platformSubscription.create({ data: { accountId: id, ...data } });
@@ -108,8 +126,8 @@ export async function PATCH(
       entityType: 'PlatformSubscription',
       entityId: subscription.id,
       accountId: id,
-      before,
-      after: bigIntToNumber(subscription),
+      before: subscriptionAuditView(existing),
+      after: subscriptionAuditView(subscription),
       request,
     });
 
