@@ -24,7 +24,6 @@ const DANGEROUS_VARS = [
   'ALLOW_DEFAULT_TENANT',
   'ALLOW_PRISMA_DB_PUSH_FALLBACK',
   'ALLOW_LOGIN_AUTO_SEED',
-  'ENABLE_PUBLIC_RESTAURANT_REGISTRATION',
   'NEXT_PUBLIC_SHOW_DEMO_CREDS',
 ];
 
@@ -104,6 +103,25 @@ if (distributedScale && !distributedRateLimitReady) {
   violations.push(`SCALE_MODE=${SCALE_MODE} requires distributed rate limiting via Upstash REST URL + token`);
 } else if (!distributedRateLimitReady) {
   warnings.push('Distributed rate limiting is not configured — safe only for a single application instance');
+}
+
+// Public self-service registration is no longer intrinsically unsafe, but it is
+// an Internet-facing account-creation capability. Enabling it in production
+// requires distributed abuse protection and a tightly controlled trial policy.
+const publicRegistrationEnabled = process.env.ENABLE_PUBLIC_RESTAURANT_REGISTRATION === 'true';
+if (publicRegistrationEnabled) {
+  if (!distributedRateLimitReady) {
+    violations.push('ENABLE_PUBLIC_RESTAURANT_REGISTRATION=true requires Upstash distributed rate limiting');
+  }
+  const trialPlan = (process.env.PUBLIC_REGISTRATION_TRIAL_PLAN || 'starter').toLowerCase();
+  if (!['starter', 'pro'].includes(trialPlan)) {
+    violations.push('PUBLIC_REGISTRATION_TRIAL_PLAN must be starter or pro when public registration is enabled');
+  }
+  const rawTrialDays = process.env.PUBLIC_REGISTRATION_TRIAL_DAYS || '14';
+  const trialDays = Number(rawTrialDays);
+  if (!Number.isInteger(trialDays) || trialDays < 1 || trialDays > 30) {
+    violations.push('PUBLIC_REGISTRATION_TRIAL_DAYS must be an integer between 1 and 30');
+  }
 }
 
 const PUBLIC_APP_URL = process.env.PUBLIC_APP_URL || '';
