@@ -64,6 +64,7 @@ CREATE TABLE "PlatformPayment" (
     CONSTRAINT "PlatformPayment_pkey" PRIMARY KEY ("id")
 );
 
+CREATE UNIQUE INDEX "PlatformSubscription_accountId_key" ON "PlatformSubscription"("accountId");
 CREATE UNIQUE INDEX "PlatformInvoice_number_key" ON "PlatformInvoice"("number");
 CREATE UNIQUE INDEX "PlatformInvoice_idempotencyKey_key" ON "PlatformInvoice"("idempotencyKey");
 CREATE UNIQUE INDEX "PlatformPayment_idempotencyKey_key" ON "PlatformPayment"("idempotencyKey");
