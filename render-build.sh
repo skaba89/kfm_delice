@@ -67,13 +67,13 @@ else
   echo "[render-build] WARNING: node_modules/.bin/prisma not found — dependencies may not be installed yet"
 fi
 
-# ── Copy the matching schema ──
+# ── Copy the matching provider template ──
 if [ "$PROVIDER" = "postgres" ]; then
-  echo "[render-build] Copying PostgreSQL schema..."
-  cp prisma/schema.postgres.prisma prisma/schema.prisma
+  echo "[render-build] Copying PostgreSQL schema template..."
+  cp prisma/templates/schema.postgres.template prisma/schema.prisma
 else
-  echo "[render-build] Copying SQLite schema..."
-  cp prisma/schema.sqlite.prisma prisma/schema.prisma
+  echo "[render-build] Copying SQLite schema template..."
+  cp prisma/templates/schema.sqlite.template prisma/schema.prisma
   mkdir -p data
 fi
 
