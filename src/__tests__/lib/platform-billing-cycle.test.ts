@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   invoiceUpdateMany: vi.fn(),
   invoiceFindMany: vi.fn(),
   invalidateTenantCache: vi.fn(),
+  runPlatformBillingDunning: vi.fn(),
 }));
 
 vi.mock('@/lib/db', () => ({
@@ -34,6 +35,10 @@ vi.mock('@/lib/tenant', () => ({
   invalidateTenantCache: mocks.invalidateTenantCache,
 }));
 
+vi.mock('@/lib/platform-billing-dunning', () => ({
+  runPlatformBillingDunning: mocks.runPlatformBillingDunning,
+}));
+
 import {
   addBillingCycle,
   billingCycleInvoiceKey,
@@ -41,6 +46,19 @@ import {
 } from '@/lib/platform-billing-cycle';
 
 const amount = BigInt(50_000);
+const dunningSuccess = {
+  enabled: false,
+  provider: 'console' as const,
+  candidateInvoices: 0,
+  accountsEvaluated: 0,
+  sent: 0,
+  replayed: 0,
+  failed: 0,
+  skippedUnconfigured: 0,
+  skippedInvalidRecipient: 0,
+  skippedMissingAccount: 0,
+  inProgress: 0,
+};
 
 function subscription(overrides: Record<string, unknown> = {}) {
   return {
@@ -76,6 +94,7 @@ describe('platform billing cycle automation', () => {
     }));
     mocks.invoiceUpdateMany.mockResolvedValue({ count: 0 });
     mocks.invoiceFindMany.mockResolvedValue([]);
+    mocks.runPlatformBillingDunning.mockResolvedValue(dunningSuccess);
   });
 
   it('clamps monthly cycles to the last valid day of the target month', () => {
@@ -90,13 +109,15 @@ describe('platform billing cycle automation', () => {
       .toBe('2029-02-28T00:00:00.000Z');
   });
 
-  it('creates a deterministic invoice and advances the subscription exactly one cycle', async () => {
+  it('creates a deterministic invoice, advances the subscription and runs dunning afterwards', async () => {
     const now = new Date('2026-08-12T00:00:00.000Z');
     const result = await runPlatformBillingCycle({ now, dueDays: 7, maxCatchUp: 12 });
 
     expect(result.invoicesCreated).toBe(1);
     expect(result.invoicesReplayed).toBe(0);
     expect(result.subscriptionsAdvanced).toBe(1);
+    expect(result.dunning).toEqual(dunningSuccess);
+    expect(mocks.runPlatformBillingDunning).toHaveBeenCalledWith({ now });
     expect(mocks.invoiceCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
         accountId: 'account-1',
@@ -209,6 +230,17 @@ describe('platform billing cycle automation', () => {
       data: { status: 'active' },
     });
     expect(mocks.invalidateTenantCache).toHaveBeenCalledOnce();
+  });
+
+  it('keeps invoice lifecycle successful when dunning fails unexpectedly', async () => {
+    mocks.subscriptionFindMany.mockResolvedValue([]);
+    mocks.runPlatformBillingDunning.mockRejectedValue(new Error('provider unavailable\ninternal detail'));
+
+    const result = await runPlatformBillingCycle({ now: new Date('2026-08-12T00:00:00.000Z') });
+
+    expect(result.invoicesCreated).toBe(0);
+    expect(result.dunning).toBeUndefined();
+    expect(result.dunningError).toBe('provider unavailable internal detail');
   });
 
   it('caps catch-up work and leaves remaining periods for a later execution', async () => {

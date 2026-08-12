@@ -27,6 +27,7 @@ const REQUIRED_TABLES = [
   'PlatformSubscription',
   'PlatformInvoice',
   'PlatformPayment',
+  'PlatformBillingNotice',
   // Core tables
   'Account',
   'Restaurant',
@@ -79,6 +80,10 @@ const REQUIRED_COLUMNS = {
   PlatformPayment: [
     'accountId', 'invoiceId', 'amount', 'currency', 'method', 'provider',
     'status', 'providerPaymentRef', 'idempotencyKey', 'paidAt',
+  ],
+  PlatformBillingNotice: [
+    'accountId', 'invoiceId', 'stage', 'channel', 'recipient', 'status',
+    'provider', 'idempotencyKey', 'errorMessage', 'attemptedAt', 'sentAt',
   ],
 };
 
