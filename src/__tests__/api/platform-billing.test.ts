@@ -79,6 +79,7 @@ describe('platform SaaS billing API contract', () => {
     mocks.logAudit.mockResolvedValue(undefined);
     mocks.accountFindUnique.mockResolvedValue({ id: 'account-1', plan: 'starter', status: 'active' });
     mocks.subscriptionFindFirst.mockResolvedValue(null);
+    mocks.invoiceFindUnique.mockResolvedValue(null);
     mocks.subscriptionCreate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
       id: 'subscription-1',
       createdAt: new Date('2026-08-12T00:00:00Z'),
@@ -184,6 +185,7 @@ describe('platform SaaS billing API contract', () => {
 
     const response = await issueInvoice(
       request('/api/platform/accounts/account-1/billing/invoices', {
+        idempotencyKey: 'invoice-key-0001',
         dueAt: '2026-09-01T00:00:00Z',
         periodStart: '2026-08-01T00:00:00Z',
         periodEnd: '2026-09-01T00:00:00Z',
@@ -191,12 +193,15 @@ describe('platform SaaS billing API contract', () => {
       }, 'POST'),
       context,
     );
+    const body = await response.json();
 
     expect(response.status).toBe(201);
+    expect(body.replay).toBe(false);
     expect(mocks.invoiceCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
         accountId: 'account-1',
         subscriptionId: 'subscription-1',
+        idempotencyKey: 'invoice-key-0001',
         subtotal: 50_000n,
         total: 50_000n,
         amountPaid: 0n,
@@ -207,6 +212,66 @@ describe('platform SaaS billing API contract', () => {
       action: 'platform_invoice_created',
       accountId: 'account-1',
     }));
+  });
+
+  it('replays the same invoice idempotency key without creating or auditing twice', async () => {
+    mocks.invoiceFindUnique.mockResolvedValue({
+      id: 'invoice-1',
+      accountId: 'account-1',
+      subscriptionId: 'subscription-1',
+      number: 'KFM-202608-TEST-0001',
+      idempotencyKey: 'invoice-key-0001',
+      periodStart: null,
+      periodEnd: null,
+      dueAt: new Date('2026-09-01T00:00:00Z'),
+      tax: 0n,
+      subtotal: 50_000n,
+      total: 50_000n,
+      amountPaid: 0n,
+      status: 'open',
+      notes: '',
+      providerInvoiceRef: '',
+    });
+
+    const response = await issueInvoice(
+      request('/api/platform/accounts/account-1/billing/invoices', {
+        idempotencyKey: 'invoice-key-0001',
+        dueAt: '2026-09-01T00:00:00Z',
+      }, 'POST'),
+      context,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.replay).toBe(true);
+    expect(mocks.invoiceCreate).not.toHaveBeenCalled();
+    expect(mocks.logAudit).not.toHaveBeenCalled();
+  });
+
+  it('rejects reuse of an invoice idempotency key with another due date', async () => {
+    mocks.invoiceFindUnique.mockResolvedValue({
+      id: 'invoice-1',
+      accountId: 'account-1',
+      periodStart: null,
+      periodEnd: null,
+      dueAt: new Date('2026-09-01T00:00:00Z'),
+      tax: 0n,
+      notes: '',
+      providerInvoiceRef: '',
+    });
+
+    const response = await issueInvoice(
+      request('/api/platform/accounts/account-1/billing/invoices', {
+        idempotencyKey: 'invoice-key-0001',
+        dueAt: '2026-09-02T00:00:00Z',
+      }, 'POST'),
+      context,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.code).toBe('BILLING_IDEMPOTENCY_CONFLICT');
+    expect(mocks.invoiceCreate).not.toHaveBeenCalled();
   });
 
   it('records a full payment atomically and marks the invoice paid', async () => {
@@ -250,7 +315,7 @@ describe('platform SaaS billing API contract', () => {
     }));
   });
 
-  it('replays an identical idempotency key without a second write or audit', async () => {
+  it('replays an identical payment idempotency key without a second write or audit', async () => {
     mocks.paymentFindUnique.mockResolvedValue({
       id: 'payment-1', accountId: 'account-1', invoiceId: 'invoice-1',
       amount: 60_000n, currency: 'GNF', status: 'paid', idempotencyKey: 'payment-key-0001',
@@ -277,7 +342,7 @@ describe('platform SaaS billing API contract', () => {
     expect(mocks.logAudit).not.toHaveBeenCalled();
   });
 
-  it('rejects reuse of an idempotency key for another amount', async () => {
+  it('rejects reuse of a payment idempotency key for another amount', async () => {
     mocks.paymentFindUnique.mockResolvedValue({
       id: 'payment-1', accountId: 'account-1', invoiceId: 'invoice-1',
       amount: 50_000n, idempotencyKey: 'payment-key-0001',
