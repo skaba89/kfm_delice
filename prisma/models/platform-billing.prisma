@@ -49,6 +49,7 @@ model PlatformInvoice {
   providerInvoiceRef String                @default("")
   notes              String                @default("")
   payments           PlatformPayment[]
+  notices            PlatformBillingNotice[]
   createdAt          DateTime              @default(now())
   updatedAt          DateTime              @updatedAt
 
@@ -79,4 +80,26 @@ model PlatformPayment {
   @@index([accountId, status])
   @@index([accountId, createdAt])
   @@index([invoiceId])
+}
+
+model PlatformBillingNotice {
+  id             String          @id @default(cuid())
+  accountId      String
+  invoiceId      String
+  invoice        PlatformInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  stage          String          // overdue_initial, grace_warning, access_suspended
+  channel        String          @default("email")
+  recipient      String
+  status         String          @default("pending") // pending, sent, failed, skipped_unconfigured, skipped_invalid_recipient
+  provider       String          @default("")
+  idempotencyKey String          @unique
+  errorMessage   String          @default("")
+  attemptedAt    DateTime?
+  sentAt         DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([accountId, status])
+  @@index([invoiceId])
+  @@index([createdAt])
 }
