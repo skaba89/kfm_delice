@@ -23,6 +23,8 @@ const positiveMoneyInputSchema = z.union([
 
 const optionalIsoDateSchema = z.string().trim().max(40).nullable().optional();
 const idempotencyKeySchema = z.string().trim().min(8).max(128);
+const ZERO = BigInt(0);
+const TWELVE = BigInt(12);
 const MAX_SAFE_MONEY = BigInt(Number.MAX_SAFE_INTEGER);
 
 export const subscriptionPatchSchema = z.object({
@@ -97,7 +99,7 @@ export function parseMoneyToBigInt(value: string | number | bigint): bigint {
     parsed = BigInt(value.trim());
   }
 
-  if (parsed < 0n) {
+  if (parsed < ZERO) {
     throw new BillingDomainError('BILLING_INVALID_AMOUNT', 'Montant invalide.');
   }
   if (parsed > MAX_SAFE_MONEY) {
@@ -162,7 +164,7 @@ export function deriveSubscriptionUnitAmount(params: {
   const monthlyAmount = BigInt(monthly);
   return {
     plan,
-    unitAmount: params.billingCycle === 'annual' ? monthlyAmount * 12n : monthlyAmount,
+    unitAmount: params.billingCycle === 'annual' ? monthlyAmount * TWELVE : monthlyAmount,
   };
 }
 
@@ -217,7 +219,7 @@ export function assertSubscriptionCanIssueInvoice(subscription: {
     }
   }
 
-  if (subscription.unitAmount <= 0n) {
+  if (subscription.unitAmount <= ZERO) {
     throw new BillingDomainError(
       'BILLING_ZERO_AMOUNT',
       'Aucune facture payante ne peut être émise avec un montant nul.',
@@ -228,14 +230,14 @@ export function assertSubscriptionCanIssueInvoice(subscription: {
 
 export function calculateOutstanding(total: bigint, amountPaid: bigint): bigint {
   const outstanding = total - amountPaid;
-  return outstanding > 0n ? outstanding : 0n;
+  return outstanding > ZERO ? outstanding : ZERO;
 }
 
 export function assertPaymentFitsOutstanding(amount: bigint, outstanding: bigint): void {
-  if (amount <= 0n) {
+  if (amount <= ZERO) {
     throw new BillingDomainError('BILLING_INVALID_PAYMENT_AMOUNT', 'Le montant du paiement doit être positif.');
   }
-  if (outstanding <= 0n) {
+  if (outstanding <= ZERO) {
     throw new BillingDomainError('BILLING_INVOICE_ALREADY_PAID', 'Cette facture est déjà soldée.', 409);
   }
   if (amount > outstanding) {
