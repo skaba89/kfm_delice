@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BillingDomainError,
+  assertAccountCanIssueInvoice,
+  assertBillingWriteRole,
   assertPaymentFitsOutstanding,
+  assertSubscriptionCanIssueInvoice,
+  BillingDomainError,
   calculateOutstanding,
   deriveSubscriptionUnitAmount,
   parseMoneyToBigInt,
@@ -45,10 +48,53 @@ describe('platform billing domain rules', () => {
     }).unitAmount).toBe(3_000_000n);
   });
 
-  it('parses GNF amounts without floating point arithmetic', () => {
+  it('parses GNF amounts without floating point arithmetic and rejects lossy JSON values', () => {
     expect(parseMoneyToBigInt('5000000000')).toBe(5_000_000_000n);
     expect(() => parseMoneyToBigInt(-1)).toThrow(BillingDomainError);
     expect(() => parseMoneyToBigInt('1.50')).toThrow(BillingDomainError);
+    expect(() => parseMoneyToBigInt('9007199254740992')).toThrowError(
+      expect.objectContaining({ code: 'BILLING_AMOUNT_TOO_LARGE' }),
+    );
+  });
+
+  it('reserves financial writes to platform super admins', () => {
+    expect(() => assertBillingWriteRole({ role: 'support' })).toThrowError(
+      expect.objectContaining({ code: 'BILLING_ROLE_FORBIDDEN', httpStatus: 403 }),
+    );
+    expect(() => assertBillingWriteRole({ role: 'super_admin' })).not.toThrow();
+  });
+
+  it('blocks new invoices when the account lifecycle is not billable', () => {
+    expect(() => assertAccountCanIssueInvoice('trial')).toThrowError(
+      expect.objectContaining({ code: 'BILLING_ACCOUNT_NOT_BILLABLE' }),
+    );
+    expect(() => assertAccountCanIssueInvoice('suspended')).toThrowError(
+      expect.objectContaining({ code: 'BILLING_ACCOUNT_NOT_BILLABLE' }),
+    );
+    expect(() => assertAccountCanIssueInvoice('active')).not.toThrow();
+    expect(() => assertAccountCanIssueInvoice('over_quota')).not.toThrow();
+  });
+
+  it('requires the stored subscription plan and standard price to match the account catalog', () => {
+    expect(() => assertSubscriptionCanIssueInvoice({
+      plan: 'starter', billingCycle: 'monthly', status: 'active', unitAmount: 50_000n,
+    }, 'starter')).not.toThrow();
+
+    expect(() => assertSubscriptionCanIssueInvoice({
+      plan: 'starter', billingCycle: 'monthly', status: 'active', unitAmount: 50_000n,
+    }, 'pro')).toThrowError(expect.objectContaining({ code: 'BILLING_SUBSCRIPTION_PLAN_STALE' }));
+
+    expect(() => assertSubscriptionCanIssueInvoice({
+      plan: 'starter', billingCycle: 'monthly', status: 'active', unitAmount: 40_000n,
+    }, 'starter')).toThrowError(expect.objectContaining({ code: 'BILLING_SUBSCRIPTION_PRICE_STALE' }));
+  });
+
+  it('does not issue paid invoices from trialing, paused or cancelled billing subscriptions', () => {
+    for (const status of ['trialing', 'paused', 'cancelled']) {
+      expect(() => assertSubscriptionCanIssueInvoice({
+        plan: 'starter', billingCycle: 'monthly', status, unitAmount: 50_000n,
+      }, 'starter')).toThrowError(expect.objectContaining({ code: 'BILLING_SUBSCRIPTION_NOT_BILLABLE' }));
+    }
   });
 
   it('rejects invalid billing periods', () => {
