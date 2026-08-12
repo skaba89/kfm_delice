@@ -188,11 +188,14 @@ export function PlatformBilling({ token }: { token: string }) {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ dueAt: toIsoEndOfDay(invoiceDueDate) }),
+        body: JSON.stringify({
+          dueAt: toIsoEndOfDay(invoiceDueDate),
+          idempotencyKey: `invoice-${accountId}-${crypto.randomUUID()}`,
+        }),
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "Impossible d’émettre la facture");
-      toast.success(`Facture ${body.number} créée`);
+      toast.success(body.replay ? `Facture ${body.number} déjà créée` : `Facture ${body.number} créée`);
       setInvoiceDueDate("");
       await fetchBilling(accountId);
     } catch (error) {
