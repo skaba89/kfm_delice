@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { authenticatePlatformAdmin } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
 import { bigIntToNumber, db, dbReady } from '@/lib/db';
+import { invalidateTenantCache } from '@/lib/tenant';
 import {
   assertBillingWriteRole,
   BillingDomainError,
@@ -70,6 +71,25 @@ function paymentReplayMatches(
     && (expected.requestedPaidAt === undefined || sameOptionalDate(existing.paidAt, expected.requestedPaidAt));
 }
 
+async function recoverSubscriptionIfSettled(tx: any, accountId: string): Promise<string | null> {
+  const subscription = await tx.platformSubscription.findUnique({
+    where: { accountId },
+    select: { id: true, status: true },
+  });
+  if (!subscription || subscription.status !== 'past_due') return null;
+
+  const remainingOverdue = await tx.platformInvoice.count({
+    where: { accountId, status: 'overdue' },
+  });
+  if (remainingOverdue > 0) return null;
+
+  const recovered = await tx.platformSubscription.updateMany({
+    where: { accountId, status: 'past_due' },
+    data: { status: 'active' },
+  });
+  return recovered.count === 1 ? subscription.id : null;
+}
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -123,7 +143,14 @@ export async function POST(
           );
         }
         const replayInvoice = await tx.platformInvoice.findUnique({ where: { id: existing.invoiceId } });
-        return { payment: existing, invoice: replayInvoice, replay: true, beforeInvoice: replayInvoice };
+        const recoveredSubscriptionId = await recoverSubscriptionIfSettled(tx, id);
+        return {
+          payment: existing,
+          invoice: replayInvoice,
+          replay: true,
+          beforeInvoice: replayInvoice,
+          recoveredSubscriptionId,
+        };
       }
 
       const invoice = await tx.platformInvoice.findUnique({ where: { id: input.invoiceId } });
@@ -167,7 +194,14 @@ export async function POST(
         });
         if (concurrentReplay && paymentReplayMatches(concurrentReplay, replayExpectation)) {
           const replayInvoice = await tx.platformInvoice.findUnique({ where: { id: concurrentReplay.invoiceId } });
-          return { payment: concurrentReplay, invoice: replayInvoice, replay: true, beforeInvoice: replayInvoice };
+          const recoveredSubscriptionId = await recoverSubscriptionIfSettled(tx, id);
+          return {
+            payment: concurrentReplay,
+            invoice: replayInvoice,
+            replay: true,
+            beforeInvoice: replayInvoice,
+            recoveredSubscriptionId,
+          };
         }
         throw new BillingDomainError(
           'BILLING_CONCURRENT_PAYMENT',
@@ -192,8 +226,30 @@ export async function POST(
         },
       });
       const savedInvoice = await tx.platformInvoice.findUnique({ where: { id: invoice.id } });
-      return { payment, invoice: savedInvoice, replay: false, beforeInvoice: invoice };
+      const recoveredSubscriptionId = await recoverSubscriptionIfSettled(tx, id);
+      return {
+        payment,
+        invoice: savedInvoice,
+        replay: false,
+        beforeInvoice: invoice,
+        recoveredSubscriptionId,
+      };
     });
+
+    if (result.recoveredSubscriptionId) {
+      invalidateTenantCache();
+      await logAudit({
+        actorId: admin.id,
+        actorType: 'platform_admin',
+        action: 'platform_subscription_recovered',
+        entityType: 'PlatformSubscription',
+        entityId: result.recoveredSubscriptionId,
+        accountId: id,
+        before: { status: 'past_due' },
+        after: { status: 'active', reason: 'all_overdue_invoices_settled' },
+        request,
+      });
+    }
 
     if (!result.replay) {
       await logAudit({
@@ -207,6 +263,7 @@ export async function POST(
         after: {
           payment: paymentView(result.payment),
           invoice: invoiceView(result.invoice),
+          subscriptionRecovered: Boolean(result.recoveredSubscriptionId),
         },
         request,
       });
@@ -216,6 +273,7 @@ export async function POST(
       payment: paymentView(result.payment),
       invoice: invoiceView(result.invoice),
       replay: result.replay,
+      subscriptionRecovered: Boolean(result.recoveredSubscriptionId),
     }, { status: result.replay ? 200 : 201 });
   } catch (error) {
     if (error instanceof BillingDomainError) {
