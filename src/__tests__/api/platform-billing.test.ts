@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   paymentCreate: vi.fn(),
   invoiceFindUnique: vi.fn(),
   invoiceUpdateMany: vi.fn(),
+  invoiceCreate: vi.fn(),
   transaction: vi.fn(),
 }));
 
@@ -50,12 +51,14 @@ vi.mock('@/lib/db', () => ({
     platformInvoice: {
       findUnique: mocks.invoiceFindUnique,
       updateMany: mocks.invoiceUpdateMany,
+      create: mocks.invoiceCreate,
     },
     $transaction: mocks.transaction,
   },
 }));
 
 import { PATCH as patchSubscription } from '@/app/api/platform/accounts/[id]/billing/subscription/route';
+import { POST as issueInvoice } from '@/app/api/platform/accounts/[id]/billing/invoices/route';
 import { POST as recordPayment } from '@/app/api/platform/accounts/[id]/billing/payments/route';
 
 const platformAdmin = { id: 'platform-1', role: 'super_admin' };
@@ -89,6 +92,12 @@ describe('platform SaaS billing API contract', () => {
       updatedAt: new Date('2026-08-12T00:00:00Z'),
       ...data,
     }));
+    mocks.invoiceCreate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+      id: 'invoice-created',
+      createdAt: new Date('2026-08-12T00:00:00Z'),
+      updatedAt: new Date('2026-08-12T00:00:00Z'),
+      ...data,
+    }));
     mocks.transaction.mockImplementation(async (callback: (tx: unknown) => unknown) => callback({
       platformPayment: {
         findUnique: mocks.paymentFindUnique,
@@ -101,11 +110,10 @@ describe('platform SaaS billing API contract', () => {
     }));
   });
 
-  it('uses Account.plan catalog pricing even when a client sends a fake custom amount', async () => {
+  it('derives standard subscription pricing from Account.plan and the catalog', async () => {
     const response = await patchSubscription(
       request('/api/platform/accounts/account-1/billing/subscription', {
         billingCycle: 'monthly',
-        customUnitAmount: 999999,
       }, 'PATCH'),
       context,
     );
@@ -121,6 +129,21 @@ describe('platform SaaS billing API contract', () => {
     });
   });
 
+  it('rejects a client-supplied price for standard plans', async () => {
+    const response = await patchSubscription(
+      request('/api/platform/accounts/account-1/billing/subscription', {
+        billingCycle: 'monthly',
+        customUnitAmount: 999999,
+      }, 'PATCH'),
+      context,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.code).toBe('BILLING_STANDARD_PRICE_AUTHORITATIVE');
+    expect(mocks.subscriptionCreate).not.toHaveBeenCalled();
+  });
+
   it('rejects a custom account without an explicit negotiated amount', async () => {
     mocks.accountFindUnique.mockResolvedValue({ id: 'account-1', plan: 'custom', status: 'active' });
 
@@ -133,6 +156,57 @@ describe('platform SaaS billing API contract', () => {
     expect(response.status).toBe(400);
     expect(body.code).toBe('BILLING_CUSTOM_AMOUNT_REQUIRED');
     expect(mocks.subscriptionCreate).not.toHaveBeenCalled();
+  });
+
+  it('requires a fresh negotiated amount when a custom contract changes billing cycle', async () => {
+    mocks.accountFindUnique.mockResolvedValue({ id: 'account-1', plan: 'custom', status: 'active' });
+    mocks.subscriptionFindFirst.mockResolvedValue({
+      id: 'subscription-1', accountId: 'account-1', plan: 'custom', billingCycle: 'monthly',
+      status: 'active', unitAmount: 275_000n,
+    });
+
+    const response = await patchSubscription(
+      request('/api/platform/accounts/account-1/billing/subscription', { billingCycle: 'annual' }, 'PATCH'),
+      context,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.code).toBe('BILLING_CUSTOM_AMOUNT_REQUIRED');
+    expect(mocks.subscriptionUpdate).not.toHaveBeenCalled();
+  });
+
+  it('issues an invoice from the stored subscription amount, never from the request', async () => {
+    mocks.subscriptionFindFirst.mockResolvedValue({
+      id: 'subscription-1', accountId: 'account-1', plan: 'starter', billingCycle: 'monthly',
+      status: 'active', currency: 'GNF', unitAmount: 50_000n,
+    });
+
+    const response = await issueInvoice(
+      request('/api/platform/accounts/account-1/billing/invoices', {
+        dueAt: '2026-09-01T00:00:00Z',
+        periodStart: '2026-08-01T00:00:00Z',
+        periodEnd: '2026-09-01T00:00:00Z',
+        tax: 0,
+      }, 'POST'),
+      context,
+    );
+
+    expect(response.status).toBe(201);
+    expect(mocks.invoiceCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        accountId: 'account-1',
+        subscriptionId: 'subscription-1',
+        subtotal: 50_000n,
+        total: 50_000n,
+        amountPaid: 0n,
+        status: 'open',
+      }),
+    });
+    expect(mocks.logAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'platform_invoice_created',
+      accountId: 'account-1',
+    }));
   });
 
   it('records a full payment atomically and marks the invoice paid', async () => {
