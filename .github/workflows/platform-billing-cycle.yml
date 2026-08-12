@@ -1,0 +1,55 @@
+name: Platform Billing Cycle
+
+on:
+  schedule:
+    # GitHub schedules are UTC. Use an off-peak minute to avoid top-of-hour load.
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: platform-billing-cycle-production
+  cancel-in-progress: false
+
+jobs:
+  run-cycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Run production billing cycle
+        env:
+          BASE_URL: ${{ secrets.RENDER_PUBLIC_BASE_URL }}
+          BILLING_CRON_SECRET: ${{ secrets.BILLING_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "$BASE_URL" ] || [ -z "$BILLING_CRON_SECRET" ]; then
+            echo "::warning::Billing automation is not configured. Set RENDER_PUBLIC_BASE_URL and BILLING_CRON_SECRET in GitHub Actions secrets."
+            exit 0
+          fi
+
+          BASE_URL="${BASE_URL%/}"
+          response_file="$(mktemp)"
+          status="$(curl \
+            --silent \
+            --show-error \
+            --location \
+            --max-time 120 \
+            --output "$response_file" \
+            --write-out '%{http_code}' \
+            --request POST \
+            --header "Authorization: Bearer $BILLING_CRON_SECRET" \
+            "$BASE_URL/api/internal/platform-billing-cycle")"
+
+          cat "$response_file"
+          echo
+          if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
+            echo "::error::Platform billing cycle returned HTTP $status"
+            exit 1
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Platform Billing Cycle" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Schedule: daily at 04:17 UTC" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Endpoint: protected internal POST" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Production call runs only when required GitHub secrets are configured" >> "$GITHUB_STEP_SUMMARY"
