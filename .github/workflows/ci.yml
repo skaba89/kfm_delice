@@ -110,7 +110,7 @@ jobs:
         run: npm ci --include=dev
 
       - name: Select PostgreSQL schema
-        run: cp prisma/schema.postgres.prisma prisma/schema.prisma
+        run: bash scripts/switch-schema.sh postgres
 
       - name: Prisma validate
         run: npx prisma validate
