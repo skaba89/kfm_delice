@@ -4,6 +4,9 @@ import { authenticatePlatformAdmin } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
 import { bigIntToNumber, db, dbReady } from '@/lib/db';
 import {
+  assertAccountCanIssueInvoice,
+  assertBillingWriteRole,
+  assertSubscriptionCanIssueInvoice,
   BillingDomainError,
   generatePlatformInvoiceNumber,
   invoiceCreateSchema,
@@ -15,6 +18,25 @@ import {
 
 function sameDate(left: Date | null, right: Date | null): boolean {
   return left?.getTime() === right?.getTime();
+}
+
+function invoiceAuditView(invoice: any) {
+  return bigIntToNumber({
+    id: invoice.id,
+    accountId: invoice.accountId,
+    subscriptionId: invoice.subscriptionId,
+    number: invoice.number,
+    periodStart: invoice.periodStart,
+    periodEnd: invoice.periodEnd,
+    currency: invoice.currency,
+    subtotal: invoice.subtotal,
+    tax: invoice.tax,
+    total: invoice.total,
+    amountPaid: invoice.amountPaid,
+    status: invoice.status,
+    dueAt: invoice.dueAt,
+    paidAt: invoice.paidAt,
+  });
 }
 
 function assertInvoiceReplayMatches(
@@ -62,6 +84,7 @@ export async function POST(
     await dbReady;
     const admin = await authenticatePlatformAdmin(request);
     if (!admin) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
+    assertBillingWriteRole(admin);
 
     const { id } = await params;
     const parsed = invoiceCreateSchema.safeParse(await request.json());
@@ -74,7 +97,7 @@ export async function POST(
 
     const account = await db.account.findUnique({
       where: { id },
-      select: { id: true, plan: true },
+      select: { id: true, plan: true, status: true },
     });
     if (!account) return NextResponse.json({ error: 'Compte non trouvé' }, { status: 404 });
 
@@ -102,6 +125,8 @@ export async function POST(
       return NextResponse.json(bigIntToNumber({ ...existing, replay: true }));
     }
 
+    assertAccountCanIssueInvoice(account.status);
+
     const subscription = await db.platformSubscription.findFirst({
       where: { accountId: id },
       orderBy: { createdAt: 'desc' },
@@ -113,23 +138,17 @@ export async function POST(
         409,
       );
     }
-    if (!['active', 'trialing', 'past_due'].includes(subscription.status)) {
-      throw new BillingDomainError(
-        'BILLING_SUBSCRIPTION_NOT_BILLABLE',
-        'Cet abonnement ne peut pas être facturé dans son état actuel.',
-        409,
-      );
-    }
-    if (subscription.unitAmount <= 0n) {
-      throw new BillingDomainError(
-        'BILLING_ZERO_AMOUNT',
-        'Aucune facture payante ne peut être émise avec un montant nul.',
-        409,
-      );
-    }
+    assertSubscriptionCanIssueInvoice(subscription, account.plan);
 
     const subtotal = subscription.unitAmount;
     const total = subtotal + tax;
+    if (total > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new BillingDomainError(
+        'BILLING_AMOUNT_TOO_LARGE',
+        'Le total de la facture dépasse la limite sérialisable sans perte de précision.',
+      );
+    }
+
     let invoice;
     try {
       invoice = await db.platformInvoice.create({
@@ -171,7 +190,7 @@ export async function POST(
       entityType: 'PlatformInvoice',
       entityId: invoice.id,
       accountId: id,
-      after: bigIntToNumber(invoice),
+      after: invoiceAuditView(invoice),
       request,
     });
 
