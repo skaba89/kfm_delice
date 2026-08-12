@@ -26,6 +26,7 @@ CREATE TABLE "PlatformInvoice" (
     "accountId" TEXT NOT NULL,
     "subscriptionId" TEXT,
     "number" TEXT NOT NULL,
+    "idempotencyKey" TEXT NOT NULL,
     "periodStart" TIMESTAMP(3),
     "periodEnd" TIMESTAMP(3),
     "currency" TEXT NOT NULL DEFAULT 'GNF',
@@ -64,6 +65,7 @@ CREATE TABLE "PlatformPayment" (
 );
 
 CREATE UNIQUE INDEX "PlatformInvoice_number_key" ON "PlatformInvoice"("number");
+CREATE UNIQUE INDEX "PlatformInvoice_idempotencyKey_key" ON "PlatformInvoice"("idempotencyKey");
 CREATE UNIQUE INDEX "PlatformPayment_idempotencyKey_key" ON "PlatformPayment"("idempotencyKey");
 CREATE INDEX "PlatformSubscription_accountId_status_idx" ON "PlatformSubscription"("accountId", "status");
 CREATE INDEX "PlatformSubscription_accountId_createdAt_idx" ON "PlatformSubscription"("accountId", "createdAt");
