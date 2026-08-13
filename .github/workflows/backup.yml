@@ -1,5 +1,6 @@
 # KFM Delice - Daily PostgreSQL Backup at 02:00 UTC (30-day retention + optional S3)
 name: PostgreSQL Backup
+
 on:
   schedule:
     - cron: "0 2 * * *"
@@ -9,23 +10,36 @@ on:
         description: "Days to retain (default 30)"
         required: false
         default: "30"
+
 concurrency:
   group: postgres-backup
   cancel-in-progress: false
+
 jobs:
   backup:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # GitHub does not allow direct secrets.* references in an `if:` expression.
+    # Promote optional S3 settings to job env, then gate steps with env.*.
+    env:
+      BACKUP_S3_BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+      BACKUP_S3_KEY_ID: ${{ secrets.BACKUP_S3_KEY_ID }}
+      BACKUP_S3_KEY_SECRET: ${{ secrets.BACKUP_S3_KEY_SECRET }}
+      BACKUP_S3_ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
+
     steps:
       - uses: actions/checkout@v4
+
       - name: Install pg client
         run: |
           sudo apt-get update -y
           sudo apt-get install -y postgresql-client
+
       - name: Verify DATABASE_URL is PostgreSQL
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
+          set -euo pipefail
           if [ -z "$DATABASE_URL" ]; then
             echo "::error::DATABASE_URL secret not set"
             exit 1
@@ -37,40 +51,82 @@ jobs:
               exit 1
               ;;
           esac
+
       - name: Generate backup filename
         id: fname
         run: |
+          set -euo pipefail
           TS=$(date -u +%Y%m%d-%H%M%S)
-          echo "filename=kfm-delice-${TS}.dump" >> $GITHUB_OUTPUT
-          echo "timestamp=${TS}" >> $GITHUB_OUTPUT
+          echo "filename=kfm-delice-${TS}.dump" >> "$GITHUB_OUTPUT"
+          echo "timestamp=${TS}" >> "$GITHUB_OUTPUT"
+
       - name: Run pg_dump
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
+          set -euo pipefail
           bash scripts/backup-postgres.sh
           ls -lh backups/
-          mv "backups/$(ls -t backups/ | head -1)" "${{ steps.fname.outputs.filename }}"
+          latest="$(find backups -maxdepth 1 -type f -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)"
+          if [ -z "$latest" ] || [ ! -f "$latest" ]; then
+            echo "::error::Backup script completed without producing a dump file"
+            exit 1
+          fi
+          mv "$latest" "${{ steps.fname.outputs.filename }}"
+          test -s "${{ steps.fname.outputs.filename }}"
+          sha256sum "${{ steps.fname.outputs.filename }}" > "${{ steps.fname.outputs.filename }}.sha256"
+
       - name: Upload to GitHub Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.fname.outputs.filename }}
-          path: ${{ steps.fname.outputs.filename }}
+          path: |
+            ${{ steps.fname.outputs.filename }}
+            ${{ steps.fname.outputs.filename }}.sha256
           retention-days: ${{ github.event.inputs.retention_days || 30 }}
+          if-no-files-found: error
+
+      - name: Validate optional S3 configuration
+        if: ${{ env.BACKUP_S3_BUCKET != '' }}
+        run: |
+          set -euo pipefail
+          if [ -z "$BACKUP_S3_KEY_ID" ] || [ -z "$BACKUP_S3_KEY_SECRET" ]; then
+            echo "::error::BACKUP_S3_BUCKET is configured but BACKUP_S3_KEY_ID/BACKUP_S3_KEY_SECRET is missing"
+            exit 1
+          fi
+          command -v aws >/dev/null 2>&1 || {
+            echo "::error::AWS CLI is unavailable on the runner"
+            exit 1
+          }
+
       - name: Mirror to S3 (optional)
-        if: ${{ secrets.BACKUP_S3_BUCKET != '' }}
+        if: ${{ env.BACKUP_S3_BUCKET != '' }}
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_S3_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_S3_KEY_SECRET }}
-          AWS_ENDPOINT_URL: ${{ secrets.BACKUP_S3_ENDPOINT }}
+          AWS_ACCESS_KEY_ID: ${{ env.BACKUP_S3_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ env.BACKUP_S3_KEY_SECRET }}
+          AWS_ENDPOINT_URL: ${{ env.BACKUP_S3_ENDPOINT }}
           AWS_DEFAULT_REGION: us-east-1
-          BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+          BUCKET: ${{ env.BACKUP_S3_BUCKET }}
           FILE: ${{ steps.fname.outputs.filename }}
         run: |
-          aws s3 cp "$FILE" "s3://$BUCKET/$FILE" --endpoint-url "$AWS_ENDPOINT_URL" --storage-class STANDARD_IA
+          set -euo pipefail
+          endpoint_args=()
+          if [ -n "$AWS_ENDPOINT_URL" ]; then
+            endpoint_args=(--endpoint-url "$AWS_ENDPOINT_URL")
+          fi
+          aws s3 cp "$FILE" "s3://$BUCKET/$FILE" "${endpoint_args[@]}" --storage-class STANDARD_IA
+          aws s3 cp "$FILE.sha256" "s3://$BUCKET/$FILE.sha256" "${endpoint_args[@]}" --storage-class STANDARD_IA
+
       - name: Summary
         run: |
           echo "====================================="
           echo "  PostgreSQL backup complete"
           echo "  File: ${{ steps.fname.outputs.filename }}"
+          echo "  Checksum: ${{ steps.fname.outputs.filename }}.sha256"
           echo "  Retention: ${{ github.event.inputs.retention_days || 30 }} days"
+          if [ -n "$BACKUP_S3_BUCKET" ]; then
+            echo "  S3 mirror: enabled"
+          else
+            echo "  S3 mirror: disabled"
+          fi
           echo "====================================="

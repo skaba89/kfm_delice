@@ -14,20 +14,42 @@ jobs:
   run-cycle:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      BASE_URL: ${{ secrets.RENDER_PUBLIC_BASE_URL }}
+      BILLING_CRON_SECRET: ${{ secrets.BILLING_CRON_SECRET }}
+
     steps:
-      - name: Run production billing cycle
-        env:
-          BASE_URL: ${{ secrets.RENDER_PUBLIC_BASE_URL }}
-          BILLING_CRON_SECRET: ${{ secrets.BILLING_CRON_SECRET }}
+      - name: Validate production billing automation configuration
         run: |
           set -euo pipefail
-          if [ -z "$BASE_URL" ] || [ -z "$BILLING_CRON_SECRET" ]; then
-            echo "::warning::Billing automation is not configured. Set RENDER_PUBLIC_BASE_URL and BILLING_CRON_SECRET in GitHub Actions secrets."
-            exit 0
+          missing=()
+          if [ -z "$BASE_URL" ]; then
+            missing+=("RENDER_PUBLIC_BASE_URL")
           fi
+          if [ -z "$BILLING_CRON_SECRET" ]; then
+            missing+=("BILLING_CRON_SECRET")
+          fi
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf -v missing_list '%s, ' "${missing[@]}"
+            missing_list="${missing_list%, }"
+            echo "::error::Production billing automation is incomplete. Missing GitHub Actions secret(s): $missing_list"
+            exit 1
+          fi
+          case "$BASE_URL" in
+            https://*) ;;
+            *)
+              echo "::error::RENDER_PUBLIC_BASE_URL must use HTTPS for the production billing cycle"
+              exit 1
+              ;;
+          esac
 
+      - name: Run production billing cycle
+        run: |
+          set -euo pipefail
           BASE_URL="${BASE_URL%/}"
           response_file="$(mktemp)"
+          trap 'rm -f "$response_file"' EXIT
+
           status="$(curl \
             --silent \
             --show-error \
@@ -46,10 +68,32 @@ jobs:
             exit 1
           fi
 
+          RESPONSE_FILE="$response_file" python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          path = os.environ['RESPONSE_FILE']
+          try:
+              payload = json.load(open(path, encoding='utf-8'))
+          except Exception as exc:
+              print(f"::error::Billing endpoint returned invalid JSON: {exc}")
+              sys.exit(1)
+
+          if payload.get('ok') is not True:
+              print(f"::error::Billing endpoint returned a non-success business response: {payload}")
+              sys.exit(1)
+
+          result = payload.get('result') or {}
+          print('Billing cycle acknowledged by application.')
+          print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+          PY
+
       - name: Summary
         if: always()
         run: |
           echo "### Platform Billing Cycle" >> "$GITHUB_STEP_SUMMARY"
           echo "- Schedule: daily at 04:17 UTC" >> "$GITHUB_STEP_SUMMARY"
           echo "- Endpoint: protected internal POST" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Production call runs only when required GitHub secrets are configured" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Configuration: fail-closed if production URL or cron secret is missing" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Success contract: HTTP 2xx + JSON \`ok: true\`" >> "$GITHUB_STEP_SUMMARY"
