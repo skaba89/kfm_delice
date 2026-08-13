@@ -36,7 +36,24 @@ export async function POST(request: Request) {
 
     const driver = await db.driver.findFirst({
       where: { email, restaurantId },
-      include: { restaurant: { select: { slug: true } } },
+      select: {
+        id: true,
+        email: true,
+        password: true,
+        name: true,
+        phone: true,
+        vehicle: true,
+        status: true,
+        rating: true,
+        totalDeliveries: true,
+        zone: true,
+        currentOrderId: true,
+        mustChangePassword: true,
+        lat: true,
+        lng: true,
+        restaurantId: true,
+        restaurant: { select: { slug: true } },
+      },
     });
 
     if (!driver || !driver.password) {
