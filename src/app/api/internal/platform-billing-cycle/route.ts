@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
-import { runPlatformBillingCycle } from '@/lib/platform-billing-cycle';
+import { runPlatformBillingLifecycle } from '@/lib/platform-billing-lifecycle';
 
 function safeSecretEquals(received: string, expected: string): boolean {
   const receivedBuffer = Buffer.from(received, 'utf8');
@@ -31,7 +31,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
     }
 
-    const result = await runPlatformBillingCycle();
+    const result = await runPlatformBillingLifecycle();
     return NextResponse.json({ ok: true, result });
   } catch (error) {
     console.error('[platform-billing-cycle POST]', error);
