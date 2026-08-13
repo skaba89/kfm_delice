@@ -1,0 +1,18 @@
+model CustomDomainMapping {
+  id                 String   @id @default(cuid())
+  restaurantId       String   @unique
+  accountId          String?
+  domain             String   @unique
+  status             String   @default("requested")
+  provider           String   @default("render")
+  providerDomainId   String   @default("")
+  verificationStatus String   @default("unverified")
+  errorMessage       String   @default("")
+  lastCheckedAt      DateTime?
+  activatedAt        DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([accountId, status])
+  @@index([status, updatedAt])
+}
