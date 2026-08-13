@@ -1,7 +1,8 @@
 # KFM Delice — Render deployment gate
 # Production deploys require the exact current main commit to have both CI and
 # Security Scan green. Stale CI completions are skipped and can never roll
-# production backwards. Render is always triggered with the validated SHA.
+# production backwards. Render is always triggered with the validated SHA and
+# production releases must expose the exact SHA through the public smoke URL.
 name: Deploy to Render
 
 on:
@@ -103,16 +104,40 @@ jobs:
           if [ "$TARGET_ENV" = "staging" ]; then
             HOOK_URL="$STAGING_HOOK_URL"
             BASE_URL="$STAGING_BASE_URL"
+            HOOK_SECRET_NAME="RENDER_STAGING_DEPLOY_HOOK_URL"
+            BASE_SECRET_NAME="RENDER_STAGING_BASE_URL"
           else
             HOOK_URL="$PROD_HOOK_URL"
             BASE_URL="$PROD_BASE_URL"
+            HOOK_SECRET_NAME="RENDER_DEPLOY_HOOK_URL"
+            BASE_SECRET_NAME="RENDER_PUBLIC_BASE_URL"
           fi
+
+          missing=()
           if [ -z "$HOOK_URL" ]; then
-            echo "::error::Render deploy hook is not configured for $TARGET_ENV."
+            missing+=("$HOOK_SECRET_NAME")
+          fi
+          if [ -z "$BASE_URL" ]; then
+            missing+=("$BASE_SECRET_NAME")
+          fi
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf -v missing_list '%s, ' "${missing[@]}"
+            missing_list="${missing_list%, }"
+            echo "::error::Render release configuration incomplete for $TARGET_ENV. Missing GitHub Actions secret(s): $missing_list"
             exit 1
           fi
+
+          case "$BASE_URL" in
+            https://*) ;;
+            *)
+              echo "::error::$BASE_SECRET_NAME must be an HTTPS URL for exact-release smoke validation."
+              exit 1
+              ;;
+          esac
+
           echo "HOOK_URL=$HOOK_URL" >> "$GITHUB_ENV"
-          echo "BASE_URL=$BASE_URL" >> "$GITHUB_ENV"
+          echo "BASE_URL=${BASE_URL%/}" >> "$GITHUB_ENV"
 
       - name: Trigger exact Render revision
         if: env.SKIP_DEPLOY != 'true'
@@ -144,11 +169,6 @@ jobs:
           SMOKE_RESTAURANT_SLUG: ${{ secrets.SMOKE_RESTAURANT_SLUG }}
         run: |
           set -euo pipefail
-          if [ -z "$BASE_URL" ]; then
-            echo "::warning::Public base URL secret is not configured for $TARGET_ENV; exact-release smoke is skipped. Configure RENDER_PUBLIC_BASE_URL (and staging equivalent) before national rollout."
-            exit 0
-          fi
-
           echo "Waiting for Render to serve release $TARGET_SHA at $BASE_URL..."
           matched="false"
           for attempt in $(seq 1 60); do
@@ -184,7 +204,7 @@ jobs:
           echo "Environment: $TARGET_ENV"
           echo "Commit: $TARGET_SHA"
           if [ -n "${BASE_URL:-}" ]; then
-            echo "Post-deploy smoke: passed for the exact release."
+            echo "Post-deploy smoke: required for the exact release."
           else
-            echo "Post-deploy smoke: not configured (base URL secret missing or deployment stopped before endpoint resolution)."
+            echo "Post-deploy smoke: did not run because release endpoint configuration failed."
           fi
