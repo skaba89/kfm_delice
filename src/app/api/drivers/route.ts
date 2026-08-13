@@ -58,8 +58,7 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     console.error("[drivers] GET error:", error);
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({ error: "Erreur serveur", details: errorMsg }, { status: 500 });
+    return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
 
