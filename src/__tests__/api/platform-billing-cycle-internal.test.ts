@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  runPlatformBillingCycle: vi.fn(),
+  runPlatformBillingLifecycle: vi.fn(),
 }));
 
-vi.mock('@/lib/platform-billing-cycle', () => ({
-  runPlatformBillingCycle: mocks.runPlatformBillingCycle,
+vi.mock('@/lib/platform-billing-lifecycle', () => ({
+  runPlatformBillingLifecycle: mocks.runPlatformBillingLifecycle,
 }));
 
 import { POST } from '@/app/api/internal/platform-billing-cycle/route';
@@ -20,9 +20,16 @@ function request(token?: string) {
 describe('internal platform billing cycle endpoint', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.runPlatformBillingCycle.mockResolvedValue({
-      evaluatedAt: '2026-08-12T00:00:00.000Z',
+    mocks.runPlatformBillingLifecycle.mockResolvedValue({
+      evaluatedAt: '2026-08-13T04:17:00.000Z',
       invoicesCreated: 1,
+      trialLifecycle: {
+        due: 1,
+        subscriptionsActivated: 1,
+        accountsActivated: 1,
+        restaurantsActivated: 1,
+        skipped: [],
+      },
     });
   });
 
@@ -30,32 +37,33 @@ describe('internal platform billing cycle endpoint', () => {
     vi.unstubAllEnvs();
   });
 
-  it('fails closed when the cron secret is not configured', async () => {
+  it('fails closed when the cron credential is not configured', async () => {
     vi.stubEnv('BILLING_CRON_SECRET', '');
     const response = await POST(request());
     const body = await response.json();
 
     expect(response.status).toBe(503);
     expect(body.code).toBe('BILLING_AUTOMATION_NOT_CONFIGURED');
-    expect(mocks.runPlatformBillingCycle).not.toHaveBeenCalled();
+    expect(mocks.runPlatformBillingLifecycle).not.toHaveBeenCalled();
   });
 
-  it('rejects a missing or incorrect bearer secret', async () => {
-    vi.stubEnv('BILLING_CRON_SECRET', 'billing-cron-test-secret');
+  it('rejects a missing or incorrect bearer value', async () => {
+    vi.stubEnv('BILLING_CRON_SECRET', 'unit-test-value');
 
     expect((await POST(request())).status).toBe(401);
-    expect((await POST(request('wrong-secret'))).status).toBe(401);
-    expect(mocks.runPlatformBillingCycle).not.toHaveBeenCalled();
+    expect((await POST(request('incorrect-value'))).status).toBe(401);
+    expect(mocks.runPlatformBillingLifecycle).not.toHaveBeenCalled();
   });
 
-  it('runs the cycle only with the exact configured bearer secret', async () => {
-    vi.stubEnv('BILLING_CRON_SECRET', 'billing-cron-test-secret');
-    const response = await POST(request('billing-cron-test-secret'));
+  it('runs the trial-aware lifecycle only with the exact configured bearer value', async () => {
+    vi.stubEnv('BILLING_CRON_SECRET', 'unit-test-value');
+    const response = await POST(request('unit-test-value'));
     const body = await response.json();
 
     expect(response.status).toBe(200);
     expect(body.ok).toBe(true);
     expect(body.result.invoicesCreated).toBe(1);
-    expect(mocks.runPlatformBillingCycle).toHaveBeenCalledOnce();
+    expect(body.result.trialLifecycle.subscriptionsActivated).toBe(1);
+    expect(mocks.runPlatformBillingLifecycle).toHaveBeenCalledOnce();
   });
 });
