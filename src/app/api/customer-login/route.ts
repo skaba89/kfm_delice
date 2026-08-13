@@ -35,7 +35,22 @@ export async function POST(request: Request) {
 
     const customer = await db.customer.findFirst({
       where: { email, restaurantId },
-      include: { restaurant: { select: { slug: true } } },
+      select: {
+        id: true,
+        email: true,
+        password: true,
+        name: true,
+        phone: true,
+        address: true,
+        loyaltyPoints: true,
+        totalOrders: true,
+        totalSpent: true,
+        status: true,
+        mustChangePassword: true,
+        restaurantId: true,
+        tokenVersion: true,
+        restaurant: { select: { slug: true } },
+      },
     });
 
     if (!customer) {
