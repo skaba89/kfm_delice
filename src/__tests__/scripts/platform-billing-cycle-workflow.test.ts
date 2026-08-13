@@ -25,13 +25,25 @@ describe('platform billing cycle workflow contract', () => {
     expect(workflow).toContain('/api/internal/platform-billing-cycle');
   });
 
-  it('does not fail scheduled builds before production secrets are configured', () => {
-    expect(workflow).toContain('Billing automation is not configured');
-    expect(workflow).toContain('exit 0');
+  it('fails closed when production billing automation secrets are missing', () => {
+    expect(workflow).toContain('Production billing automation is incomplete');
+    expect(workflow).toContain('RENDER_PUBLIC_BASE_URL');
+    expect(workflow).toContain('BILLING_CRON_SECRET');
+    expect(workflow).toContain('exit 1');
+    expect(workflow).not.toContain('Billing automation is not configured; skipping');
+  });
+
+  it('requires HTTPS for the production billing endpoint', () => {
+    expect(workflow).toContain('RENDER_PUBLIC_BASE_URL must use HTTPS');
   });
 
   it('fails when the protected endpoint returns a non-2xx status', () => {
     expect(workflow).toContain('Platform billing cycle returned HTTP $status');
     expect(workflow).toContain('exit 1');
+  });
+
+  it('requires an application-level success acknowledgement', () => {
+    expect(workflow).toContain("payload.get('ok') is not True");
+    expect(workflow).toContain('Billing endpoint returned a non-success business response');
   });
 });
