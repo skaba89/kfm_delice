@@ -73,6 +73,21 @@ const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
 }
 
+// Credential-bearing fields are excluded from all normal Prisma results.
+// Authentication paths that genuinely need one of these values must request it
+// explicitly with select/omit override. This prevents an eager relation include
+// from accidentally serializing password hashes or platform 2FA recovery data.
+const sensitiveFieldOmit = {
+  admin: { password: true },
+  customer: { password: true },
+  driver: { password: true },
+  platformAdmin: {
+    password: true,
+    twoFactorSecret: true,
+    twoFactorBackupCodes: true,
+  },
+} as const;
+
 // Only instantiate PrismaClient on the server. On the client, export a
 // proxy that throws if accessed (so client code that accidentally uses
 // `db` fails clearly instead of crashing at import time).
@@ -80,6 +95,7 @@ export const db = isServer
   ? (globalForPrisma.prisma ??
       new PrismaClient({
         log: process.env.NODE_ENV === 'development' ? ['query'] : ['error'],
+        omit: sensitiveFieldOmit,
       }))
   : (new Proxy(
       {},
