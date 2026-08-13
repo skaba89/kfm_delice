@@ -10,6 +10,7 @@ import {
   parseOptionalIsoDate,
   subscriptionPatchSchema,
 } from '@/lib/platform-billing';
+import { invalidateTenantCache } from '@/lib/tenant';
 
 function subscriptionView(subscription: any) {
   if (!subscription) return null;
@@ -52,7 +53,7 @@ export async function PATCH(
 
     const account = await db.account.findUnique({
       where: { id },
-      select: { id: true, plan: true, status: true },
+      select: { id: true, plan: true, status: true, trialEndsAt: true },
     });
     if (!account) return NextResponse.json({ error: 'Compte non trouvé' }, { status: 404 });
 
@@ -104,10 +105,11 @@ export async function PATCH(
       );
     }
 
+    const targetStatus = input.status ?? existing?.status ?? (account.status === 'trial' ? 'trialing' : 'active');
     const data = {
       plan,
       billingCycle,
-      status: input.status ?? existing?.status ?? (account.status === 'trial' ? 'trialing' : 'active'),
+      status: targetStatus,
       currency: 'GNF',
       unitAmount,
       ...(currentPeriodStart !== undefined && { currentPeriodStart }),
@@ -118,6 +120,131 @@ export async function PATCH(
       ...(input.providerCustomerRef !== undefined && { providerCustomerRef: input.providerCustomerRef }),
       ...(input.providerSubscriptionRef !== undefined && { providerSubscriptionRef: input.providerSubscriptionRef }),
     };
+
+    // Public trial onboarding deliberately creates Account.status=trial and
+    // PlatformSubscription.status=trialing. Moving billing to `active` from the
+    // platform back-office is the explicit commercial conversion boundary.
+    // Keep the transition atomic so a paid subscription can never coexist with
+    // a still-expired trial Account because of a partial write.
+    if (account.status === 'trial' && targetStatus === 'active') {
+      const result = await db.$transaction(async (tx) => {
+        const freshAccount = await tx.account.findUnique({
+          where: { id },
+          select: { id: true, plan: true, status: true, trialEndsAt: true },
+        });
+        if (!freshAccount) {
+          throw new BillingDomainError('BILLING_ACCOUNT_NOT_FOUND', 'Compte non trouvé.', 404);
+        }
+
+        const freshSubscription = await tx.platformSubscription.findFirst({
+          where: { accountId: id },
+          orderBy: { createdAt: 'desc' },
+        });
+
+        // Safe retry after another request completed the exact same conversion.
+        if (freshAccount.status === 'active' && freshSubscription?.status === 'active') {
+          return {
+            subscription: freshSubscription,
+            restaurantSlugs: [] as string[],
+            convertedRestaurants: 0,
+            replay: true,
+          };
+        }
+
+        if (freshAccount.plan !== account.plan) {
+          throw new BillingDomainError(
+            'BILLING_TRIAL_CONVERSION_CONFLICT',
+            'Le plan commercial a changé pendant la conversion. Rechargez la facturation puis réessayez.',
+            409,
+          );
+        }
+        if (freshAccount.status !== 'trial' || !freshSubscription || freshSubscription.status !== 'trialing') {
+          throw new BillingDomainError(
+            'BILLING_TRIAL_CONVERSION_CONFLICT',
+            'L’essai n’est plus dans un état convertible. Rechargez la facturation avant toute activation.',
+            409,
+          );
+        }
+
+        const trialRestaurants = await tx.restaurant.findMany({
+          where: { accountId: id, status: 'trial' },
+          select: { slug: true },
+        });
+
+        const subscriptionClaim = await tx.platformSubscription.updateMany({
+          where: { id: freshSubscription.id, accountId: id, status: 'trialing' },
+          data,
+        });
+        if (subscriptionClaim.count !== 1) {
+          throw new BillingDomainError(
+            'BILLING_TRIAL_CONVERSION_CONFLICT',
+            'L’abonnement a été modifié en parallèle. Rechargez la facturation puis réessayez.',
+            409,
+          );
+        }
+
+        const accountClaim = await tx.account.updateMany({
+          where: { id, status: 'trial' },
+          data: { status: 'active', trialEndsAt: '' },
+        });
+        if (accountClaim.count !== 1) {
+          throw new BillingDomainError(
+            'BILLING_TRIAL_CONVERSION_CONFLICT',
+            'Le compte a été modifié en parallèle. Rechargez la facturation puis réessayez.',
+            409,
+          );
+        }
+
+        const restaurantsUpdate = await tx.restaurant.updateMany({
+          where: { accountId: id, status: 'trial' },
+          data: { status: 'active', trialEndsAt: '' },
+        });
+
+        const subscription = await tx.platformSubscription.findUnique({
+          where: { id: freshSubscription.id },
+        });
+        if (!subscription) {
+          throw new BillingDomainError(
+            'BILLING_TRIAL_CONVERSION_CONFLICT',
+            'Impossible de relire l’abonnement converti.',
+            409,
+          );
+        }
+
+        return {
+          subscription,
+          restaurantSlugs: trialRestaurants.map((restaurant) => restaurant.slug),
+          convertedRestaurants: restaurantsUpdate.count,
+          replay: false,
+        };
+      });
+
+      if (!result.replay) {
+        for (const slug of result.restaurantSlugs) invalidateTenantCache(slug);
+        await logAudit({
+          actorId: admin.id,
+          actorType: 'platform_admin',
+          action: 'platform_trial_converted',
+          entityType: 'PlatformSubscription',
+          entityId: result.subscription.id,
+          accountId: id,
+          before: {
+            accountStatus: account.status,
+            trialEndsAt: account.trialEndsAt,
+            subscription: subscriptionView(existing),
+          },
+          after: {
+            accountStatus: 'active',
+            trialEndsAt: '',
+            convertedRestaurants: result.convertedRestaurants,
+            subscription: subscriptionView(result.subscription),
+          },
+          request,
+        });
+      }
+
+      return NextResponse.json(subscriptionView(result.subscription));
+    }
 
     let subscription;
     let before = existing;
