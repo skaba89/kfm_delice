@@ -39,6 +39,15 @@ describe('ChatMessage migration recovery contract', () => {
     expect(repair).toContain('refusing to invent data-bearing fields');
   });
 
+  it('preserves historical orphan messages while enforcing the FK for future writes', () => {
+    expect(repair).toContain('countOrphanMessages');
+    expect(repair).toContain('NOT VALID');
+    expect(repair).toContain('historical orphan row(s)');
+    expect(repair).toContain('No data was deleted or rewritten');
+    expect(repair).not.toMatch(/DELETE\s+FROM\s+"ChatMessage"/i);
+    expect(repair).not.toMatch(/UPDATE\s+"ChatMessage"/i);
+  });
+
   it('runs the targeted repair before strict prisma migrate deploy', () => {
     const repairPosition = startup.indexOf('node scripts/repair-chat-message-migration.cjs');
     const migratePosition = startup.indexOf('node_modules/.bin/prisma migrate deploy');
