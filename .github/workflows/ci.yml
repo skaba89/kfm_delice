@@ -181,6 +181,102 @@ jobs:
           node scripts/repair-chat-message-migration.cjs
           npx prisma migrate deploy
 
+      - name: Regression — recover partial LoyaltyTier P3018/P3009
+        run: |
+          node <<'NODE'
+          const { PrismaClient } = require('@prisma/client');
+          const db = new PrismaClient();
+          (async () => {
+            try {
+              // Reproduce the production shape observed on Render: the LoyaltyTier
+              // table/FK already exists, but the historical migration is failed
+              // before its trailing Customer.tier statements are guaranteed.
+              await db.$executeRawUnsafe('DROP INDEX IF EXISTS "Customer_tier_idx"');
+              await db.$executeRawUnsafe('ALTER TABLE "Customer" DROP COLUMN IF EXISTS "tier"');
+
+              const fkRows = await db.$queryRawUnsafe(`
+                SELECT conname
+                FROM pg_constraint
+                WHERE conrelid = '"LoyaltyTier"'::regclass
+                  AND conname = 'LoyaltyTier_restaurantId_fkey'
+                  AND contype = 'f'
+              `);
+              if (fkRows.length !== 1) {
+                throw new Error('LoyaltyTier FK must already exist to reproduce Render P3018');
+              }
+
+              const changed = await db.$executeRawUnsafe(`
+                UPDATE _prisma_migrations
+                SET finished_at = NULL,
+                    rolled_back_at = NULL,
+                    applied_steps_count = 0,
+                    logs = 'CI simulated partial LoyaltyTier P3018/P3009 recovery test'
+                WHERE migration_name = '20260713060000_add_loyalty_tiers'
+              `);
+              if (Number(changed) < 1) {
+                throw new Error('LoyaltyTier migration row not found for recovery regression test');
+              }
+              console.log('Historical LoyaltyTier migration marked failed with existing FK and missing Customer.tier.');
+            } finally {
+              await db.$disconnect();
+            }
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+          node scripts/repair-loyalty-tier-migration.cjs
+          npx prisma migrate deploy
+          node <<'NODE'
+          const { PrismaClient } = require('@prisma/client');
+          const db = new PrismaClient();
+          (async () => {
+            try {
+              const [tierColumn, tierIndex, migration] = await Promise.all([
+                db.$queryRawUnsafe(`
+                  SELECT data_type, is_nullable, column_default
+                  FROM information_schema.columns
+                  WHERE table_schema = 'public'
+                    AND table_name = 'Customer'
+                    AND column_name = 'tier'
+                `),
+                db.$queryRawUnsafe(`
+                  SELECT indexname
+                  FROM pg_indexes
+                  WHERE schemaname = 'public'
+                    AND tablename = 'Customer'
+                    AND indexname = 'Customer_tier_idx'
+                `),
+                db.$queryRawUnsafe(`
+                  SELECT finished_at, rolled_back_at
+                  FROM _prisma_migrations
+                  WHERE migration_name = '20260713060000_add_loyalty_tiers'
+                  ORDER BY started_at DESC
+                  LIMIT 1
+                `),
+              ]);
+              if (
+                tierColumn.length !== 1 ||
+                tierColumn[0].data_type !== 'text' ||
+                tierColumn[0].is_nullable !== 'NO' ||
+                !String(tierColumn[0].column_default || '').includes("'bronze'") ||
+                tierIndex.length !== 1 ||
+                migration.length !== 1 ||
+                migration[0].finished_at === null ||
+                migration[0].rolled_back_at !== null
+              ) {
+                throw new Error('LoyaltyTier recovery did not restore the exact historical postconditions');
+              }
+              console.log('LoyaltyTier partial migration recovery verified in ephemeral PostgreSQL.');
+            } finally {
+              await db.$disconnect();
+            }
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+
       - name: Runtime schema readiness (BLOCKING)
         run: node scripts/verify-schema-read-only.cjs
 
