@@ -18,6 +18,7 @@
     "db:seed:prod:dry": "bunx tsx scripts/seed-production.ts --dry-run",
     "db:seed:prod:yes": "bunx tsx scripts/seed-production.ts --yes",
     "test": "vitest run",
+    "posttest": "node scripts/test-chat-orphan-recovery.cjs",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit --skipLibCheck",
     "test:watch": "vitest",
