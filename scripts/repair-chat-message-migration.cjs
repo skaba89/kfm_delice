@@ -12,8 +12,9 @@
  * - If the migration is failed, verify/complete only the objects declared by
  *   the historical migration, then use Prisma's official
  *   `migrate resolve --applied` command.
- * - Existing non-empty tables must already expose the exact required columns;
- *   the repair never invents sender/content/tenant values for existing rows.
+ * - Existing tables must already expose the exact required data-bearing
+ *   column shape before this script creates any missing index/constraint.
+ * - The repair never invents sender/content/tenant values for existing rows.
  * - If the expected shape cannot be proven, fail closed and leave P3009 intact.
  */
 
@@ -70,6 +71,28 @@ async function getColumnMetadata(db) {
   return new Map(rows.map((row) => [row.column_name, row]));
 }
 
+function assertRequiredColumnShape(metadata, context) {
+  const missingColumns = Object.keys(EXPECTED_COLUMNS).filter((column) => !metadata.has(column));
+  if (missingColumns.length > 0) {
+    throw new Error(
+      `${context} is missing required columns (${missingColumns.join(', ')}); refusing to invent data-bearing fields`
+    );
+  }
+
+  const shapeErrors = [];
+  for (const [column, expected] of Object.entries(EXPECTED_COLUMNS)) {
+    const actual = metadata.get(column);
+    if (actual.data_type !== expected.type || actual.is_nullable !== expected.nullable) {
+      shapeErrors.push(
+        `${column}: expected ${expected.type}/${expected.nullable}, got ${actual.data_type}/${actual.is_nullable}`
+      );
+    }
+  }
+  if (shapeErrors.length > 0) {
+    throw new Error(`${context} column shape mismatch: ${shapeErrors.join('; ')}`);
+  }
+}
+
 async function createHistoricalTable(db) {
   console.log('[chat-repair] ChatMessage table is missing; creating the exact historical shape...');
   await db.$executeRawUnsafe(`
@@ -90,13 +113,10 @@ async function ensureHistoricalObjects(db) {
   if (!(await tableExists(db))) {
     await createHistoricalTable(db);
   } else {
+    // Fail before any mutation when an existing table is not compatible with
+    // the historical migration. Never "repair" business data by guessing.
     const metadata = await getColumnMetadata(db);
-    const missing = Object.keys(EXPECTED_COLUMNS).filter((column) => !metadata.has(column));
-    if (missing.length > 0) {
-      throw new Error(
-        `Existing ChatMessage table is missing required columns (${missing.join(', ')}); refusing to invent data-bearing fields`
-      );
-    }
+    assertRequiredColumnShape(metadata, 'Existing ChatMessage table');
   }
 
   await db.$executeRawUnsafe(`
@@ -151,29 +171,13 @@ async function ensureHistoricalObjects(db) {
   `);
 }
 
-async function verifyExactObjects(db) {
+async function verifyRequiredObjects(db) {
   if (!(await tableExists(db))) {
     throw new Error('ChatMessage table is still missing after repair');
   }
 
   const metadata = await getColumnMetadata(db);
-  const missingColumns = Object.keys(EXPECTED_COLUMNS).filter((column) => !metadata.has(column));
-  if (missingColumns.length > 0) {
-    throw new Error(`ChatMessage missing required columns: ${missingColumns.join(', ')}`);
-  }
-
-  const shapeErrors = [];
-  for (const [column, expected] of Object.entries(EXPECTED_COLUMNS)) {
-    const actual = metadata.get(column);
-    if (actual.data_type !== expected.type || actual.is_nullable !== expected.nullable) {
-      shapeErrors.push(
-        `${column}: expected ${expected.type}/${expected.nullable}, got ${actual.data_type}/${actual.is_nullable}`
-      );
-    }
-  }
-  if (shapeErrors.length > 0) {
-    throw new Error(`ChatMessage column shape mismatch: ${shapeErrors.join('; ')}`);
-  }
+  assertRequiredColumnShape(metadata, 'ChatMessage');
 
   const indexRows = await db.$queryRawUnsafe(`
     SELECT indexname
@@ -267,7 +271,7 @@ async function main() {
 
     console.log('[chat-repair] Failed migration detected. Verifying/completing only its declared objects...');
     await ensureHistoricalObjects(db);
-    await verifyExactObjects(db);
+    await verifyRequiredObjects(db);
 
     resolveApplied();
 
