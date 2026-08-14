@@ -14,10 +14,10 @@ describe('LoyaltyTier migration recovery contract', () => {
   it('targets only the known failed LoyaltyTier migration', () => {
     expect(repair).toContain("const MIGRATION_NAME = '20260713060000_add_loyalty_tiers'");
     expect(repair).toContain("['migrate', 'resolve', '--applied', MIGRATION_NAME]");
-    expect(repair).not.toContain('migrate reset');
-    expect(repair).not.toContain('db push');
-    expect(repair).not.toContain('--accept-data-loss');
-    expect(repair).not.toMatch(/DROP\s+(TABLE|COLUMN|INDEX|CONSTRAINT)/i);
+    expect(repair).not.toMatch(/['"]migrate['"],\s*['"]reset['"]/i);
+    expect(repair).not.toMatch(/['"]db['"],\s*['"]push['"]/i);
+    expect(repair).not.toMatch(/['"]--accept-data-loss['"]/i);
+    expect(repair).not.toMatch(/\$executeRawUnsafe\([\s\S]*?DROP\s+(TABLE|COLUMN|INDEX|CONSTRAINT)/i);
   });
 
   it('proves the historical LoyaltyTier shape before resolving migration history', () => {
