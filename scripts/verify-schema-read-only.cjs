@@ -39,6 +39,7 @@ const REQUIRED_TABLES = [
   'Order',
   'Payment',
   'PromoCode',
+  'ChatMessage',
   'RestaurantTable',
 ];
 
@@ -70,6 +71,9 @@ const REQUIRED_COLUMNS = {
     'code', 'description', 'discountType', 'discountValue',
     'minOrderTotal', 'maxUses', 'usedCount', 'maxUsesPerUser',
     'active', 'startsAt', 'expiresAt', 'restaurantId',
+  ],
+  ChatMessage: [
+    'restaurantId', 'senderId', 'senderName', 'senderRole', 'content', 'createdAt',
   ],
   PlatformSubscription: [
     'accountId', 'plan', 'billingCycle', 'status', 'currency', 'unitAmount',

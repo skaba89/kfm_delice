@@ -127,9 +127,16 @@ if [ "$PROVIDER" = "postgres" ]; then
   node scripts/repair-qr-migration.cjs 2>&1 || {
     echo "[render-start] WARNING: targeted QR repair failed; strict migrate deploy will decide readiness."
   }
+
+  echo "[render-start] Step 7c: Repairing failed ChatMessage migration (if needed, BLOCKING)..."
+  if ! node scripts/repair-chat-message-migration.cjs; then
+    echo "[render-start] FATAL: targeted ChatMessage migration repair failed. Refusing to alter migration history blindly."
+    exit 1
+  fi
+  echo "[render-start] ✓ ChatMessage migration history is safe to continue."
 fi
 
-echo "[render-start] Step 7c: Running prisma migrate deploy (BLOCKING)..."
+echo "[render-start] Step 7d: Running prisma migrate deploy (BLOCKING)..."
 if ! node_modules/.bin/prisma migrate deploy; then
   echo "[render-start] FATAL: prisma migrate deploy failed. Refusing to start an inconsistent service."
   exit 1
