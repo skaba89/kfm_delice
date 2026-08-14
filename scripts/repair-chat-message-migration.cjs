@@ -14,6 +14,9 @@
  *   `migrate resolve --applied` command.
  * - Existing tables must already expose the exact required data-bearing
  *   column shape before this script creates any missing index/constraint.
+ * - Historical orphan ChatMessage rows are preserved. When they prevent
+ *   retroactive FK validation, the FK is added NOT VALID so PostgreSQL still
+ *   enforces it for new/updated rows without deleting or rewriting history.
  * - The repair never invents sender/content/tenant values for existing rows.
  * - If the expected shape cannot be proven, fail closed and leave P3009 intact.
  */
@@ -109,12 +112,100 @@ async function createHistoricalTable(db) {
   `);
 }
 
+async function countOrphanMessages(db) {
+  const rows = await db.$queryRawUnsafe(`
+    SELECT COUNT(*)::text AS count
+    FROM "ChatMessage" cm
+    LEFT JOIN "Restaurant" r ON r."id" = cm."restaurantId"
+    WHERE r."id" IS NULL
+  `);
+  return BigInt(rows[0]?.count || '0');
+}
+
+async function getForeignKeyState(db) {
+  const rows = await db.$queryRawUnsafe(`
+    SELECT
+      c.conname,
+      c.convalidated,
+      pg_get_constraintdef(c.oid) AS definition
+    FROM pg_constraint c
+    WHERE c.conrelid = '"ChatMessage"'::regclass
+      AND c.conname = 'ChatMessage_restaurantId_fkey'
+      AND c.contype = 'f'
+  `);
+  return rows[0] || null;
+}
+
+function assertExpectedForeignKey(fk) {
+  if (!fk) {
+    throw new Error('ChatMessage_restaurantId_fkey is missing');
+  }
+
+  const definition = String(fk.definition || '');
+  if (
+    !definition.includes('FOREIGN KEY ("restaurantId")') ||
+    !definition.includes('REFERENCES "Restaurant"(id)') ||
+    !definition.includes('ON DELETE CASCADE')
+  ) {
+    throw new Error(`Unexpected ChatMessage_restaurantId_fkey definition: ${definition}`);
+  }
+}
+
+async function ensureForeignKey(db) {
+  const orphanCount = await countOrphanMessages(db);
+  let fk = await getForeignKeyState(db);
+
+  if (fk) {
+    assertExpectedForeignKey(fk);
+  } else if (orphanCount > 0n) {
+    console.warn(
+      `[chat-repair] ⚠ Found ${orphanCount.toString()} historical ChatMessage row(s) with no matching Restaurant. ` +
+        'Preserving them and adding the FK as NOT VALID; future inserts/updates remain enforced.'
+    );
+    await db.$executeRawUnsafe(`
+      ALTER TABLE "ChatMessage"
+        ADD CONSTRAINT "ChatMessage_restaurantId_fkey"
+        FOREIGN KEY ("restaurantId") REFERENCES "Restaurant"("id")
+        ON DELETE CASCADE
+        NOT VALID
+    `);
+    fk = await getForeignKeyState(db);
+  } else {
+    await db.$executeRawUnsafe(`
+      ALTER TABLE "ChatMessage"
+        ADD CONSTRAINT "ChatMessage_restaurantId_fkey"
+        FOREIGN KEY ("restaurantId") REFERENCES "Restaurant"("id")
+        ON DELETE CASCADE
+    `);
+    fk = await getForeignKeyState(db);
+  }
+
+  assertExpectedForeignKey(fk);
+
+  if (!fk.convalidated && orphanCount === 0n) {
+    console.log('[chat-repair] No orphan ChatMessage rows remain; validating foreign key...');
+    await db.$executeRawUnsafe(`
+      ALTER TABLE "ChatMessage"
+        VALIDATE CONSTRAINT "ChatMessage_restaurantId_fkey"
+    `);
+    fk = await getForeignKeyState(db);
+    assertExpectedForeignKey(fk);
+  }
+
+  if (!fk.convalidated && orphanCount > 0n) {
+    console.warn(
+      `[chat-repair] ⚠ ChatMessage_restaurantId_fkey remains NOT VALID because ${orphanCount.toString()} ` +
+        'historical orphan row(s) exist. No data was deleted or rewritten.'
+    );
+  }
+
+  return { orphanCount, validated: Boolean(fk.convalidated) };
+}
+
 async function ensureHistoricalObjects(db) {
   if (!(await tableExists(db))) {
     await createHistoricalTable(db);
   } else {
-    // Fail before any mutation when an existing table is not compatible with
-    // the historical migration. Never "repair" business data by guessing.
     const metadata = await getColumnMetadata(db);
     assertRequiredColumnShape(metadata, 'Existing ChatMessage table');
   }
@@ -152,26 +243,10 @@ async function ensureHistoricalObjects(db) {
     END $$
   `);
 
-  await db.$executeRawUnsafe(`
-    DO $$
-    BEGIN
-      IF NOT EXISTS (
-        SELECT 1
-        FROM pg_constraint
-        WHERE conrelid = '"ChatMessage"'::regclass
-          AND conname = 'ChatMessage_restaurantId_fkey'
-          AND contype = 'f'
-      ) THEN
-        ALTER TABLE "ChatMessage"
-          ADD CONSTRAINT "ChatMessage_restaurantId_fkey"
-          FOREIGN KEY ("restaurantId") REFERENCES "Restaurant"("id")
-          ON DELETE CASCADE;
-      END IF;
-    END $$
-  `);
+  return ensureForeignKey(db);
 }
 
-async function verifyRequiredObjects(db) {
+async function verifyRequiredObjects(db, expectedFkState) {
   if (!(await tableExists(db))) {
     throw new Error('ChatMessage table is still missing after repair');
   }
@@ -203,28 +278,29 @@ async function verifyRequiredObjects(db) {
     );
   }
 
-  const fkRows = await db.$queryRawUnsafe(`
-    SELECT c.conname, pg_get_constraintdef(c.oid) AS definition
-    FROM pg_constraint c
-    WHERE c.conrelid = '"ChatMessage"'::regclass
-      AND c.conname = 'ChatMessage_restaurantId_fkey'
-      AND c.contype = 'f'
-  `);
+  const fk = await getForeignKeyState(db);
+  assertExpectedForeignKey(fk);
 
-  if (fkRows.length !== 1) {
-    throw new Error('ChatMessage_restaurantId_fkey is missing');
+  const orphanCount = await countOrphanMessages(db);
+  if (orphanCount !== expectedFkState.orphanCount) {
+    throw new Error(
+      `ChatMessage orphan count changed during repair: before=${expectedFkState.orphanCount.toString()} ` +
+        `after=${orphanCount.toString()}`
+    );
   }
 
-  const definition = String(fkRows[0].definition || '');
-  if (
-    !definition.includes('FOREIGN KEY ("restaurantId")') ||
-    !definition.includes('REFERENCES "Restaurant"(id)') ||
-    !definition.includes('ON DELETE CASCADE')
-  ) {
-    throw new Error(`Unexpected ChatMessage_restaurantId_fkey definition: ${definition}`);
+  if (orphanCount === 0n && !fk.convalidated) {
+    throw new Error('ChatMessage foreign key is unexpectedly NOT VALID with no orphan rows');
   }
 
-  console.log('[chat-repair] ✓ ChatMessage table, columns, indexes, PK and FK verified');
+  if (orphanCount > 0n && fk.convalidated) {
+    throw new Error('ChatMessage foreign key cannot be validated while historical orphan rows exist');
+  }
+
+  console.log(
+    `[chat-repair] ✓ ChatMessage table, columns, indexes, PK and FK verified ` +
+      `(fkValidated=${Boolean(fk.convalidated)}, historicalOrphans=${orphanCount.toString()})`
+  );
 }
 
 function resolveApplied() {
@@ -270,8 +346,8 @@ async function main() {
     }
 
     console.log('[chat-repair] Failed migration detected. Verifying/completing only its declared objects...');
-    await ensureHistoricalObjects(db);
-    await verifyRequiredObjects(db);
+    const fkState = await ensureHistoricalObjects(db);
+    await verifyRequiredObjects(db, fkState);
 
     resolveApplied();
 
