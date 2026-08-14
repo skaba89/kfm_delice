@@ -2,7 +2,7 @@
 /**
  * CI-only PostgreSQL regression for the historical ChatMessage P3009 repair.
  *
- * This script is intentionally inert unless GitHub CI is using a localhost
+ * This script is intentionally inert unless GitHub Actions is using a localhost
  * PostgreSQL database. It must never run against a remote/developer database.
  */
 
@@ -12,8 +12,10 @@ const databaseUrl = process.env.DATABASE_URL || '';
 const isLocalPostgres =
   /^postgres(?:ql)?:\/\/[^@]+@(localhost|127\.0\.0\.1)(?::\d+)?\//i.test(databaseUrl);
 
-if (process.env.CI !== 'true' || !isLocalPostgres) {
-  console.log('[chat-orphan-regression] skipped (requires CI=true + localhost PostgreSQL)');
+if (process.env.CI !== 'true' || process.env.GITHUB_ACTIONS !== 'true' || !isLocalPostgres) {
+  console.log(
+    '[chat-orphan-regression] skipped (requires GitHub Actions CI + localhost PostgreSQL)'
+  );
   process.exit(0);
 }
 
