@@ -40,6 +40,7 @@ const REQUIRED_TABLES = [
   'Payment',
   'PromoCode',
   'ChatMessage',
+  'LoyaltyTier',
   'RestaurantTable',
 ];
 
@@ -74,6 +75,10 @@ const REQUIRED_COLUMNS = {
   ],
   ChatMessage: [
     'restaurantId', 'senderId', 'senderName', 'senderRole', 'content', 'createdAt',
+  ],
+  LoyaltyTier: [
+    'restaurantId', 'name', 'label', 'minSpent', 'discountPercent',
+    'freeDelivery', 'freeDish', 'color', 'icon', 'active', 'createdAt', 'updatedAt',
   ],
   PlatformSubscription: [
     'accountId', 'plan', 'billingCycle', 'status', 'currency', 'unitAmount',
