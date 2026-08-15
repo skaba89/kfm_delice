@@ -1,0 +1,200 @@
+name: Reco Migration Recovery
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  postgres-reco-recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: kfm_reco_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d kfm_reco_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/kfm_reco_test?schema=public
+      JWT_SECRET: ci-test-jwt-secret-not-for-production-32chars-min
+      NEXT_PUBLIC_APP_NAME: KFM Delice Reco Migration CI
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --include=dev
+
+      - name: Select PostgreSQL schema
+        run: bash scripts/switch-schema.sh postgres
+
+      - name: Prisma validate and generate
+        run: |
+          npx prisma validate
+          npx prisma generate
+
+      - name: Apply clean migration history
+        run: npx prisma migrate deploy
+
+      - name: Reproduce failed Reco 11-15 state with existing Supplier FK
+        run: |
+          node <<'NODE'
+          const { PrismaClient } = require('@prisma/client');
+          const db = new PrismaClient();
+          (async () => {
+            try {
+              const [fkRows, supplierColumns, customerColumns, staffColumns] = await Promise.all([
+                db.$queryRawUnsafe(`
+                  SELECT conname, convalidated, pg_get_constraintdef(oid) AS definition
+                  FROM pg_constraint
+                  WHERE conrelid = '"Supplier"'::regclass
+                    AND conname = 'Supplier_restaurantId_fkey'
+                    AND contype = 'f'
+                `),
+                db.$queryRawUnsafe(`
+                  SELECT column_name
+                  FROM information_schema.columns
+                  WHERE table_schema = 'public' AND table_name = 'Supplier'
+                `),
+                db.$queryRawUnsafe(`
+                  SELECT column_name
+                  FROM information_schema.columns
+                  WHERE table_schema = 'public'
+                    AND table_name = 'Customer'
+                    AND column_name IN ('referralCode', 'referredBy')
+                `),
+                db.$queryRawUnsafe(`
+                  SELECT column_name
+                  FROM information_schema.columns
+                  WHERE table_schema = 'public'
+                    AND table_name = 'Staff'
+                    AND column_name IN ('weeklySchedule', 'totalHours')
+                `),
+              ]);
+
+              if (fkRows.length !== 1) {
+                throw new Error('Supplier FK must already exist to reproduce the historical duplicate-constraint risk');
+              }
+              if (supplierColumns.length < 11 || customerColumns.length !== 2 || staffColumns.length !== 2) {
+                throw new Error('Clean migration did not produce the expected Reco 11-15 objects');
+              }
+
+              const changed = await db.$executeRawUnsafe(`
+                UPDATE _prisma_migrations
+                SET finished_at = NULL,
+                    rolled_back_at = NULL,
+                    applied_steps_count = 0,
+                    logs = 'CI simulated failed Reco 11-15 migration with existing Supplier FK'
+                WHERE migration_name = '20260714090000_add_reco_11_15'
+              `);
+              if (Number(changed) < 1) {
+                throw new Error('Reco 11-15 migration row not found');
+              }
+              console.log('Reco 11-15 migration marked failed while Supplier FK remains present.');
+            } finally {
+              await db.$disconnect();
+            }
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+
+      - name: Recover exact historical migration
+        run: node scripts/repair-reco-11-15-migration.cjs
+
+      - name: Strict migrate deploy after recovery
+        run: npx prisma migrate deploy
+
+      - name: Verify exact postconditions and migration state
+        run: |
+          node scripts/verify-schema-read-only.cjs
+          node <<'NODE'
+          const { PrismaClient } = require('@prisma/client');
+          const db = new PrismaClient();
+          (async () => {
+            try {
+              const [migration, fk, supplierIndexes, customerColumns, staffColumns] = await Promise.all([
+                db.$queryRawUnsafe(`
+                  SELECT finished_at, rolled_back_at
+                  FROM _prisma_migrations
+                  WHERE migration_name = '20260714090000_add_reco_11_15'
+                  ORDER BY started_at DESC
+                  LIMIT 1
+                `),
+                db.$queryRawUnsafe(`
+                  SELECT convalidated, pg_get_constraintdef(oid) AS definition
+                  FROM pg_constraint
+                  WHERE conrelid = '"Supplier"'::regclass
+                    AND conname = 'Supplier_restaurantId_fkey'
+                    AND contype = 'f'
+                `),
+                db.$queryRawUnsafe(`
+                  SELECT indexname
+                  FROM pg_indexes
+                  WHERE schemaname = 'public'
+                    AND tablename = 'Supplier'
+                    AND indexname IN ('Supplier_restaurantId_idx', 'Supplier_restaurantId_category_idx')
+                `),
+                db.$queryRawUnsafe(`
+                  SELECT column_name, data_type, is_nullable, column_default
+                  FROM information_schema.columns
+                  WHERE table_schema = 'public'
+                    AND table_name = 'Customer'
+                    AND column_name IN ('referralCode', 'referredBy')
+                `),
+                db.$queryRawUnsafe(`
+                  SELECT column_name, data_type, is_nullable, column_default
+                  FROM information_schema.columns
+                  WHERE table_schema = 'public'
+                    AND table_name = 'Staff'
+                    AND column_name IN ('weeklySchedule', 'totalHours')
+                `),
+              ]);
+
+              if (
+                migration.length !== 1 ||
+                migration[0].finished_at === null ||
+                migration[0].rolled_back_at !== null ||
+                fk.length !== 1 ||
+                !String(fk[0].definition || '').includes('ON DELETE CASCADE') ||
+                supplierIndexes.length !== 2 ||
+                customerColumns.length !== 2 ||
+                staffColumns.length !== 2
+              ) {
+                throw new Error('Reco 11-15 recovery postconditions are incomplete');
+              }
+
+              console.log('Reco 11-15 recovery postconditions verified in ephemeral PostgreSQL.');
+            } finally {
+              await db.$disconnect();
+            }
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
