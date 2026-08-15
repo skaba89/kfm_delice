@@ -35,6 +35,8 @@ const REQUIRED_TABLES = [
   'Restaurant',
   'Admin',
   'Customer',
+  'Staff',
+  'Supplier',
   'MenuItem',
   'Order',
   'Payment',
@@ -55,8 +57,15 @@ const REQUIRED_COLUMNS = {
     'loginAttempts', 'lockedUntil', 'tokenVersion',
   ],
   Customer: [
-    'restaurantId', 'tier', 'mustChangePassword',
+    'restaurantId', 'tier', 'referralCode', 'referredBy', 'mustChangePassword',
     'loginAttempts', 'lockedUntil', 'tokenVersion',
+  ],
+  Staff: [
+    'restaurantId', 'weeklySchedule', 'totalHours',
+  ],
+  Supplier: [
+    'name', 'contactName', 'phone', 'email', 'address', 'category', 'notes',
+    'restaurantId', 'createdAt', 'updatedAt',
   ],
   Driver: [
     'restaurantId', 'mustChangePassword', 'loginAttempts', 'lockedUntil',
