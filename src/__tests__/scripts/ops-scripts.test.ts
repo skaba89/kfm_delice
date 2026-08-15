@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
@@ -58,6 +58,29 @@ describe('operator scripts', () => {
     expect(workflow).toContain('${{ steps.backup.outputs.backup_path }}.list.txt');
     expect(workflow).not.toContain("find backups -maxdepth 1 -type f -printf");
     expect(workflow).not.toContain('mv "$latest"');
+  });
+
+  it('keeps maintained GitHub Actions off deprecated Node 20 majors', () => {
+    const workflowsDir = path.join(root, '.github', 'workflows');
+    const workflowText = readdirSync(workflowsDir)
+      .filter((name) => name.endsWith('.yml') || name.endsWith('.yaml'))
+      .map((name) => readFileSync(path.join(workflowsDir, name), 'utf8'))
+      .join('\n');
+
+    expect(workflowText).not.toContain('actions/checkout@v4');
+    expect(workflowText).not.toContain('actions/checkout@v5');
+    expect(workflowText).not.toContain('actions/setup-node@v4');
+    expect(workflowText).not.toContain('actions/setup-node@v5');
+    expect(workflowText).not.toContain('actions/upload-artifact@v4');
+    expect(workflowText).not.toContain('actions/upload-artifact@v5');
+    expect(workflowText).not.toContain('gitleaks/gitleaks-action@v2');
+    expect(workflowText).not.toMatch(/github\/codeql-action\/[\w-]+@v3/);
+
+    expect(workflowText).toContain('actions/checkout@v6');
+    expect(workflowText).toContain('actions/setup-node@v6');
+    expect(workflowText).toContain('actions/upload-artifact@v6');
+    expect(workflowText).toContain('gitleaks/gitleaks-action@v3');
+    expect(workflowText).toMatch(/github\/codeql-action\/[\w-]+@v4/);
   });
 
   it('refuses restore of an existing archive without the explicit confirmation phrase', () => {
