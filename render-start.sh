@@ -141,9 +141,16 @@ if [ "$PROVIDER" = "postgres" ]; then
     exit 1
   fi
   echo "[render-start] ✓ LoyaltyTier migration history is safe to continue."
+
+  echo "[render-start] Step 7e: Repairing failed Reco 11-15/Supplier migration (if needed, BLOCKING)..."
+  if ! node scripts/repair-reco-11-15-migration.cjs; then
+    echo "[render-start] FATAL: targeted Reco 11-15 migration repair failed. Refusing to alter migration history blindly."
+    exit 1
+  fi
+  echo "[render-start] ✓ Reco 11-15 migration history is safe to continue."
 fi
 
-echo "[render-start] Step 7e: Running prisma migrate deploy (BLOCKING)..."
+echo "[render-start] Step 7f: Running prisma migrate deploy (BLOCKING)..."
 if ! node_modules/.bin/prisma migrate deploy; then
   echo "[render-start] FATAL: prisma migrate deploy failed. Refusing to start an inconsistent service."
   exit 1
