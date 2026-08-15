@@ -91,6 +91,11 @@ describe('LoyaltyTier migration recovery contract', () => {
     ]) {
       expect(readiness).toContain(`'${column}'`);
     }
-    expect(readiness).toContain("'restaurantId', 'tier', 'mustChangePassword'");
+
+    // Customer gains additional readiness columns over time. Verify the
+    // LoyaltyTier contract without requiring tier/mustChangePassword adjacency.
+    expect(readiness).toContain('Customer: [');
+    expect(readiness).toContain("'tier'");
+    expect(readiness).toContain("'mustChangePassword'");
   });
 });
