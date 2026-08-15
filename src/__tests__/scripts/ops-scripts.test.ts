@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
@@ -42,6 +42,22 @@ describe('operator scripts', () => {
   it('keeps the restore script syntactically valid bash', () => {
     const result = run('bash', ['-n', path.join(root, 'scripts', 'restore-postgres.sh')]);
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+  });
+
+  it('publishes only a verified PostgreSQL dump and its matching sidecars', () => {
+    const workflow = readFileSync(
+      path.join(root, '.github', 'workflows', 'backup.yml'),
+      'utf8',
+    );
+
+    expect(workflow).toContain("-name '*.dump'");
+    expect(workflow).toContain('Expected exactly one PostgreSQL .dump file');
+    expect(workflow).toContain('pg_restore --list "$backup_file"');
+    expect(workflow).toContain('sha256sum --check "$(basename "$manifest_file")"');
+    expect(workflow).toContain('${{ steps.backup.outputs.backup_path }}.sha256');
+    expect(workflow).toContain('${{ steps.backup.outputs.backup_path }}.list.txt');
+    expect(workflow).not.toContain("find backups -maxdepth 1 -type f -printf");
+    expect(workflow).not.toContain('mv "$latest"');
   });
 
   it('refuses restore of an existing archive without the explicit confirmation phrase', () => {
