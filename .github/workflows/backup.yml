@@ -28,7 +28,7 @@ jobs:
       BACKUP_S3_ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install pg client
         run: |
@@ -98,7 +98,7 @@ jobs:
           ls -lh "$backup_file" "$manifest_file" "$catalog_file"
 
       - name: Upload to GitHub Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.backup.outputs.backup_name }}
           path: |
