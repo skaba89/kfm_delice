@@ -38,7 +38,30 @@ done
 MANIFEST_FILE="$BACKUP_FILE.sha256"
 if [[ -f "$MANIFEST_FILE" ]]; then
   echo "[restore] Verifying SHA-256 manifest..."
-  (cd "$(dirname "$BACKUP_FILE")" && sha256sum --check "$(basename "$MANIFEST_FILE")")
+
+  # Read the digest itself instead of trusting the filename field recorded by
+  # sha256sum. This verifies the exact backup bytes while remaining compatible
+  # with older manifests that embedded BACKUP_DIR in the filename column.
+  expected_hash=""
+  manifest_name=""
+  IFS=' ' read -r expected_hash manifest_name < "$MANIFEST_FILE" || true
+  expected_hash="${expected_hash,,}"
+
+  if [[ ! "$expected_hash" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "[restore] ERROR: invalid SHA-256 manifest: $MANIFEST_FILE" >&2
+    exit 4
+  fi
+
+  actual_line="$(sha256sum "$BACKUP_FILE")"
+  actual_hash="${actual_line%% *}"
+  actual_hash="${actual_hash,,}"
+
+  if [[ "$actual_hash" != "$expected_hash" ]]; then
+    echo "[restore] ERROR: SHA-256 mismatch for backup file" >&2
+    exit 4
+  fi
+
+  echo "[restore] SHA-256 verified."
 else
   echo "[restore] WARNING: checksum manifest not found; validating archive catalog only." >&2
 fi
