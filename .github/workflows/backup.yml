@@ -52,37 +52,59 @@ jobs:
               ;;
           esac
 
-      - name: Generate backup filename
-        id: fname
-        run: |
-          set -euo pipefail
-          TS=$(date -u +%Y%m%d-%H%M%S)
-          echo "filename=kfm-delice-${TS}.dump" >> "$GITHUB_OUTPUT"
-          echo "timestamp=${TS}" >> "$GITHUB_OUTPUT"
-
-      - name: Run pg_dump
+      - name: Create and verify PostgreSQL backup
+        id: backup
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BACKUP_DIR: artifacts/postgres-backup
+          BACKUP_LABEL: github-${{ github.run_id }}
         run: |
           set -euo pipefail
+
+          rm -rf "$BACKUP_DIR"
+          mkdir -p "$BACKUP_DIR"
+
           bash scripts/backup-postgres.sh
-          ls -lh backups/
-          latest="$(find backups -maxdepth 1 -type f -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)"
-          if [ -z "$latest" ] || [ ! -f "$latest" ]; then
-            echo "::error::Backup script completed without producing a dump file"
+
+          mapfile -t dump_files < <(find "$BACKUP_DIR" -maxdepth 1 -type f -name '*.dump' -print | sort)
+          if [ "${#dump_files[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one PostgreSQL .dump file, found ${#dump_files[@]}"
+            printf '%s\n' "${dump_files[@]:-}" >&2
             exit 1
           fi
-          mv "$latest" "${{ steps.fname.outputs.filename }}"
-          test -s "${{ steps.fname.outputs.filename }}"
-          sha256sum "${{ steps.fname.outputs.filename }}" > "${{ steps.fname.outputs.filename }}.sha256"
+
+          backup_file="${dump_files[0]}"
+          manifest_file="$backup_file.sha256"
+          catalog_file="$backup_file.list.txt"
+
+          test -s "$backup_file"
+          test -s "$manifest_file"
+          test -s "$catalog_file"
+
+          # Fail closed before upload if the custom-format archive cannot be parsed.
+          pg_restore --list "$backup_file" >/dev/null
+
+          # Verify the portable SHA-256 manifest against the exact dump bytes.
+          (
+            cd "$(dirname "$backup_file")"
+            sha256sum --check "$(basename "$manifest_file")"
+          )
+
+          backup_name="$(basename "$backup_file")"
+          echo "backup_path=$backup_file" >> "$GITHUB_OUTPUT"
+          echo "backup_name=$backup_name" >> "$GITHUB_OUTPUT"
+
+          echo "Verified PostgreSQL backup: $backup_file"
+          ls -lh "$backup_file" "$manifest_file" "$catalog_file"
 
       - name: Upload to GitHub Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.fname.outputs.filename }}
+          name: ${{ steps.backup.outputs.backup_name }}
           path: |
-            ${{ steps.fname.outputs.filename }}
-            ${{ steps.fname.outputs.filename }}.sha256
+            ${{ steps.backup.outputs.backup_path }}
+            ${{ steps.backup.outputs.backup_path }}.sha256
+            ${{ steps.backup.outputs.backup_path }}.list.txt
           retention-days: ${{ github.event.inputs.retention_days || 30 }}
           if-no-files-found: error
 
@@ -107,22 +129,25 @@ jobs:
           AWS_ENDPOINT_URL: ${{ env.BACKUP_S3_ENDPOINT }}
           AWS_DEFAULT_REGION: us-east-1
           BUCKET: ${{ env.BACKUP_S3_BUCKET }}
-          FILE: ${{ steps.fname.outputs.filename }}
+          FILE: ${{ steps.backup.outputs.backup_path }}
+          OBJECT_NAME: ${{ steps.backup.outputs.backup_name }}
         run: |
           set -euo pipefail
           endpoint_args=()
           if [ -n "$AWS_ENDPOINT_URL" ]; then
             endpoint_args=(--endpoint-url "$AWS_ENDPOINT_URL")
           fi
-          aws s3 cp "$FILE" "s3://$BUCKET/$FILE" "${endpoint_args[@]}" --storage-class STANDARD_IA
-          aws s3 cp "$FILE.sha256" "s3://$BUCKET/$FILE.sha256" "${endpoint_args[@]}" --storage-class STANDARD_IA
+          aws s3 cp "$FILE" "s3://$BUCKET/$OBJECT_NAME" "${endpoint_args[@]}" --storage-class STANDARD_IA
+          aws s3 cp "$FILE.sha256" "s3://$BUCKET/$OBJECT_NAME.sha256" "${endpoint_args[@]}" --storage-class STANDARD_IA
+          aws s3 cp "$FILE.list.txt" "s3://$BUCKET/$OBJECT_NAME.list.txt" "${endpoint_args[@]}" --storage-class STANDARD_IA
 
       - name: Summary
         run: |
           echo "====================================="
           echo "  PostgreSQL backup complete"
-          echo "  File: ${{ steps.fname.outputs.filename }}"
-          echo "  Checksum: ${{ steps.fname.outputs.filename }}.sha256"
+          echo "  File: ${{ steps.backup.outputs.backup_name }}"
+          echo "  Checksum: ${{ steps.backup.outputs.backup_name }}.sha256"
+          echo "  Catalog: ${{ steps.backup.outputs.backup_name }}.list.txt"
           echo "  Retention: ${{ github.event.inputs.retention_days || 30 }} days"
           if [ -n "$BACKUP_S3_BUCKET" ]; then
             echo "  S3 mirror: enabled"
