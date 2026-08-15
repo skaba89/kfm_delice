@@ -1,0 +1,169 @@
+name: PostgreSQL Disaster Recovery Drill
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '40 3 * * 0'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/disaster-recovery-drill.yml'
+      - 'scripts/backup-postgres.sh'
+      - 'scripts/restore-postgres.sh'
+      - 'scripts/verify-restore-equivalence.sh'
+      - 'scripts/verify-schema-read-only.cjs'
+      - 'scripts/auto-seed.cjs'
+      - 'scripts/switch-schema.sh'
+      - 'prisma/migrations/**'
+      - 'prisma/templates/schema.postgres.template'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: postgres-drill-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  restore-drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: kfm_drill_source
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d kfm_drill_source"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      SOURCE_DATABASE_URL: postgresql://postgres@localhost:5432/kfm_drill_source
+      RESTORE_DATABASE_URL: postgresql://postgres@localhost:5432/kfm_drill_restore
+      DATABASE_URL: postgresql://postgres@localhost:5432/kfm_drill_source
+      NODE_ENV: production
+      ALLOW_AUTO_SEED: 'true'
+      NEXT_TELEMETRY_DISABLED: '1'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --include=dev
+
+      - name: Ensure PostgreSQL client tools
+        run: |
+          if ! command -v pg_dump >/dev/null 2>&1 || ! command -v pg_restore >/dev/null 2>&1 || ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client
+          fi
+          pg_dump --version
+          pg_restore --version
+          psql --version
+
+      - name: Select PostgreSQL Prisma schema
+        run: bash scripts/switch-schema.sh postgres
+
+      - name: Validate and generate Prisma client
+        run: |
+          npx prisma validate
+          npx prisma generate
+
+      - name: Migrate disposable source database
+        run: npx prisma migrate deploy
+
+      - name: Seed disposable source database
+        run: node scripts/auto-seed.cjs
+
+      - name: Verify source runtime schema
+        run: node scripts/verify-schema-read-only.cjs
+
+      - name: Verify source has representative seed data
+        run: |
+          restaurant_count="$(psql "$SOURCE_DATABASE_URL" -tAc 'SELECT COUNT(*) FROM "Restaurant";' | tr -d '[:space:]')"
+          admin_count="$(psql "$SOURCE_DATABASE_URL" -tAc 'SELECT COUNT(*) FROM "Admin";' | tr -d '[:space:]')"
+          menu_count="$(psql "$SOURCE_DATABASE_URL" -tAc 'SELECT COUNT(*) FROM "MenuItem";' | tr -d '[:space:]')"
+          test "${restaurant_count:-0}" -ge 1
+          test "${admin_count:-0}" -ge 1
+          test "${menu_count:-0}" -ge 1
+          echo "Source seed verified: restaurants=$restaurant_count admins=$admin_count menuItems=$menu_count"
+
+      - name: Create verified logical backup
+        run: |
+          rm -rf artifacts/drill
+          mkdir -p artifacts/drill
+          BACKUP_DIR=artifacts/drill \
+          BACKUP_LABEL=ci-drill \
+          DATABASE_URL="$SOURCE_DATABASE_URL" \
+          bash scripts/backup-postgres.sh
+          backup_file="$(find artifacts/drill -maxdepth 1 -type f -name '*.dump' -print -quit)"
+          test -n "$backup_file"
+          test -f "$backup_file.sha256"
+          test -f "$backup_file.list.txt"
+          echo "BACKUP_FILE=$backup_file" >> "$GITHUB_ENV"
+
+      - name: Create empty replacement database
+        run: |
+          psql "$SOURCE_DATABASE_URL" --set ON_ERROR_STOP=on -c 'CREATE DATABASE kfm_drill_restore;'
+          table_count="$(psql "$RESTORE_DATABASE_URL" -tAc "SELECT COUNT(*) FROM pg_tables WHERE schemaname = 'public';" | tr -d '[:space:]')"
+          if [ "$table_count" != "0" ]; then
+            echo "Replacement database is not empty: public tables=$table_count" >&2
+            exit 1
+          fi
+          echo "Replacement database confirmed empty."
+
+      - name: Restore backup into replacement database
+        env:
+          CONFIRM_RESTORE: RESTORE_TO_EMPTY_DATABASE
+        run: bash scripts/restore-postgres.sh "$BACKUP_FILE"
+
+      - name: Compare source and restored databases
+        run: bash scripts/verify-restore-equivalence.sh
+
+      - name: Verify restored migration history
+        env:
+          DATABASE_URL: postgresql://postgres@localhost:5432/kfm_drill_restore
+        run: npx prisma migrate status
+
+      - name: Verify restored runtime schema readiness
+        env:
+          DATABASE_URL: postgresql://postgres@localhost:5432/kfm_drill_restore
+        run: node scripts/verify-schema-read-only.cjs
+
+      - name: Upload drill backup evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: postgres-drill-evidence-${{ github.run_id }}
+          path: artifacts/drill/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Publish drill summary
+        if: always()
+        run: |
+          {
+            echo '## PostgreSQL Disaster Recovery Drill'
+            echo
+            echo "- Commit: $GITHUB_SHA"
+            echo '- Source: disposable PostgreSQL 16 database'
+            echo '- Target: fresh replacement database'
+            echo '- Backup: pg_dump custom format + SHA-256 + catalog validation'
+            echo '- Restore: single transaction, no clean/drop'
+            echo '- Verification: exact public table set + all row counts + Prisma migration status + runtime schema readiness'
+            echo '- Production safety: this drill never connects to production and requires no production secret'
+          } >> "$GITHUB_STEP_SUMMARY"
