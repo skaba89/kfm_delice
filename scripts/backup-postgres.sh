@@ -49,7 +49,14 @@ pg_dump \
 # Do not publish a backup until pg_restore can parse its full catalog.
 pg_restore --list "$TMP_FILE" > "$LIST_FILE"
 mv "$TMP_FILE" "$BACKUP_FILE"
-sha256sum "$BACKUP_FILE" > "$MANIFEST_FILE"
+
+# Write a portable manifest: record only the dump basename, not BACKUP_DIR.
+# This keeps `sha256sum --check` semantics valid if the backup directory is
+# moved/copied as a unit and avoids duplicating relative directory prefixes.
+(
+  cd "$(dirname "$BACKUP_FILE")"
+  sha256sum "$(basename "$BACKUP_FILE")" > "$(basename "$MANIFEST_FILE")"
+)
 trap - EXIT
 
 echo "[backup] PASS"
