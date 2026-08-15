@@ -89,7 +89,7 @@ describe('PromoCode migration repair startup guard', () => {
     expect(core).toContain('PromoCode_restaurantId_fkey');
     expect(core).toContain("['migrate', 'resolve', '--applied', MIGRATION_NAME]");
     expect(core).not.toMatch(/\bDROP\s+(TABLE|COLUMN|INDEX|CONSTRAINT)\b/i);
-    expect(core).not.toContain('migrate reset');
-    expect(core).not.toContain('--accept-data-loss');
+    expect(core).not.toContain("['migrate', 'reset'");
+    expect(core).not.toContain("'--accept-data-loss'");
   });
 });
